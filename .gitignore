@@ -1,0 +1,11 @@
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Engine output
+logs/
+imgui.ini
+
+# Office lock files
+~$*
