@@ -1,6 +1,7 @@
 import numpy as np
 
 from core.assertions import engine_assert
+from core.profiler import Profiler
 
 from ecs.components import (
     CameraComponent,
@@ -76,7 +77,8 @@ class RenderSystem:
         self,
         renderer: Renderer,
         resources: Resources,
-        settings: RenderSettings | None = None
+        settings: RenderSettings | None = None,
+        profiler: Profiler | None = None
     ):
 
         engine_assert(
@@ -93,6 +95,15 @@ class RenderSystem:
         self._resources = resources
 
         self.settings = settings or RenderSettings()
+
+        # A disabled profiler makes every scope a no-op.
+
+        if profiler is None:
+
+            profiler = Profiler()
+            profiler.enabled = False
+
+        self._profiler = profiler
 
         # -------------------------------------------------
         # Engine Shaders
@@ -220,44 +231,46 @@ class RenderSystem:
 
         settings = self.settings
 
-        # -------------------------------------------------
-        # 1. Camera + Lights
-        # -------------------------------------------------
-
-        camera = self._build_primary_camera(
-            registry,
-            width / height
-        )
-
-        lighting = self._build_light_environment(
-            registry
-        )
-
-        shadows = self._build_shadow_parameters(
-            lighting
-        )
+        profiler = self._profiler
 
         # -------------------------------------------------
-        # 2. Per-Frame Data
+        # 1-2. Camera + Lights, Per-Frame Data
         # -------------------------------------------------
 
-        self._renderer.begin_scene(
-            camera,
-            lighting,
-            shadows
-        )
+        with profiler.scope("Gather"):
+
+            camera = self._build_primary_camera(
+                registry,
+                width / height
+            )
+
+            lighting = self._build_light_environment(
+                registry
+            )
+
+            shadows = self._build_shadow_parameters(
+                lighting
+            )
+
+            self._renderer.begin_scene(
+                camera,
+                lighting,
+                shadows
+            )
 
         # -------------------------------------------------
         # 3. Shadow Pass
         # -------------------------------------------------
 
-        shadow_framebuffer = self._ensure_shadow_framebuffer()
+        with profiler.scope("Shadow pass", gpu=True):
 
-        self._render_shadow_pass(
-            registry,
-            shadow_framebuffer,
-            shadows.enabled
-        )
+            shadow_framebuffer = self._ensure_shadow_framebuffer()
+
+            self._render_shadow_pass(
+                registry,
+                shadow_framebuffer,
+                shadows.enabled
+            )
 
         self._renderer.set_shadow_map(
             shadow_framebuffer.depth_texture_id
@@ -267,41 +280,47 @@ class RenderSystem:
         # 4. Scene Pass (HDR)
         # -------------------------------------------------
 
-        hdr_framebuffer = self._ensure_hdr_framebuffer(
-            width,
-            height
-        )
+        with profiler.scope("Scene pass", gpu=True):
 
-        hdr_framebuffer.bind()
-
-        RenderCommand.set_clear_color(
-            (*settings.clear_color, 1.0)
-        )
-
-        RenderCommand.clear()
-
-        self._render_meshes(
-            registry
-        )
-
-        if settings.show_light_gizmos:
-
-            self._render_light_gizmos(
-                lighting
+            hdr_framebuffer = self._ensure_hdr_framebuffer(
+                width,
+                height
             )
+
+            hdr_framebuffer.bind()
+
+            RenderCommand.set_clear_color(
+                (*settings.clear_color, 1.0)
+            )
+
+            RenderCommand.clear()
+
+            self._render_meshes(
+                registry
+            )
+
+            if settings.show_light_gizmos:
+
+                with profiler.scope("Gizmos"):
+
+                    self._render_light_gizmos(
+                        lighting
+                    )
 
         # -------------------------------------------------
         # 5. Post Pass (to window)
         # -------------------------------------------------
 
-        Framebuffer.bind_default(
-            width,
-            height
-        )
+        with profiler.scope("Post", gpu=True):
 
-        self._render_post(
-            hdr_framebuffer
-        )
+            Framebuffer.bind_default(
+                width,
+                height
+            )
+
+            self._render_post(
+                hdr_framebuffer
+            )
 
         self._renderer.end_scene()
 

@@ -1,4 +1,5 @@
 from core.assertions import engine_assert
+from core.cprofile_capture import CProfileCapture
 from core.events import (
     EventDispatcher,
     MouseButtonPressedEvent,
@@ -12,6 +13,7 @@ from core.input import Input
 from core.key_codes import Key
 from core.logger import Logger
 from core.mouse_codes import MouseButton
+from core.profiler import Profiler
 from core.timer import Timer
 from core.window import Window
 
@@ -29,6 +31,7 @@ from ecs.components import (
 )
 from ecs.entity import Entity
 
+from graphics.gpu_timer import GpuTimer
 from graphics.material import Material
 from graphics.mesh_factory import MeshFactory
 from graphics.render_command import RenderCommand
@@ -99,6 +102,14 @@ class Application:
 
         # True while RMB is held and the cursor is captured.
         self._looking = False
+
+        # -------------------------------------------------
+        # Profiling
+        # -------------------------------------------------
+
+        self.profiler = Profiler()
+        self.cprofile_capture = CProfileCapture()
+        self.gpu_timer: GpuTimer | None = None
 
         # -------------------------------------------------
         # Graphics / Systems
@@ -181,6 +192,21 @@ class Application:
 
         self.renderer = Renderer()
 
+        if GpuTimer.is_supported():
+
+            self.gpu_timer = GpuTimer()
+
+            self.profiler.set_gpu_backend(
+                self.gpu_timer
+            )
+
+        else:
+
+            Logger.warning(
+                "[Application] GPU timestamp queries unavailable; "
+                "profiler will report CPU time only."
+            )
+
         framebuffer_width, framebuffer_height = (
             self.window.framebuffer_size
         )
@@ -216,7 +242,8 @@ class Application:
 
         self.render_system = RenderSystem(
             self.renderer,
-            self.resources
+            self.resources,
+            profiler=self.profiler
         )
 
         # -------------------------------------------------
@@ -640,8 +667,9 @@ class Application:
         screenshot_path=None
     ):
         """
-        exit_after: stop after this many seconds (smoke
-            tests / CI).
+        exit_after: stop after this many seconds of the
+            main loop (loading time excluded), for smoke
+            tests and profiling runs.
         screenshot_path: with exit_after, save the last
             frame here before exiting.
         """
@@ -681,23 +709,37 @@ class Application:
 
         self.timer.reset()
 
+        loop_start_ns = self.timer.time_ns
+
+        profiler = self.profiler
+
         try:
 
             while not self.window.should_close():
 
-                Input.begin_frame()
+                self.cprofile_capture.begin_frame()
 
-                self.window.poll_events()
+                profiler.begin_frame()
 
-                self.timer.update()
+                with profiler.scope("Events"):
 
-                self.update()
+                    Input.begin_frame()
 
-                self.render()
+                    self.window.poll_events()
+
+                    self.timer.update()
+
+                with profiler.scope("Update"):
+
+                    self.update()
+
+                with profiler.scope("Render"):
+
+                    self.render()
 
                 if (
                     exit_after is not None
-                    and self.timer.elapsed_time >= exit_after
+                    and (self.timer.time_ns - loop_start_ns) / 1e9 >= exit_after
                 ):
 
                     if screenshot_path is not None:
@@ -710,15 +752,40 @@ class Application:
                         True
                     )
 
-                self.window.swap_buffers()
+                # With VSync on, this blocks until the
+                # display is ready, so it absorbs whatever
+                # is left of the refresh interval.
+
+                with profiler.scope("Swap"):
+
+                    self.window.swap_buffers()
+
+                profiler.end_frame()
+
+                if self.cprofile_capture.end_frame():
+
+                    # Frames under cProfile run ~2x slower
+                    # and the capture's file write is one
+                    # huge frame; drop them from the stats.
+
+                    profiler.reset()
 
         finally:
 
             self._running = False
 
+            self.cprofile_capture.cancel()
+
             Logger.info(
                 "[Application] Leaving main loop."
             )
+
+            if profiler.frame_times_ms:
+
+                Logger.info(
+                    "[Profiler] Final statistics:\n%s",
+                    profiler.format_report()
+                )
 
     # =====================================================
     # Update
@@ -764,6 +831,8 @@ class Application:
                     force=True
                 )
 
+        profiler = self.profiler
+
         # -------------------------------------------------
         # Shader Hot Reload
         # -------------------------------------------------
@@ -774,7 +843,9 @@ class Application:
 
             self._shader_poll_timer = 0.0
 
-            self.resources.reload_changed_shaders()
+            with profiler.scope("Shader poll"):
+
+                self.resources.reload_changed_shaders()
 
         # -------------------------------------------------
         # Fixed-Step Simulation
@@ -784,18 +855,20 @@ class Application:
 
         steps = 0
 
-        while (
-            self._fixed_accumulator >= self.FIXED_DELTA_TIME
-            and steps < self.MAX_FIXED_STEPS_PER_FRAME
-        ):
+        with profiler.scope("Fixed update"):
 
-            self.fixed_update(
-                self.FIXED_DELTA_TIME
-            )
+            while (
+                self._fixed_accumulator >= self.FIXED_DELTA_TIME
+                and steps < self.MAX_FIXED_STEPS_PER_FRAME
+            ):
 
-            self._fixed_accumulator -= self.FIXED_DELTA_TIME
+                self.fixed_update(
+                    self.FIXED_DELTA_TIME
+                )
 
-            steps += 1
+                self._fixed_accumulator -= self.FIXED_DELTA_TIME
+
+                steps += 1
 
         if steps == self.MAX_FIXED_STEPS_PER_FRAME:
 
@@ -807,12 +880,14 @@ class Application:
         # Camera
         # -------------------------------------------------
 
-        self.camera_controller_system.update(
-            self.scene,
-            dt,
-            look_enabled=self._looking,
-            move_enabled=not ui_wants_keyboard
-        )
+        with profiler.scope("Camera"):
+
+            self.camera_controller_system.update(
+                self.scene,
+                dt,
+                look_enabled=self._looking,
+                move_enabled=not ui_wants_keyboard
+            )
 
         # -------------------------------------------------
         # World Transforms
@@ -820,9 +895,11 @@ class Application:
         #
         # Last, so rendering sees this frame's movement.
 
-        self.transform_system.update(
-            self.scene
-        )
+        with profiler.scope("Transforms"):
+
+            self.transform_system.update(
+                self.scene
+            )
 
     def fixed_update(
         self,
@@ -875,22 +952,33 @@ class Application:
         # Debug UI (on top of the final image)
         # -------------------------------------------------
 
-        self.imgui_layer.begin_frame()
+        profiler = self.profiler
 
-        self.debug_panel.draw(
-            DebugContext(
-                scene=self.scene,
-                resources=self.resources,
-                settings=self.render_system.settings,
-                stats=self.renderer.stats,
-                timer=self.timer,
-                reload_shaders=lambda: self.resources.reload_changed_shaders(
-                    force=True
+        with profiler.scope("UI"):
+
+            with profiler.scope("Build"):
+
+                self.imgui_layer.begin_frame()
+
+                self.debug_panel.draw(
+                    DebugContext(
+                        scene=self.scene,
+                        resources=self.resources,
+                        settings=self.render_system.settings,
+                        stats=self.renderer.stats,
+                        timer=self.timer,
+                        reload_shaders=lambda: self.resources.reload_changed_shaders(
+                            force=True
+                        ),
+                        profiler=profiler,
+                        cprofile_capture=self.cprofile_capture,
+                        window=self.window
+                    )
                 )
-            )
-        )
 
-        self.imgui_layer.end_frame()
+            with profiler.scope("Draw", gpu=True):
+
+                self.imgui_layer.end_frame()
 
     # =====================================================
     # Screenshot
@@ -1157,6 +1245,22 @@ class Application:
             self.resources.shutdown()
 
             self.resources = None
+
+        # =================================================
+        # Profiling
+        # =================================================
+
+        self.cprofile_capture.cancel()
+
+        self.profiler.set_gpu_backend(
+            None
+        )
+
+        if self.gpu_timer is not None:
+
+            self.gpu_timer.delete()
+
+            self.gpu_timer = None
 
         # =================================================
         # Renderer

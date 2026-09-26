@@ -30,7 +30,32 @@ def parse_arguments(argv=None):
         help="With --exit-after, save the final frame to PATH."
     )
 
+    parser.add_argument(
+        "--no-vsync",
+        action="store_true",
+        help="Disable VSync to measure uncapped frame time."
+    )
+
+    parser.add_argument(
+        "--cprofile",
+        type=int,
+        metavar="FRAMES",
+        help=(
+            "Capture a cProfile of the first FRAMES frames into "
+            "logs/profiles/."
+        )
+    )
+
     arguments = parser.parse_args(argv)
+
+    if (
+        arguments.cprofile is not None
+        and arguments.cprofile <= 0
+    ):
+
+        parser.error(
+            "--cprofile FRAMES must be positive."
+        )
 
     if (
         arguments.screenshot is not None
@@ -70,6 +95,18 @@ def main():
         # -------------------------------------------------
 
         application.initialize()
+
+        if arguments.no_vsync:
+
+            application.window.set_vsync(
+                False
+            )
+
+        if arguments.cprofile is not None:
+
+            application.cprofile_capture.request(
+                arguments.cprofile
+            )
 
         # -------------------------------------------------
         # Run

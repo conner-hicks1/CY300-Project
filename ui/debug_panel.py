@@ -1,9 +1,14 @@
 from collections.abc import Callable
 from dataclasses import dataclass
 
+import numpy as np
+
 from imgui_bundle import imgui
 
+from core.cprofile_capture import CProfileCapture
+from core.profiler import Profiler
 from core.timer import Timer
+from core.window import Window
 
 from ecs.components import (
     CameraComponent,
@@ -51,6 +56,10 @@ class DebugContext:
     # were reloaded.
     reload_shaders: Callable[[], int]
 
+    profiler: Profiler
+    cprofile_capture: CProfileCapture
+    window: Window
+
 
 class DebugPanel:
 
@@ -63,6 +72,8 @@ class DebugPanel:
         self.visible = True
 
         self._last_reload_message = ""
+
+        self._capture_frames = 120
 
     # =====================================================
     # Draw
@@ -87,6 +98,279 @@ class DebugPanel:
         self._draw_materials_window(
             context
         )
+
+        self._draw_profiler_window(
+            context
+        )
+
+    # =====================================================
+    # Profiler Window
+    # =====================================================
+
+    # Refresh-rate reference lines for the frame graph.
+    _BUDGET_60_HZ_MS = 1000.0 / 60.0
+
+    def _draw_profiler_window(
+        self,
+        context: DebugContext
+    ):
+
+        display = imgui.get_io().display_size
+
+        imgui.set_next_window_pos(
+            (350, max(10.0, display.y - 310)),
+            imgui.Cond_.first_use_ever
+        )
+
+        imgui.set_next_window_size(
+            (max(460.0, display.x - 700), 300),
+            imgui.Cond_.first_use_ever
+        )
+
+        imgui.begin("Profiler")
+
+        profiler = context.profiler
+
+        # -------------------------------------------------
+        # Controls
+        # -------------------------------------------------
+
+        _, profiler.enabled = imgui.checkbox(
+            "Enabled",
+            profiler.enabled
+        )
+
+        imgui.same_line()
+
+        _, profiler.paused = imgui.checkbox(
+            "Pause",
+            profiler.paused
+        )
+
+        imgui.same_line()
+
+        changed, vsync = imgui.checkbox(
+            "VSync",
+            context.window.vsync
+        )
+
+        if changed:
+            context.window.set_vsync(vsync)
+
+        if imgui.is_item_hovered():
+
+            imgui.set_tooltip(
+                "With VSync on, 'Swap' includes waiting for the display.\n"
+                "Turn it off to see the real cost of a frame."
+            )
+
+        imgui.same_line()
+
+        if imgui.button("Reset"):
+            profiler.reset()
+
+        # -------------------------------------------------
+        # Frame Graph
+        # -------------------------------------------------
+
+        frame_times = profiler.frame_times_ms
+
+        average = profiler.frame_average_ms
+
+        imgui.text(
+            f"Frame: {average:6.2f} ms avg "
+            f"({1000.0 / average if average > 0 else 0.0:5.1f} FPS)   "
+            f"max {profiler.frame_max_ms:6.2f} ms   "
+            f"GPU timing: {'on' if profiler.has_gpu_timing else 'unavailable'}"
+        )
+
+        if frame_times:
+
+            imgui.plot_lines(
+                "##frame_times",
+                np.asarray(frame_times, dtype=np.float32),
+                overlay_text=f"60 Hz budget = {self._BUDGET_60_HZ_MS:.1f} ms",
+                scale_min=0.0,
+                scale_max=max(
+                    2.0 * self._BUDGET_60_HZ_MS,
+                    profiler.frame_max_ms * 1.1
+                ),
+                graph_size=(-1, 60)
+            )
+
+        # -------------------------------------------------
+        # Scope Table
+        # -------------------------------------------------
+
+        self._draw_scope_table(
+            profiler,
+            average
+        )
+
+        # -------------------------------------------------
+        # cProfile Capture
+        # -------------------------------------------------
+
+        if imgui.collapsing_header(
+            "Python profile (cProfile)"
+        ):
+
+            self._draw_cprofile_section(
+                context.cprofile_capture
+            )
+
+        imgui.end()
+
+    @staticmethod
+    def _draw_scope_table(
+        profiler: Profiler,
+        frame_average_ms: float
+    ):
+
+        flags = (
+            imgui.TableFlags_.borders.value
+            | imgui.TableFlags_.row_bg.value
+            | imgui.TableFlags_.resizable.value
+        )
+
+        if not imgui.begin_table("scopes", 6, flags):
+            return
+
+        imgui.table_setup_column("Scope", imgui.TableColumnFlags_.width_stretch)
+
+        for label in ("CPU avg", "CPU max", "GPU avg", "% frame", "Calls"):
+
+            imgui.table_setup_column(
+                label,
+                imgui.TableColumnFlags_.width_fixed,
+                64.0
+            )
+
+        imgui.table_headers_row()
+
+        for stat in profiler.stats():
+
+            imgui.table_next_row()
+
+            imgui.table_next_column()
+
+            imgui.text(
+                "  " * stat.depth + stat.name
+            )
+
+            if stat.name == "Swap" and imgui.is_item_hovered():
+
+                imgui.set_tooltip(
+                    "Buffer swap. Includes the VSync wait when VSync is on."
+                )
+
+            imgui.table_next_column()
+            imgui.text(f"{stat.cpu_average_ms:7.3f}")
+
+            imgui.table_next_column()
+            imgui.text(f"{stat.cpu_max_ms:7.3f}")
+
+            imgui.table_next_column()
+
+            if stat.gpu_average_ms is None:
+                imgui.text_disabled("      -")
+            else:
+                imgui.text(f"{stat.gpu_average_ms:7.3f}")
+
+            imgui.table_next_column()
+
+            share = (
+                stat.cpu_average_ms / frame_average_ms
+                if frame_average_ms > 0
+                else 0.0
+            )
+
+            imgui.progress_bar(
+                min(share, 1.0),
+                (-1, 0),
+                f"{share * 100.0:4.1f}%"
+            )
+
+            imgui.table_next_column()
+            imgui.text(f"{stat.calls:5.1f}")
+
+        imgui.end_table()
+
+    def _draw_cprofile_section(
+        self,
+        capture: CProfileCapture
+    ):
+
+        imgui.text_disabled(
+            "Records every Python call for N frames. Adds heavy\n"
+            "overhead: compare proportions, not absolute times."
+        )
+
+        _, self._capture_frames = imgui.slider_int(
+            "Frames",
+            self._capture_frames,
+            10,
+            600
+        )
+
+        if capture.active:
+
+            done, total = capture.progress
+
+            imgui.progress_bar(
+                done / total if total else 0.0,
+                (-1, 0),
+                f"Capturing {done}/{total}"
+            )
+
+        elif imgui.button("Capture"):
+
+            capture.request(
+                self._capture_frames
+            )
+
+        result = capture.last_result
+
+        if result is None:
+            return
+
+        imgui.text(
+            f"Last capture: {result.frames} frames"
+        )
+
+        imgui.text_disabled(
+            f"{result.profile_path}\n{result.summary_path}"
+        )
+
+        flags = (
+            imgui.TableFlags_.borders.value
+            | imgui.TableFlags_.row_bg.value
+            | imgui.TableFlags_.resizable.value
+        )
+
+        if not imgui.begin_table("cprofile", 3, flags):
+            return
+
+        imgui.table_setup_column("Function (by own time)", imgui.TableColumnFlags_.width_stretch)
+        imgui.table_setup_column("Own ms/frame", imgui.TableColumnFlags_.width_fixed, 90.0)
+        imgui.table_setup_column("Cum ms/frame", imgui.TableColumnFlags_.width_fixed, 90.0)
+
+        imgui.table_headers_row()
+
+        for label, cumulative_ms, own_ms in result.top_functions:
+
+            imgui.table_next_row()
+
+            imgui.table_next_column()
+            imgui.text(label)
+
+            imgui.table_next_column()
+            imgui.text(f"{own_ms:8.3f}")
+
+            imgui.table_next_column()
+            imgui.text(f"{cumulative_ms:8.3f}")
+
+        imgui.end_table()
 
     @staticmethod
     def _right_column_x() -> float:

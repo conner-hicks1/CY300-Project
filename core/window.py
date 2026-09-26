@@ -70,6 +70,8 @@ class Window:
 
         self._cursor_captured = False
 
+        self._vsync = False
+
         # Objects that want raw GLFW callbacks (e.g. the
         # ImGui backend). Window stays the only owner of
         # the GLFW callback slots and forwards to these,
@@ -142,6 +144,8 @@ class Window:
             glfw.swap_interval(
                 1
             )
+
+            self._vsync = True
 
             # ---------------------------------------------
             # Callbacks
@@ -661,6 +665,37 @@ class Window:
     ) -> bool:
 
         return self._cursor_captured
+
+    # =====================================================
+    # VSync
+    # =====================================================
+    #
+    # With VSync on, swap_buffers() waits for the display,
+    # capping the frame rate at the refresh rate. Turn it
+    # off to measure how fast a frame can actually go.
+
+    def set_vsync(
+        self,
+        enabled: bool
+    ):
+
+        engine_assert(
+            self.handle is not None,
+            "Cannot change VSync on a closed Window."
+        )
+
+        glfw.swap_interval(
+            1 if enabled else 0
+        )
+
+        self._vsync = bool(enabled)
+
+    @property
+    def vsync(
+        self
+    ) -> bool:
+
+        return self._vsync
 
     # =====================================================
     # Title
