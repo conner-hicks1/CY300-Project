@@ -2,12 +2,27 @@ import numpy as np
 
 from core.assertions import engine_assert
 
+from math3d.matrices import normal_matrix as compute_normal_matrix
+
 
 class Transform:
 
     # =====================================================
     # Construction
     # =====================================================
+    #
+    # position / rotation / scale are exposed as read-only
+    # arrays. Change them through the setters or the
+    # translate() / rotate() helpers so cached matrices
+    # are invalidated:
+    #
+    #     transform.position = (1.0, 2.0, 3.0)
+    #     transform.translate(delta)
+    #     transform.rotate((0.0, 30.0 * dt, 0.0))
+    #
+    # In-place writes such as `transform.position[0] = 1`
+    # raise ValueError instead of silently desyncing the
+    # cache.
 
     def __init__(
         self,
@@ -16,34 +31,135 @@ class Transform:
         scale=(1.0, 1.0, 1.0)
     ):
 
-        self.position = np.array(
+        self._position = self._as_vec3(
             position,
-            dtype=np.float32
+            "position"
         )
 
-        self.rotation = np.array(
-            rotation,
-            dtype=np.float32
+        self._rotation = self._wrap_angles(
+            self._as_vec3(
+                rotation,
+                "rotation"
+            )
         )
 
-        self.scale = np.array(
+        self._scale = self._as_vec3(
             scale,
-            dtype=np.float32
+            "scale"
         )
 
-        engine_assert(
-            self.position.shape == (3,),
-            "Transform position must contain three values."
+        # Incremented on every change. Lets other systems
+        # (e.g. hierarchy) detect changes cheaply.
+
+        self._version = 0
+
+        self._invalidate()
+
+    # =====================================================
+    # Components
+    # =====================================================
+
+    @property
+    def position(
+        self
+    ) -> np.ndarray:
+
+        return self._read_only(
+            self._position
         )
 
-        engine_assert(
-            self.rotation.shape == (3,),
-            "Transform rotation must contain three values."
+    @position.setter
+    def position(
+        self,
+        value
+    ):
+
+        self._position = self._as_vec3(
+            value,
+            "position"
         )
 
-        engine_assert(
-            self.scale.shape == (3,),
-            "Transform scale must contain three values."
+        self._invalidate()
+
+    @property
+    def rotation(
+        self
+    ) -> np.ndarray:
+        """
+        Euler angles in degrees (X, Y, Z), each wrapped to
+        [-180, 180) so they never grow without bound.
+        """
+
+        return self._read_only(
+            self._rotation
+        )
+
+    @rotation.setter
+    def rotation(
+        self,
+        value
+    ):
+
+        self._rotation = self._wrap_angles(
+            self._as_vec3(
+                value,
+                "rotation"
+            )
+        )
+
+        self._invalidate()
+
+    @property
+    def scale(
+        self
+    ) -> np.ndarray:
+
+        return self._read_only(
+            self._scale
+        )
+
+    @scale.setter
+    def scale(
+        self,
+        value
+    ):
+
+        self._scale = self._as_vec3(
+            value,
+            "scale"
+        )
+
+        self._invalidate()
+
+    @property
+    def version(
+        self
+    ) -> int:
+
+        return self._version
+
+    # =====================================================
+    # Mutation Helpers
+    # =====================================================
+
+    def translate(
+        self,
+        delta
+    ):
+
+        self.position = (
+            self._position
+            + self._as_vec3(delta, "translation")
+        )
+
+    def rotate(
+        self,
+        delta_degrees
+    ):
+
+        self.rotation = (
+            self._rotation
+            + self._as_vec3(delta_degrees, "rotation delta")
         )
 
     # =====================================================
@@ -55,23 +171,17 @@ class Transform:
         self
     ) -> np.ndarray:
 
-        translation = (
-            self._translation_matrix()
-        )
+        if self._matrix is None:
 
-        rotation = (
-            self.rotation_matrix
-        )
+            self._matrix = (
+                self._translation_matrix()
+                @ self.rotation_matrix
+                @ self._scale_matrix()
+            )
 
-        scale = (
-            self._scale_matrix()
-        )
+            self._matrix.flags.writeable = False
 
-        return (
-            translation
-            @ rotation
-            @ scale
-        )
+        return self._matrix
 
     # =====================================================
     # Normal Matrix
@@ -81,16 +191,21 @@ class Transform:
     def normal_matrix(
         self
     ) -> np.ndarray:
+        """
+        3x3 matrix for transforming normals. Safe for
+        non-uniform and zero scale; see
+        math3d.matrices.normal_matrix.
+        """
 
-        # Inverse-transpose of the model matrix's upper
-        # 3x3 keeps normals perpendicular to surfaces
-        # under non-uniform scale.
+        if self._normal_matrix is None:
 
-        return np.linalg.inv(
-            self.matrix[:3, :3]
-        ).T.astype(
-            np.float32
-        )
+            self._normal_matrix = compute_normal_matrix(
+                self.matrix
+            )
+
+            self._normal_matrix.flags.writeable = False
+
+        return self._normal_matrix
 
     # =====================================================
     # Rotation Matrix
@@ -101,16 +216,19 @@ class Transform:
         self
     ) -> np.ndarray:
 
+        if self._rotation_matrix is not None:
+            return self._rotation_matrix
+
         x = np.radians(
-            float(self.rotation[0])
+            float(self._rotation[0])
         )
 
         y = np.radians(
-            float(self.rotation[1])
+            float(self._rotation[1])
         )
 
         z = np.radians(
-            float(self.rotation[2])
+            float(self._rotation[2])
         )
 
         # -------------------------------------------------
@@ -122,30 +240,10 @@ class Transform:
 
         rx = np.array(
             [
-                [
-                    1.0,
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                [
-                    0.0,
-                    cos_x,
-                    -sin_x,
-                    0.0
-                ],
-                [
-                    0.0,
-                    sin_x,
-                    cos_x,
-                    0.0
-                ],
-                [
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0
-                ]
+                [1.0, 0.0, 0.0, 0.0],
+                [0.0, cos_x, -sin_x, 0.0],
+                [0.0, sin_x, cos_x, 0.0],
+                [0.0, 0.0, 0.0, 1.0]
             ],
             dtype=np.float32
         )
@@ -159,30 +257,10 @@ class Transform:
 
         ry = np.array(
             [
-                [
-                    cos_y,
-                    0.0,
-                    sin_y,
-                    0.0
-                ],
-                [
-                    0.0,
-                    1.0,
-                    0.0,
-                    0.0
-                ],
-                [
-                    -sin_y,
-                    0.0,
-                    cos_y,
-                    0.0
-                ],
-                [
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0
-                ]
+                [cos_y, 0.0, sin_y, 0.0],
+                [0.0, 1.0, 0.0, 0.0],
+                [-sin_y, 0.0, cos_y, 0.0],
+                [0.0, 0.0, 0.0, 1.0]
             ],
             dtype=np.float32
         )
@@ -196,30 +274,10 @@ class Transform:
 
         rz = np.array(
             [
-                [
-                    cos_z,
-                    -sin_z,
-                    0.0,
-                    0.0
-                ],
-                [
-                    sin_z,
-                    cos_z,
-                    0.0,
-                    0.0
-                ],
-                [
-                    0.0,
-                    0.0,
-                    1.0,
-                    0.0
-                ],
-                [
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0
-                ]
+                [cos_z, -sin_z, 0.0, 0.0],
+                [sin_z, cos_z, 0.0, 0.0],
+                [0.0, 0.0, 1.0, 0.0],
+                [0.0, 0.0, 0.0, 1.0]
             ],
             dtype=np.float32
         )
@@ -234,11 +292,15 @@ class Transform:
         #
         # means X is applied first, then Y, then Z.
 
-        return (
+        self._rotation_matrix = (
             rz
             @ ry
             @ rx
         )
+
+        self._rotation_matrix.flags.writeable = False
+
+        return self._rotation_matrix
 
     # =====================================================
     # Direction Vectors
@@ -249,27 +311,10 @@ class Transform:
         self
     ) -> np.ndarray:
 
-        # OpenGL convention:
-        #
-        # local forward = -Z
+        # OpenGL convention: local forward = -Z
 
-        local_forward = np.array(
-            [
-                0.0,
-                0.0,
-                -1.0,
-                0.0
-            ],
-            dtype=np.float32
-        )
-
-        world_forward = (
-            self.rotation_matrix
-            @ local_forward
-        )[:3]
-
-        return self._normalize_direction(
-            world_forward
+        return self._direction(
+            (0.0, 0.0, -1.0)
         )
 
     @property
@@ -279,23 +324,8 @@ class Transform:
 
         # Local right = +X
 
-        local_right = np.array(
-            [
-                1.0,
-                0.0,
-                0.0,
-                0.0
-            ],
-            dtype=np.float32
-        )
-
-        world_right = (
-            self.rotation_matrix
-            @ local_right
-        )[:3]
-
-        return self._normalize_direction(
-            world_right
+        return self._direction(
+            (1.0, 0.0, 0.0)
         )
 
     @property
@@ -305,136 +335,22 @@ class Transform:
 
         # Local up = +Y
 
-        local_up = np.array(
-            [
-                0.0,
-                1.0,
-                0.0,
-                0.0
-            ],
-            dtype=np.float32
+        return self._direction(
+            (0.0, 1.0, 0.0)
         )
 
-        world_up = (
-            self.rotation_matrix
-            @ local_up
-        )[:3]
-
-        return self._normalize_direction(
-            world_up
-        )
-
-    # =====================================================
-    # Translation Matrix
-    # =====================================================
-
-    def _translation_matrix(
-        self
+    def _direction(
+        self,
+        local
     ) -> np.ndarray:
 
-        x = float(
-            self.position[0]
+        world = (
+            self.rotation_matrix[:3, :3]
+            @ np.asarray(local, dtype=np.float32)
         )
-
-        y = float(
-            self.position[1]
-        )
-
-        z = float(
-            self.position[2]
-        )
-
-        return np.array(
-            [
-                [
-                    1.0,
-                    0.0,
-                    0.0,
-                    x
-                ],
-                [
-                    0.0,
-                    1.0,
-                    0.0,
-                    y
-                ],
-                [
-                    0.0,
-                    0.0,
-                    1.0,
-                    z
-                ],
-                [
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0
-                ]
-            ],
-            dtype=np.float32
-        )
-
-    # =====================================================
-    # Scale Matrix
-    # =====================================================
-
-    def _scale_matrix(
-        self
-    ) -> np.ndarray:
-
-        x = float(
-            self.scale[0]
-        )
-
-        y = float(
-            self.scale[1]
-        )
-
-        z = float(
-            self.scale[2]
-        )
-
-        return np.array(
-            [
-                [
-                    x,
-                    0.0,
-                    0.0,
-                    0.0
-                ],
-                [
-                    0.0,
-                    y,
-                    0.0,
-                    0.0
-                ],
-                [
-                    0.0,
-                    0.0,
-                    z,
-                    0.0
-                ],
-                [
-                    0.0,
-                    0.0,
-                    0.0,
-                    1.0
-                ]
-            ],
-            dtype=np.float32
-        )
-
-    # =====================================================
-    # Helpers
-    # =====================================================
-
-    @staticmethod
-    def _normalize_direction(
-        direction: np.ndarray
-    ) -> np.ndarray:
 
         length = np.linalg.norm(
-            direction
+            world
         )
 
         engine_assert(
@@ -443,8 +359,126 @@ class Transform:
         )
 
         return (
-            direction
+            world
             / length
         ).astype(
             np.float32
+        )
+
+    # =====================================================
+    # Translation / Scale Matrices
+    # =====================================================
+
+    def _translation_matrix(
+        self
+    ) -> np.ndarray:
+
+        x, y, z = (
+            float(v)
+            for v in self._position
+        )
+
+        return np.array(
+            [
+                [1.0, 0.0, 0.0, x],
+                [0.0, 1.0, 0.0, y],
+                [0.0, 0.0, 1.0, z],
+                [0.0, 0.0, 0.0, 1.0]
+            ],
+            dtype=np.float32
+        )
+
+    def _scale_matrix(
+        self
+    ) -> np.ndarray:
+
+        x, y, z = (
+            float(v)
+            for v in self._scale
+        )
+
+        return np.array(
+            [
+                [x, 0.0, 0.0, 0.0],
+                [0.0, y, 0.0, 0.0],
+                [0.0, 0.0, z, 0.0],
+                [0.0, 0.0, 0.0, 1.0]
+            ],
+            dtype=np.float32
+        )
+
+    # =====================================================
+    # Helpers
+    # =====================================================
+
+    def _invalidate(self):
+
+        self._matrix = None
+        self._rotation_matrix = None
+        self._normal_matrix = None
+
+        self._version += 1
+
+    @staticmethod
+    def _as_vec3(
+        value,
+        name: str
+    ) -> np.ndarray:
+
+        array = np.array(
+            value,
+            dtype=np.float32
+        )
+
+        engine_assert(
+            array.shape == (3,),
+            f"Transform {name} must contain three values."
+        )
+
+        engine_assert(
+            bool(np.all(np.isfinite(array))),
+            f"Transform {name} must be finite."
+        )
+
+        return array
+
+    @staticmethod
+    def _wrap_angles(
+        angles: np.ndarray
+    ) -> np.ndarray:
+
+        # Wrap to [-180, 180). Keeps float32 precision
+        # stable for objects that rotate forever, and
+        # leaves pitch-clamped camera angles untouched.
+
+        return (
+            (angles + 180.0) % 360.0
+            - 180.0
+        ).astype(
+            np.float32
+        )
+
+    @staticmethod
+    def _read_only(
+        array: np.ndarray
+    ) -> np.ndarray:
+
+        view = array.view()
+
+        view.flags.writeable = False
+
+        return view
+
+    # =====================================================
+    # Representation
+    # =====================================================
+
+    def __repr__(self):
+
+        return (
+            f"Transform("
+            f"position={self._position.tolist()}, "
+            f"rotation={self._rotation.tolist()}, "
+            f"scale={self._scale.tolist()}"
+            f")"
         )

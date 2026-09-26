@@ -47,6 +47,39 @@ class Resources:
         )
 
     # =====================================================
+    # Shader Hot Reload
+    # =====================================================
+
+    def reload_changed_shaders(
+        self,
+        force: bool = False
+    ) -> int:
+        """
+        Rebuild shaders whose source (or any #include) has
+        changed on disk. A shader that fails to compile
+        keeps its previous program. Handles stay valid
+        because the Shader object is updated in place.
+
+        Returns the number of shaders reloaded.
+        """
+
+        reloaded = 0
+
+        for key, shader in self.shaders.items():
+
+            if force or shader.has_changed_on_disk():
+
+                Logger.info(
+                    "[Resources] Reloading shader '%s'.",
+                    key
+                )
+
+                if shader.reload():
+                    reloaded += 1
+
+        return reloaded
+
+    # =====================================================
     # Shutdown
     # =====================================================
 

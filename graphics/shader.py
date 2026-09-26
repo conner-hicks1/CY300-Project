@@ -19,6 +19,9 @@ from OpenGL.GL import (
     glUseProgram,
 
     glGetUniformLocation,
+    glGetUniformBlockIndex,
+    glGetActiveUniformBlockiv,
+    glUniformBlockBinding,
 
     glUniform1i,
     glUniform1f,
@@ -33,6 +36,8 @@ from OpenGL.GL import (
     GL_FRAGMENT_SHADER,
     GL_COMPILE_STATUS,
     GL_LINK_STATUS,
+    GL_UNIFORM_BLOCK_DATA_SIZE,
+    GL_INVALID_INDEX,
     GL_TRUE
 )
 
@@ -44,13 +49,32 @@ from core.assertions import (
 from core.exceptions import ShaderError
 from core.logger import Logger
 
+from graphics.shader_preprocessor import (
+    PreprocessedShader,
+    preprocess_shader
+)
+from graphics.uniform_blocks import (
+    ENGINE_SHADER_DEFINES,
+    UNIFORM_BLOCKS
+)
+
 
 class Shader:
+
+    # =====================================================
+    # Construction
+    # =====================================================
+    #
+    # Sources go through graphics.shader_preprocessor, so
+    # they may use #include "..." and see the engine
+    # defines (MAX_POINT_LIGHTS, ...). `defines` adds or
+    # overrides per-shader defines.
 
     def __init__(
         self,
         vertex_path,
-        fragment_path
+        fragment_path,
+        defines: dict[str, object] | None = None
     ):
 
         engine_assert_not_none(
@@ -75,6 +99,16 @@ class Shader:
             fragment_path
         )
 
+        self.defines = {
+            **ENGINE_SHADER_DEFINES,
+            **(defines or {})
+        }
+
+        # Every file (roots + includes) -> mtime at last
+        # successful build. Drives hot reload.
+
+        self._dependencies: dict[Path, float] = {}
+
         # =================================================
         # File Validation
         # =================================================
@@ -94,18 +128,151 @@ class Shader:
             )
 
         # =================================================
-        # Compile
+        # Build
         # =================================================
 
-        vertex_shader = self._compile_shader(
+        self.id, self._dependencies = self._build_program()
+
+        Logger.info(
+            "[Shader] Program created: ID=%d (%s, %s).",
+            self.id,
+            self.vertex_path.name,
+            self.fragment_path.name
+        )
+
+    # =====================================================
+    # Hot Reload
+    # =====================================================
+
+    def has_changed_on_disk(
+        self
+    ) -> bool:
+
+        for path, mtime in self._dependencies.items():
+
+            try:
+
+                if path.stat().st_mtime != mtime:
+                    return True
+
+            except OSError:
+
+                # Deleted / mid-save. Report a change; the
+                # rebuild will fail and keep the old program.
+
+                return True
+
+        return False
+
+    def reload(
+        self
+    ) -> bool:
+        """
+        Rebuild from disk. On failure, logs the error and
+        keeps the current program so a typo in a shader
+        does not take down the running engine.
+
+        Returns True if the new program was installed.
+        """
+
+        engine_assert(
+            self.id != 0,
+            "Cannot reload a deleted Shader."
+        )
+
+        try:
+
+            program, dependencies = self._build_program()
+
+        except ShaderError as error:
+
+            Logger.error(
+                "[Shader] Reload failed; keeping previous "
+                "program %d.\n%s",
+                self.id,
+                error
+            )
+
+            # Remember the broken files' mtimes so the same
+            # failure is not retried every poll.
+
+            self._refresh_dependency_mtimes()
+
+            return False
+
+        glDeleteProgram(
+            self.id
+        )
+
+        self.id = program
+        self._dependencies = dependencies
+
+        self.uniform_locations.clear()
+
+        Logger.info(
+            "[Shader] Reloaded %s / %s as program %d.",
+            self.vertex_path.name,
+            self.fragment_path.name,
+            self.id
+        )
+
+        return True
+
+    def _refresh_dependency_mtimes(
+        self
+    ):
+
+        for path in list(self._dependencies):
+
+            try:
+
+                self._dependencies[path] = (
+                    path.stat().st_mtime
+                )
+
+            except OSError:
+                pass
+
+    # =====================================================
+    # Program Build
+    # =====================================================
+
+    def _build_program(
+        self
+    ) -> tuple[int, dict[Path, float]]:
+
+        vertex_source = preprocess_shader(
             self.vertex_path,
+            self.defines
+        )
+
+        fragment_source = preprocess_shader(
+            self.fragment_path,
+            self.defines
+        )
+
+        dependencies: dict[Path, float] = {}
+
+        for path in (
+            vertex_source.files
+            + fragment_source.files
+        ):
+
+            dependencies[path] = path.stat().st_mtime
+
+        # -------------------------------------------------
+        # Compile
+        # -------------------------------------------------
+
+        vertex_shader = self._compile_shader(
+            vertex_source,
             GL_VERTEX_SHADER
         )
 
         try:
 
             fragment_shader = self._compile_shader(
-                self.fragment_path,
+                fragment_source,
                 GL_FRAGMENT_SHADER
             )
 
@@ -117,9 +284,9 @@ class Shader:
 
             raise
 
-        # =================================================
+        # -------------------------------------------------
         # Link
-        # =================================================
+        # -------------------------------------------------
 
         program = glCreateProgram()
 
@@ -137,6 +304,16 @@ class Shader:
             program
         )
 
+        # Shader objects are no longer needed once linked.
+
+        glDeleteShader(
+            vertex_shader
+        )
+
+        glDeleteShader(
+            fragment_shader
+        )
+
         success = glGetProgramiv(
             program,
             GL_LINK_STATUS
@@ -150,39 +327,83 @@ class Shader:
                 )
             )
 
-            glDeleteShader(
-                vertex_shader
-            )
-
-            glDeleteShader(
-                fragment_shader
-            )
-
             glDeleteProgram(
                 program
             )
 
             raise ShaderError(
-                "Shader program linking failed:\n"
+                "Shader program linking failed "
+                f"({self.vertex_path.name}, "
+                f"{self.fragment_path.name}):\n"
                 f"{error}"
             )
 
-        # Shader objects are no longer needed once linked.
+        # -------------------------------------------------
+        # Uniform Blocks
+        # -------------------------------------------------
 
-        glDeleteShader(
-            vertex_shader
-        )
+        try:
 
-        glDeleteShader(
-            fragment_shader
-        )
+            self._bind_uniform_blocks(
+                program
+            )
 
-        self.id = program
+        except Exception:
 
-        Logger.info(
-            "[Shader] Program created: ID=%d.",
-            self.id
-        )
+            glDeleteProgram(
+                program
+            )
+
+            raise
+
+        return program, dependencies
+
+    def _bind_uniform_blocks(
+        self,
+        program: int
+    ):
+
+        # GLSL 330 has no layout(binding = N) for blocks,
+        # so bind each engine block by name. Blocks a
+        # shader does not declare are skipped.
+
+        for block in UNIFORM_BLOCKS:
+
+            index = glGetUniformBlockIndex(
+                program,
+                block.name
+            )
+
+            if index == GL_INVALID_INDEX:
+                continue
+
+            size = np.zeros(
+                1,
+                dtype=np.int32
+            )
+
+            glGetActiveUniformBlockiv(
+                program,
+                index,
+                GL_UNIFORM_BLOCK_DATA_SIZE,
+                size
+            )
+
+            if int(size[0]) != block.size:
+
+                raise ShaderError(
+                    f"Uniform block '{block.name}' is "
+                    f"{int(size[0])} bytes in GLSL but "
+                    f"{block.size} bytes in "
+                    "graphics/uniform_blocks.py. "
+                    "The two layouts are out of sync."
+                )
+
+            glUniformBlockBinding(
+                program,
+                index,
+                block.binding
+            )
 
     # =====================================================
     # Utilities
@@ -213,22 +434,9 @@ class Shader:
 
     def _compile_shader(
         self,
-        filepath,
+        preprocessed: PreprocessedShader,
         shader_type
     ):
-
-        try:
-
-            source = filepath.read_text(
-                encoding="utf-8"
-            )
-
-        except OSError as error:
-
-            raise ShaderError(
-                f"Failed to read shader "
-                f"'{filepath}': {error}"
-            ) from error
 
         shader = glCreateShader(
             shader_type
@@ -236,7 +444,7 @@ class Shader:
 
         glShaderSource(
             shader,
-            source
+            preprocessed.source
         )
 
         glCompileShader(
@@ -260,15 +468,21 @@ class Shader:
                 shader
             )
 
+            # Error lines are "<source number>(<line>)" or
+            # "<source number>:<line>" depending on driver;
+            # list which file each source number is.
+
             raise ShaderError(
                 f"Shader compilation failed:\n"
-                f"{filepath}\n\n"
-                f"{error}"
+                f"{preprocessed.files[0]}\n\n"
+                f"{error}\n"
+                f"Source numbers:\n"
+                f"{preprocessed.describe_files()}"
             )
 
         Logger.debug(
             "[Shader] Compiled: %s.",
-            filepath
+            preprocessed.files[0]
         )
 
         return shader
@@ -333,12 +547,29 @@ class Shader:
 
             Logger.warning(
                 "[Shader] Uniform '%s' not found "
-                "in program %d.",
+                "in program %d (%s).",
                 name,
-                self.id
+                self.id,
+                self.fragment_path.name
             )
 
         return location
+
+    def has_uniform(
+        self,
+        name
+    ) -> bool:
+
+        # Does not warn; used for optional uniforms.
+
+        if name not in self.uniform_locations:
+
+            self.uniform_locations[name] = glGetUniformLocation(
+                self.id,
+                name
+            )
+
+        return self.uniform_locations[name] != -1
 
     # =====================================================
     # Scalar Uniforms

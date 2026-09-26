@@ -22,8 +22,19 @@ class CameraControllerSystem:
     def update(
         self,
         scene: Scene,
-        delta_time: float
+        delta_time: float,
+        look_enabled: bool = True,
+        move_enabled: bool = True
     ):
+        """
+        look_enabled: apply mouse look. The application
+            enables this only while the cursor is captured,
+            so moving the mouse over the window (or the
+            debug UI) does not spin the camera.
+
+        move_enabled: apply WASD/QE movement. Disabled
+            while the debug UI has keyboard focus.
+        """
 
         engine_assert(
             scene is not None,
@@ -72,20 +83,24 @@ class CameraControllerSystem:
             # Rotation
             # ---------------------------------------------
 
-            self._update_rotation(
-                transform,
-                controller
-            )
+            if look_enabled:
+
+                self._update_rotation(
+                    transform,
+                    controller
+                )
 
             # ---------------------------------------------
             # Movement
             # ---------------------------------------------
 
-            self._update_movement(
-                transform,
-                controller,
-                delta_time
-            )
+            if move_enabled:
+
+                self._update_movement(
+                    transform,
+                    controller,
+                    delta_time
+                )
 
     # =====================================================
     # Rotation
@@ -112,7 +127,12 @@ class CameraControllerSystem:
         # Moving the mouse right should normally turn the
         # camera toward +X, so mouse X is subtracted.
 
-        transform.rotation[1] -= (
+        pitch, yaw, _ = (
+            float(angle)
+            for angle in transform.rotation
+        )
+
+        yaw -= (
             mouse_x
             * controller.mouse_sensitivity
         )
@@ -127,7 +147,7 @@ class CameraControllerSystem:
         # turns -Z toward +Y. Therefore subtracting positive
         # mouse Y makes moving the mouse down look downward.
 
-        transform.rotation[0] -= (
+        pitch -= (
             mouse_y
             * controller.mouse_sensitivity
         )
@@ -136,10 +156,12 @@ class CameraControllerSystem:
         # Pitch Clamp
         # -------------------------------------------------
 
-        transform.rotation[0] = np.clip(
-            transform.rotation[0],
-            controller.min_pitch,
-            controller.max_pitch
+        pitch = float(
+            np.clip(
+                pitch,
+                controller.min_pitch,
+                controller.max_pitch
+            )
         )
 
         # -------------------------------------------------
@@ -147,9 +169,14 @@ class CameraControllerSystem:
         # -------------------------------------------------
         #
         # A conventional free-fly FPS-style controller
-        # keeps the camera upright.
+        # keeps the camera upright. Yaw is wrapped to
+        # [-180, 180) by the Transform setter.
 
-        transform.rotation[2] = 0.0
+        transform.rotation = (
+            pitch,
+            yaw,
+            0.0
+        )
 
     # =====================================================
     # Movement
@@ -237,7 +264,7 @@ class CameraControllerSystem:
         # Apply Movement
         # -------------------------------------------------
 
-        transform.position += (
+        transform.translate(
             movement
             * controller.movement_speed
             * delta_time

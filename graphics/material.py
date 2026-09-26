@@ -283,6 +283,17 @@ class Material:
             name
         ] = value
 
+    def get_value(
+        self,
+        name: str,
+        default: MaterialValue | None = None
+    ) -> MaterialValue | None:
+
+        return self._values.get(
+            name,
+            default
+        )
+
     def remove_value(
         self,
         name: str

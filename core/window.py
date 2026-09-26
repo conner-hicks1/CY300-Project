@@ -68,6 +68,16 @@ class Window:
 
         self._event_callback = None
 
+        self._cursor_captured = False
+
+        # Objects that want raw GLFW callbacks (e.g. the
+        # ImGui backend). Window stays the only owner of
+        # the GLFW callback slots and forwards to these,
+        # so installing a listener cannot silently replace
+        # the engine's own input handling.
+
+        self._raw_input_listeners = []
+
         # -------------------------------------------------
         # GLFW
         # -------------------------------------------------
@@ -245,6 +255,67 @@ class Window:
             )
 
     # =====================================================
+    # Raw Input Listeners
+    # =====================================================
+    #
+    # A listener may implement any of:
+    #
+    #     keyboard_callback(window, key, scancode, action, mods)
+    #     char_callback(window, codepoint)
+    #     mouse_callback(window, x, y)
+    #     mouse_button_callback(window, button, action, mods)
+    #     scroll_callback(window, x_offset, y_offset)
+    #
+    # (the same names the imgui_bundle GLFW backend uses).
+
+    def add_raw_input_listener(
+        self,
+        listener
+    ):
+
+        engine_assert(
+            listener is not None,
+            "Raw input listener cannot be None."
+        )
+
+        if listener not in self._raw_input_listeners:
+
+            self._raw_input_listeners.append(
+                listener
+            )
+
+    def remove_raw_input_listener(
+        self,
+        listener
+    ):
+
+        if listener in self._raw_input_listeners:
+
+            self._raw_input_listeners.remove(
+                listener
+            )
+
+    def _forward_raw(
+        self,
+        method_name: str,
+        *args
+    ):
+
+        for listener in self._raw_input_listeners:
+
+            method = getattr(
+                listener,
+                method_name,
+                None
+            )
+
+            if method is not None:
+
+                method(
+                    *args
+                )
+
+    # =====================================================
     # GLFW Callbacks
     # =====================================================
 
@@ -308,6 +379,15 @@ class Window:
         mods
     ):
 
+        self._forward_raw(
+            "keyboard_callback",
+            window,
+            key,
+            scancode,
+            action,
+            mods
+        )
+
         try:
             engine_key = Key(key)
 
@@ -360,6 +440,12 @@ class Window:
         codepoint
     ):
 
+        self._forward_raw(
+            "char_callback",
+            window,
+            codepoint
+        )
+
         self._emit(
             KeyTypedEvent(
                 codepoint
@@ -373,6 +459,14 @@ class Window:
         action,
         mods
     ):
+
+        self._forward_raw(
+            "mouse_button_callback",
+            window,
+            button,
+            action,
+            mods
+        )
 
         try:
             engine_button = MouseButton(
@@ -413,6 +507,13 @@ class Window:
         y
     ):
 
+        self._forward_raw(
+            "mouse_callback",
+            window,
+            x,
+            y
+        )
+
         Input._process_mouse_move(
             x,
             y
@@ -431,6 +532,13 @@ class Window:
         x_offset,
         y_offset
     ):
+
+        self._forward_raw(
+            "scroll_callback",
+            window,
+            x_offset,
+            y_offset
+        )
 
         Input._process_scroll(
             x_offset,
@@ -499,33 +607,9 @@ class Window:
     # =====================================================
     # Cursor
     # =====================================================
-
-    def set_cursor_enabled(
-        self,
-        enabled: bool
-    ):
-
-        engine_assert(
-            self.handle is not None,
-            "Cannot modify cursor mode on a closed Window."
-        )
-
-        mode = (
-            glfw.CURSOR_NORMAL
-            if enabled
-            else glfw.CURSOR_DISABLED
-        )
-
-        glfw.set_input_mode(
-            self.handle,
-            glfw.CURSOR,
-            mode
-        )
-
-        # Prevent a large artificial mouse delta after
-        # changing cursor mode.
-
-        Input._mouse_initialized = False
+    #
+    # Captured: cursor hidden and locked to the window,
+    # producing unbounded relative motion (mouse look).
 
     def set_cursor_captured(
         self,
@@ -536,6 +620,11 @@ class Window:
             self.handle is not None,
             "Cannot change cursor mode on a closed Window."
         )
+
+        captured = bool(captured)
+
+        if captured == self._cursor_captured:
+            return
 
         glfw.set_input_mode(
             self.handle,
@@ -548,10 +637,49 @@ class Window:
             )
         )
 
+        # Raw motion avoids OS pointer acceleration while
+        # looking around, where supported.
+
+        if glfw.raw_mouse_motion_supported():
+
+            glfw.set_input_mode(
+                self.handle,
+                glfw.RAW_MOUSE_MOTION,
+                captured
+            )
+
+        self._cursor_captured = captured
+
         # Avoid a large artificial mouse delta when
         # switching cursor modes.
 
         Input._reset_mouse_tracking()
+
+    @property
+    def cursor_captured(
+        self
+    ) -> bool:
+
+        return self._cursor_captured
+
+    # =====================================================
+    # Title
+    # =====================================================
+
+    def set_title(
+        self,
+        title: str
+    ):
+
+        engine_assert(
+            self.handle is not None,
+            "Cannot set the title of a closed Window."
+        )
+
+        glfw.set_window_title(
+            self.handle,
+            title
+        )
 
     # =====================================================
     # Dimensions

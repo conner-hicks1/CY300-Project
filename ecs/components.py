@@ -1,18 +1,128 @@
 from dataclasses import dataclass, field
 
+import numpy as np
+
 from core.handle import Handle
+from ecs.entity import Entity
 from math3d.transform import Transform
+
+
+# =========================================================
+# Name
+# =========================================================
+#
+# Human-readable label used by the debug UI and logs.
+
+@dataclass(slots=True)
+class NameComponent:
+    name: str
 
 
 # =========================================================
 # Transform
 # =========================================================
+#
+# `transform` is the local transform (relative to the
+# parent, or to the world when there is no parent).
+#
+# `world_matrix` is computed each frame by TransformSystem.
+# Anything that needs a world-space position/direction
+# (rendering, lights, cameras) should use the world_*
+# helpers rather than `transform` directly.
+
+def _identity() -> np.ndarray:
+
+    return np.identity(
+        4,
+        dtype=np.float32
+    )
+
 
 @dataclass(slots=True)
 class TransformComponent:
+
     transform: Transform = field(
         default_factory=Transform
     )
+
+    world_matrix: np.ndarray = field(
+        default_factory=_identity
+    )
+
+    # -----------------------------------------------------
+    # World-Space Helpers
+    # -----------------------------------------------------
+
+    @property
+    def world_position(
+        self
+    ) -> np.ndarray:
+
+        return np.array(
+            self.world_matrix[:3, 3],
+            dtype=np.float32
+        )
+
+    @property
+    def world_forward(
+        self
+    ) -> np.ndarray:
+
+        return self._world_direction(
+            (0.0, 0.0, -1.0)
+        )
+
+    @property
+    def world_up(
+        self
+    ) -> np.ndarray:
+
+        return self._world_direction(
+            (0.0, 1.0, 0.0)
+        )
+
+    def _world_direction(
+        self,
+        local
+    ) -> np.ndarray:
+
+        world = (
+            self.world_matrix[:3, :3]
+            @ np.asarray(local, dtype=np.float32)
+        )
+
+        length = float(
+            np.linalg.norm(world)
+        )
+
+        # A zero-scaled parent can collapse directions;
+        # fall back to the unrotated local axis.
+
+        if length <= 1e-8:
+
+            return np.asarray(
+                local,
+                dtype=np.float32
+            )
+
+        return (
+            world
+            / length
+        ).astype(
+            np.float32
+        )
+
+
+# =========================================================
+# Hierarchy
+# =========================================================
+#
+# Makes the owning entity's transform relative to
+# `parent`. The parent must have a TransformComponent.
+
+@dataclass(slots=True)
+class HierarchyComponent:
+    parent: Entity
 
 
 # =========================================================
@@ -23,6 +133,7 @@ class TransformComponent:
 class MeshRendererComponent:
     mesh: Handle
     material: Handle
+    casts_shadows: bool = True
 
 
 # =========================================================
@@ -41,22 +152,21 @@ class CameraComponent:
 # Directional Light
 # =========================================================
 #
-# Direction comes from the owning entity's
-# TransformComponent.transform.forward.
+# Direction comes from the owning entity's world forward.
 
 @dataclass(slots=True)
 class DirectionalLightComponent:
     color: tuple[float, float, float] = (1.0, 1.0, 1.0)
     intensity: float = 1.0
     ambient: float = 0.1
+    casts_shadows: bool = True
 
 
 # =========================================================
 # Point Light
 # =========================================================
 #
-# Position comes from the owning entity's
-# TransformComponent.transform.position.
+# Position comes from the owning entity's world position.
 #
 # range: distance at which the light fades to zero.
 
@@ -72,7 +182,7 @@ class PointLightComponent:
 # =========================================================
 #
 # Position and direction come from the owning entity's
-# TransformComponent (position / forward).
+# world position / forward.
 #
 # Angles are half-angles in degrees measured from the
 # spot direction. Full intensity inside inner_angle,
@@ -85,6 +195,23 @@ class SpotLightComponent:
     range: float = 10.0
     inner_angle: float = 15.0
     outer_angle: float = 25.0
+
+
+# =========================================================
+# Rotator
+# =========================================================
+#
+# Spins the entity's local transform at a constant rate
+# (degrees per second around X, Y, Z). Driven by
+# RotatorSystem on the fixed timestep.
+
+@dataclass(slots=True)
+class RotatorComponent:
+    degrees_per_second: tuple[float, float, float] = (
+        0.0,
+        30.0,
+        0.0
+    )
 
 
 # =========================================================

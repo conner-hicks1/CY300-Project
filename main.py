@@ -1,3 +1,5 @@
+import argparse
+
 from application import Application
 
 from core.assertions import (
@@ -9,7 +11,42 @@ from core.exceptions import (
 from core.logger import Logger
 
 
+def parse_arguments(argv=None):
+
+    parser = argparse.ArgumentParser(
+        description="OpenGL engine demo."
+    )
+
+    parser.add_argument(
+        "--exit-after",
+        type=float,
+        metavar="SECONDS",
+        help="Quit automatically after this many seconds (smoke test)."
+    )
+
+    parser.add_argument(
+        "--screenshot",
+        metavar="PATH",
+        help="With --exit-after, save the final frame to PATH."
+    )
+
+    arguments = parser.parse_args(argv)
+
+    if (
+        arguments.screenshot is not None
+        and arguments.exit_after is None
+    ):
+
+        parser.error(
+            "--screenshot requires --exit-after."
+        )
+
+    return arguments
+
+
 def main():
+
+    arguments = parse_arguments()
 
     # =====================================================
     # Logging
@@ -38,7 +75,10 @@ def main():
         # Run
         # -------------------------------------------------
 
-        application.run()
+        application.run(
+            exit_after=arguments.exit_after,
+            screenshot_path=arguments.screenshot
+        )
 
     except EngineAssertionError:
 

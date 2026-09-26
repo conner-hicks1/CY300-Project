@@ -1,14 +1,19 @@
 #version 330 core
 
+#include "include/blocks.glsl"
+
 
 // =========================================================
 // Vertex Attributes
 // =========================================================
+//
+// Matches graphics/mesh.py standard_layout().
 
 layout(location = 0) in vec3 aPosition;
 layout(location = 1) in vec3 aNormal;
 layout(location = 2) in vec3 aColor;
 layout(location = 3) in vec2 aTexCoord;
+layout(location = 4) in vec4 aTangent;   // w = bitangent sign
 
 
 // =========================================================
@@ -17,6 +22,7 @@ layout(location = 3) in vec2 aTexCoord;
 
 out vec3 vWorldPosition;
 out vec3 vNormal;
+out vec4 vTangent;
 out vec3 vColor;
 out vec2 vTexCoord;
 
@@ -26,11 +32,12 @@ out vec2 vTexCoord;
 // =========================================================
 
 uniform mat4 uModel;
-uniform mat4 uView;
-uniform mat4 uProjection;
 
-// Inverse-transpose of uModel's upper 3x3.
+// Cofactor of uModel's upper 3x3 (see math3d/matrices.py).
 uniform mat3 uNormalMatrix;
+
+// Material UV tiling.
+uniform vec2 uUVScale;
 
 
 // =========================================================
@@ -52,7 +59,14 @@ void main()
 
     vNormal = uNormalMatrix * aNormal;
 
+    // Tangents lie in the surface, so they transform with
+    // the model matrix itself (not the normal matrix).
+    vTangent = vec4(
+        mat3(uModel) * aTangent.xyz,
+        aTangent.w
+    );
+
     vColor = aColor;
 
-    vTexCoord = aTexCoord;
+    vTexCoord = aTexCoord * uUVScale;
 }

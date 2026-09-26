@@ -1,13 +1,17 @@
 from core.assertions import engine_assert
 from core.events import (
     EventDispatcher,
+    MouseButtonPressedEvent,
+    MouseButtonReleasedEvent,
     WindowCloseEvent,
+    WindowLostFocusEvent,
     WindowResizeEvent
 )
 from core.handle import Handle
 from core.input import Input
 from core.key_codes import Key
 from core.logger import Logger
+from core.mouse_codes import MouseButton
 from core.timer import Timer
 from core.window import Window
 
@@ -15,38 +19,64 @@ from ecs.components import (
     CameraComponent,
     CameraControllerComponent,
     DirectionalLightComponent,
+    HierarchyComponent,
     MeshRendererComponent,
+    NameComponent,
     PointLightComponent,
+    RotatorComponent,
     SpotLightComponent,
     TransformComponent
 )
 from ecs.entity import Entity
 
 from graphics.material import Material
+from graphics.mesh_factory import MeshFactory
 from graphics.render_command import RenderCommand
 from graphics.renderer import Renderer
 from graphics.shader import Shader
 from graphics.texture import Texture2D
-from graphics.mesh_factory import MeshFactory
 
 from math3d.transform import Transform
 
 from resources.resources import Resources
 
-from systems.render_system import RenderSystem
 from systems.camera_controller_system import (
     CameraControllerSystem
 )
+from systems.render_system import RenderSystem
+from systems.rotator_system import RotatorSystem
+from systems.transform_system import TransformSystem
 
 from scene.scene import Scene
+
+from ui.debug_panel import DebugContext, DebugPanel
+from ui.imgui_layer import ImGuiLayer
 
 
 class Application:
 
     # =====================================================
+    # Timing
+    # =====================================================
+    #
+    # Simulation (RotatorSystem, future physics) runs on a
+    # fixed timestep so results do not depend on frame
+    # rate. Input/camera run once per rendered frame.
+    #
+    # MAX_FIXED_STEPS_PER_FRAME stops a slow frame from
+    # triggering ever more catch-up steps ("spiral of
+    # death"); excess time is dropped.
+
+    FIXED_DELTA_TIME = 1.0 / 60.0
+    MAX_FIXED_STEPS_PER_FRAME = 5
+
+    # How often to check shader files for edits.
+    SHADER_POLL_INTERVAL = 0.5
+
+    # =====================================================
     # Construction
     # =====================================================
-    
+
     def __init__(self):
 
         # -------------------------------------------------
@@ -64,15 +94,30 @@ class Application:
         self.window: Window | None = None
         self.timer: Timer | None = None
 
+        self._fixed_accumulator = 0.0
+        self._shader_poll_timer = 0.0
+
+        # True while RMB is held and the cursor is captured.
+        self._looking = False
+
         # -------------------------------------------------
-        # Graphics
+        # Graphics / Systems
         # -------------------------------------------------
 
         self.renderer: Renderer | None = None
         self.render_system: RenderSystem | None = None
+        self.transform_system: TransformSystem | None = None
+        self.rotator_system: RotatorSystem | None = None
         self.camera_controller_system: (
             CameraControllerSystem | None
         ) = None
+
+        # -------------------------------------------------
+        # UI
+        # -------------------------------------------------
+
+        self.imgui_layer: ImGuiLayer | None = None
+        self.debug_panel: DebugPanel | None = None
 
         # -------------------------------------------------
         # Resources
@@ -80,12 +125,7 @@ class Application:
 
         self.resources: Resources | None = None
 
-        self.shader_handle: Handle | None = None
-        self.texture_handle: Handle | None = None
-        self.material_handle: Handle | None = None
-        self.cube_handle: Handle | None = None
-        self.plane_handle = None
-        self.floor_entity = None
+        self.handles: dict[str, Handle] = {}
 
         # -------------------------------------------------
         # Scene
@@ -93,11 +133,7 @@ class Application:
 
         self.scene: Scene | None = None
 
-        self.cube_entity: Entity | None = None
         self.camera_entity: Entity | None = None
-        self.light_entity: Entity | None = None
-        self.point_light_entity: Entity | None = None
-        self.spot_light_entity: Entity | None = None
 
     # =====================================================
     # Initialization
@@ -124,8 +160,8 @@ class Application:
         # -------------------------------------------------
 
         self.window = Window(
-            800,
-            600,
+            1280,
+            720,
             "OpenGL Engine"
         )
 
@@ -174,14 +210,24 @@ class Application:
         # Systems
         # -------------------------------------------------
 
-        self.camera_controller_system = (
-            CameraControllerSystem()
-        )
+        self.transform_system = TransformSystem()
+        self.rotator_system = RotatorSystem()
+        self.camera_controller_system = CameraControllerSystem()
 
         self.render_system = RenderSystem(
             self.renderer,
             self.resources
         )
+
+        # -------------------------------------------------
+        # UI
+        # -------------------------------------------------
+
+        self.imgui_layer = ImGuiLayer(
+            self.window
+        )
+
+        self.debug_panel = DebugPanel()
 
         # -------------------------------------------------
         # Content
@@ -199,6 +245,7 @@ class Application:
     # =====================================================
     # Resource Loading
     # =====================================================
+
     def _load_resources(self):
 
         engine_assert(
@@ -206,87 +253,202 @@ class Application:
             "Application has no Resources."
         )
 
-        # =====================================================
+        resources = self.resources
+        handles = self.handles
+
+        # -------------------------------------------------
         # Shader
-        # =====================================================
+        # -------------------------------------------------
 
-        self.shader_handle = (
-            self.resources.shaders.load(
-                "basic",
-                lambda: Shader(
-                    "assets/shaders/vertex_shader.glsl",
-                    "assets/shaders/fragment_shader.glsl"
-                )
+        handles["lit"] = resources.shaders.load(
+            "lit",
+            lambda: Shader(
+                "assets/shaders/lit.vert.glsl",
+                "assets/shaders/lit.frag.glsl"
             )
         )
 
-        # =====================================================
-        # Texture
-        # =====================================================
+        # -------------------------------------------------
+        # Textures
+        # -------------------------------------------------
+        #
+        # Color maps are sRGB; data maps are linear.
 
-        self.texture_handle = (
-            self.resources.textures.load(
-                "steve",
-                lambda: Texture2D(
-                    "assets/textures/steve_gilland.jpg"
-                )
+        handles["steve"] = resources.textures.load(
+            "steve",
+            lambda: Texture2D(
+                "assets/textures/steve_gilland.jpg",
+                srgb=True
             )
         )
 
-        # =====================================================
-        # Material
-        # =====================================================
-
-        def create_material():
-
-            material = Material(
-                self.shader_handle
+        handles["tiles_albedo"] = resources.textures.load(
+            "tiles_albedo",
+            lambda: Texture2D(
+                "assets/textures/tiles_albedo.png",
+                srgb=True
             )
+        )
 
-            material.set_texture(
-                "uTexture",
-                self.texture_handle
+        handles["tiles_normal"] = resources.textures.load(
+            "tiles_normal",
+            lambda: Texture2D(
+                "assets/textures/tiles_normal.png",
+                srgb=False
             )
+        )
 
-            material.set_float(
-                "uSpecularStrength",
-                0.5
+        handles["tiles_specular"] = resources.textures.load(
+            "tiles_specular",
+            lambda: Texture2D(
+                "assets/textures/tiles_specular.png",
+                srgb=False
             )
+        )
 
-            material.set_float(
-                "uShininess",
-                32.0
-            )
+        # -------------------------------------------------
+        # Materials
+        # -------------------------------------------------
+
+        lit = handles["lit"]
+
+        def cube_material():
+
+            material = Material(lit)
+
+            material.set_texture("uTexture", handles["steve"])
+            material.set_float("uSpecularStrength", 0.4)
+            material.set_float("uShininess", 32.0)
 
             return material
 
-        self.material_handle = (
-            self.resources.materials.load(
-                "checker_material",
-                create_material
-            )
+        def floor_material():
+
+            material = Material(lit)
+
+            material.set_texture("uTexture", handles["tiles_albedo"])
+            material.set_texture("uNormalMap", handles["tiles_normal"])
+            material.set_texture("uSpecularMap", handles["tiles_specular"])
+            material.set_float("uSpecularStrength", 0.8)
+            material.set_float("uShininess", 64.0)
+            material.set_vec2("uUVScale", (3.0, 3.0))
+
+            return material
+
+        def glossy_material(color):
+
+            def create():
+
+                material = Material(lit)
+
+                material.set_vec3("uBaseColor", color)
+                material.set_float("uSpecularStrength", 1.0)
+                material.set_float("uShininess", 128.0)
+
+                return material
+
+            return create
+
+        handles["cube_material"] = resources.materials.load(
+            "cube",
+            cube_material
         )
 
-        # =====================================================
+        handles["floor_material"] = resources.materials.load(
+            "floor",
+            floor_material
+        )
+
+        handles["red_material"] = resources.materials.load(
+            "glossy_red",
+            glossy_material((0.8, 0.1, 0.08))
+        )
+
+        handles["gold_material"] = resources.materials.load(
+            "glossy_gold",
+            glossy_material((0.9, 0.65, 0.2))
+        )
+
+        handles["teal_material"] = resources.materials.load(
+            "glossy_teal",
+            glossy_material((0.1, 0.6, 0.55))
+        )
+
+        # -------------------------------------------------
         # Meshes
-        # =====================================================
+        # -------------------------------------------------
 
-        self.cube_handle = (
-            self.resources.meshes.load(
-                "cube",
-                MeshFactory.create_cube
+        handles["cube"] = resources.meshes.load(
+            "cube",
+            MeshFactory.create_cube
+        )
+
+        handles["plane"] = resources.meshes.load(
+            "plane",
+            MeshFactory.create_plane
+        )
+
+        handles["sphere"] = resources.meshes.load(
+            "sphere",
+            MeshFactory.create_sphere
+        )
+
+        handles["torus"] = resources.meshes.load(
+            "torus",
+            lambda: MeshFactory.load_model(
+                "assets/models/torus.obj"
             )
         )
 
-        self.plane_handle = (
-            self.resources.meshes.load(
-                "plane",
-                MeshFactory.create_plane
+        handles["pyramid"] = resources.meshes.load(
+            "pyramid",
+            lambda: MeshFactory.load_model(
+                "assets/models/pyramid.gltf"
             )
         )
+
     # =====================================================
     # Scene Creation
     # =====================================================
+
+    def _create_entity(
+        self,
+        name: str,
+        transform: Transform | None = None,
+        *components,
+        parent: Entity | None = None
+    ) -> Entity:
+
+        entity = self.scene.create_entity()
+
+        self.scene.add_component(
+            entity,
+            NameComponent(name)
+        )
+
+        self.scene.add_component(
+            entity,
+            TransformComponent(
+                transform=transform or Transform()
+            )
+        )
+
+        if parent is not None:
+
+            self.scene.add_component(
+                entity,
+                HierarchyComponent(parent)
+            )
+
+        for component in components:
+
+            self.scene.add_component(
+                entity,
+                component
+            )
+
+        return entity
+
     def _create_scene(self):
 
         engine_assert(
@@ -294,200 +456,195 @@ class Application:
             "Application has no Scene."
         )
 
-        engine_assert(
-            self.cube_handle is not None,
-            "Cube mesh has not been loaded."
-        )
+        handles = self.handles
 
-        engine_assert(
-            self.plane_handle is not None,
-            "Plane mesh has not been loaded."
-        )
-
-        engine_assert(
-            self.material_handle is not None,
-            "Material has not been loaded."
-        )
-
-        # =====================================================
+        # -------------------------------------------------
         # Camera
-        # =====================================================
+        # -------------------------------------------------
 
-        self.camera_entity = (
-            self.scene.create_entity()
-        )
-
-        self.scene.add_component(
-            self.camera_entity,
-            TransformComponent(
-                transform=Transform(
-                    position=(0.0, 0.0, 3.0)
-                )
-            )
-        )
-
-        self.scene.add_component(
-            self.camera_entity,
+        self.camera_entity = self._create_entity(
+            "Camera",
+            Transform(
+                position=(0.0, 1.2, 4.5),
+                rotation=(-12.0, 0.0, 0.0)
+            ),
             CameraComponent(
-                fov=45.0,
+                fov=50.0,
                 near=0.1,
                 far=100.0,
                 primary=True
-            )
-        )
-
-        self.scene.add_component(
-            self.camera_entity,
+            ),
             CameraControllerComponent(
                 movement_speed=3.0,
                 mouse_sensitivity=0.1
             )
         )
 
-        # =====================================================
-        # Directional Light
-        # =====================================================
-        #
-        # Pitched down 45 degrees and yawed 30 degrees so
-        # the light hits the cube at an angle.
+        # -------------------------------------------------
+        # Lights
+        # -------------------------------------------------
 
-        self.light_entity = (
-            self.scene.create_entity()
-        )
+        # Pitched down 50 degrees, yawed 30 degrees.
 
-        self.scene.add_component(
-            self.light_entity,
-            TransformComponent(
-                transform=Transform(
-                    rotation=(-45.0, 30.0, 0.0)
-                )
-            )
-        )
-
-        self.scene.add_component(
-            self.light_entity,
+        self._create_entity(
+            "Sun",
+            Transform(
+                rotation=(-50.0, 30.0, 0.0)
+            ),
             DirectionalLightComponent(
-                color=(1.0, 1.0, 1.0),
-                intensity=0.4,
-                ambient=0.1
+                color=(1.0, 0.96, 0.9),
+                intensity=1.2,
+                ambient=0.05
             )
         )
 
-        # =====================================================
-        # Point Light
-        # =====================================================
-        #
-        # Warm light hovering beside the cube.
+        # A point light orbits the scene: it is a child of
+        # a spinning pivot, so its world position comes
+        # from the transform hierarchy.
 
-        self.point_light_entity = (
-            self.scene.create_entity()
-        )
-
-        self.scene.add_component(
-            self.point_light_entity,
-            TransformComponent(
-                transform=Transform(
-                    position=(1.5, 0.5, 1.0)
-                )
+        pivot = self._create_entity(
+            "Orbit Pivot",
+            Transform(
+                position=(0.0, 0.6, 0.0)
+            ),
+            RotatorComponent(
+                degrees_per_second=(0.0, 40.0, 0.0)
             )
         )
 
-        self.scene.add_component(
-            self.point_light_entity,
+        self._create_entity(
+            "Orbiting Point Light",
+            Transform(
+                position=(2.2, 0.0, 0.0)
+            ),
             PointLightComponent(
-                color=(1.0, 0.6, 0.3),
-                intensity=4.0,
+                color=(1.0, 0.55, 0.25),
+                intensity=5.0,
                 range=6.0
-            )
+            ),
+            parent=pivot
         )
 
-        # =====================================================
-        # Spot Light
-        # =====================================================
-        #
         # Blue cone pointing straight down onto the floor.
         # Pitch -90 turns forward (-Z) into -Y.
 
-        self.spot_light_entity = (
-            self.scene.create_entity()
-        )
-
-        self.scene.add_component(
-            self.spot_light_entity,
-            TransformComponent(
-                transform=Transform(
-                    position=(-2.0, 2.0, -1.0),
-                    rotation=(-90.0, 0.0, 0.0)
-                )
-            )
-        )
-
-        self.scene.add_component(
-            self.spot_light_entity,
+        self._create_entity(
+            "Spot Light",
+            Transform(
+                position=(-2.2, 2.5, -1.5),
+                rotation=(-90.0, 0.0, 0.0)
+            ),
             SpotLightComponent(
                 color=(0.3, 0.5, 1.0),
-                intensity=8.0,
+                intensity=10.0,
                 range=8.0,
-                inner_angle=15.0,
-                outer_angle=25.0
+                inner_angle=18.0,
+                outer_angle=28.0
             )
         )
 
-        # =====================================================
-        # Cube
-        # =====================================================
-
-        self.cube_entity = (
-            self.scene.create_entity()
-        )
-
-        self.scene.add_component(
-            self.cube_entity,
-            TransformComponent(
-                transform=Transform(
-                    position=(0.0, 0.0, 0.0)
-                )
-            )
-        )
-
-        self.scene.add_component(
-            self.cube_entity,
-            MeshRendererComponent(
-                mesh=self.cube_handle,
-                material=self.material_handle
-            )
-        )
-
-        # =====================================================
+        # -------------------------------------------------
         # Floor
-        # =====================================================
+        # -------------------------------------------------
 
-        self.floor_entity = (
-            self.scene.create_entity()
-        )
-
-        self.scene.add_component(
-            self.floor_entity,
-            TransformComponent(
-                transform=Transform(
-                    position=(0.0, -1.0, 0.0),
-                    scale=(10.0, 1.0, 10.0)
-                )
-            )
-        )
-
-        self.scene.add_component(
-            self.floor_entity,
+        self._create_entity(
+            "Floor",
+            Transform(
+                position=(0.0, -0.5, 0.0),
+                scale=(12.0, 1.0, 12.0)
+            ),
             MeshRendererComponent(
-                mesh=self.plane_handle,
-                material=self.material_handle
+                mesh=handles["plane"],
+                material=handles["floor_material"],
+                casts_shadows=False
             )
         )
+
+        # -------------------------------------------------
+        # Objects
+        # -------------------------------------------------
+
+        cube = self._create_entity(
+            "Cube",
+            Transform(
+                position=(0.0, 0.25, 0.0)
+            ),
+            MeshRendererComponent(
+                mesh=handles["cube"],
+                material=handles["cube_material"]
+            ),
+            RotatorComponent(
+                degrees_per_second=(0.0, 30.0, 0.0)
+            )
+        )
+
+        # Child of the cube: rides along as it spins.
+
+        self._create_entity(
+            "Moon",
+            Transform(
+                position=(0.0, 0.85, 0.0),
+                scale=(0.35, 0.35, 0.35)
+            ),
+            MeshRendererComponent(
+                mesh=handles["sphere"],
+                material=handles["gold_material"]
+            ),
+            parent=cube
+        )
+
+        self._create_entity(
+            "Sphere",
+            Transform(
+                position=(1.6, 0.0, -0.8)
+            ),
+            MeshRendererComponent(
+                mesh=handles["sphere"],
+                material=handles["red_material"]
+            )
+        )
+
+        self._create_entity(
+            "Torus (OBJ)",
+            Transform(
+                position=(-1.6, 0.0, 0.6),
+                rotation=(60.0, 0.0, 0.0)
+            ),
+            MeshRendererComponent(
+                mesh=handles["torus"],
+                material=handles["teal_material"]
+            ),
+            RotatorComponent(
+                degrees_per_second=(0.0, 0.0, 45.0)
+            )
+        )
+
+        self._create_entity(
+            "Pyramid (glTF)",
+            Transform(
+                position=(1.4, -0.5, 1.4)
+            ),
+            MeshRendererComponent(
+                mesh=handles["pyramid"],
+                material=handles["cube_material"]
+            )
+        )
+
     # =====================================================
     # Main Loop
     # =====================================================
 
-    def run(self):
+    def run(
+        self,
+        exit_after: float | None = None,
+        screenshot_path=None
+    ):
+        """
+        exit_after: stop after this many seconds (smoke
+            tests / CI).
+        screenshot_path: with exit_after, save the last
+            frame here before exiting.
+        """
 
         engine_assert(
             self._initialized,
@@ -520,6 +677,10 @@ class Application:
             "[Application] Entering main loop."
         )
 
+        # Loading time must not count as the first frame.
+
+        self.timer.reset()
+
         try:
 
             while not self.window.should_close():
@@ -533,6 +694,21 @@ class Application:
                 self.update()
 
                 self.render()
+
+                if (
+                    exit_after is not None
+                    and self.timer.elapsed_time >= exit_after
+                ):
+
+                    if screenshot_path is not None:
+
+                        self.save_screenshot(
+                            screenshot_path
+                        )
+
+                    self.window.set_should_close(
+                        True
+                    )
 
                 self.window.swap_buffers()
 
@@ -551,26 +727,81 @@ class Application:
     def update(self):
 
         engine_assert(
-            self.timer is not None,
-            "Application has no Timer."
-        )
-
-        engine_assert(
-            self.window is not None,
-            "Application has no Window."
-        )
-
-        engine_assert(
-            self.scene is not None,
-            "Application has no Scene."
-        )
-
-        engine_assert(
-            self.camera_controller_system is not None,
-            "Application has no CameraControllerSystem."
+            self.timer is not None
+            and self.window is not None
+            and self.scene is not None,
+            "Application is not initialized."
         )
 
         dt = self.timer.delta_time
+
+        # -------------------------------------------------
+        # Application Input
+        # -------------------------------------------------
+
+        ui_wants_keyboard = (
+            self.imgui_layer.wants_keyboard
+            and not self._looking
+        )
+
+        if not ui_wants_keyboard:
+
+            if Input.is_key_pressed(Key.ESCAPE):
+
+                self.window.set_should_close(
+                    True
+                )
+
+            if Input.is_key_pressed(Key.F1):
+
+                self.debug_panel.visible = (
+                    not self.debug_panel.visible
+                )
+
+            if Input.is_key_pressed(Key.F5):
+
+                self.resources.reload_changed_shaders(
+                    force=True
+                )
+
+        # -------------------------------------------------
+        # Shader Hot Reload
+        # -------------------------------------------------
+
+        self._shader_poll_timer += dt
+
+        if self._shader_poll_timer >= self.SHADER_POLL_INTERVAL:
+
+            self._shader_poll_timer = 0.0
+
+            self.resources.reload_changed_shaders()
+
+        # -------------------------------------------------
+        # Fixed-Step Simulation
+        # -------------------------------------------------
+
+        self._fixed_accumulator += dt
+
+        steps = 0
+
+        while (
+            self._fixed_accumulator >= self.FIXED_DELTA_TIME
+            and steps < self.MAX_FIXED_STEPS_PER_FRAME
+        ):
+
+            self.fixed_update(
+                self.FIXED_DELTA_TIME
+            )
+
+            self._fixed_accumulator -= self.FIXED_DELTA_TIME
+
+            steps += 1
+
+        if steps == self.MAX_FIXED_STEPS_PER_FRAME:
+
+            # Drop time we could not catch up on.
+
+            self._fixed_accumulator = 0.0
 
         # -------------------------------------------------
         # Camera
@@ -578,41 +809,31 @@ class Application:
 
         self.camera_controller_system.update(
             self.scene,
-            dt
+            dt,
+            look_enabled=self._looking,
+            move_enabled=not ui_wants_keyboard
         )
 
         # -------------------------------------------------
-        # Temporary Cube Rotation
+        # World Transforms
         # -------------------------------------------------
+        #
+        # Last, so rendering sees this frame's movement.
 
-        engine_assert(
-            self.cube_entity is not None,
-            "Application has no cube entity."
+        self.transform_system.update(
+            self.scene
         )
 
-        transform_component = (
-            self.scene.get_component(
-                self.cube_entity,
-                TransformComponent
-            )
+    def fixed_update(
+        self,
+        fixed_delta_time: float
+    ):
+
+        self.rotator_system.fixed_update(
+            self.scene,
+            fixed_delta_time
         )
 
-        transform_component.transform.rotation[1] += (
-            30.0 * dt
-        )
-
-        # -------------------------------------------------
-        # Application Input
-        # -------------------------------------------------
-
-        if Input.is_key_pressed(
-            Key.ESCAPE
-        ):
-
-            self.window.set_should_close(
-                True
-            )
-            
     # =====================================================
     # Render
     # =====================================================
@@ -620,18 +841,10 @@ class Application:
     def render(self):
 
         engine_assert(
-            self.render_system is not None,
-            "Application has no RenderSystem."
-        )
-
-        engine_assert(
-            self.scene is not None,
-            "Application has no Scene."
-        )
-
-        engine_assert(
-            self.window is not None,
-            "Application has no Window."
+            self.render_system is not None
+            and self.scene is not None
+            and self.window is not None,
+            "Application is not initialized."
         )
 
         width, height = (
@@ -649,12 +862,106 @@ class Application:
             return
 
         # -------------------------------------------------
-        # Scene Rendering
+        # Scene
         # -------------------------------------------------
 
         self.render_system.render(
             self.scene,
-            width / height
+            width,
+            height
+        )
+
+        # -------------------------------------------------
+        # Debug UI (on top of the final image)
+        # -------------------------------------------------
+
+        self.imgui_layer.begin_frame()
+
+        self.debug_panel.draw(
+            DebugContext(
+                scene=self.scene,
+                resources=self.resources,
+                settings=self.render_system.settings,
+                stats=self.renderer.stats,
+                timer=self.timer,
+                reload_shaders=lambda: self.resources.reload_changed_shaders(
+                    force=True
+                )
+            )
+        )
+
+        self.imgui_layer.end_frame()
+
+    # =====================================================
+    # Screenshot
+    # =====================================================
+
+    def save_screenshot(
+        self,
+        path
+    ):
+        """
+        Save the window's current back buffer (scene + UI)
+        as an image. Call after render(), before
+        swap_buffers().
+        """
+
+        engine_assert(
+            self.window is not None,
+            "Application has no Window."
+        )
+
+        from pathlib import Path
+
+        import numpy as np
+
+        from OpenGL.GL import (
+            GL_BACK,
+            GL_FRAMEBUFFER,
+            GL_PACK_ALIGNMENT,
+            GL_RGB,
+            GL_UNSIGNED_BYTE,
+            glBindFramebuffer,
+            glPixelStorei,
+            glReadBuffer,
+            glReadPixels
+        )
+        from PIL import Image
+
+        width, height = self.window.framebuffer_size
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0)
+        glReadBuffer(GL_BACK)
+        glPixelStorei(GL_PACK_ALIGNMENT, 1)
+
+        pixels = glReadPixels(
+            0,
+            0,
+            width,
+            height,
+            GL_RGB,
+            GL_UNSIGNED_BYTE
+        )
+
+        # GL rows start at the bottom.
+
+        image = np.frombuffer(
+            pixels,
+            dtype=np.uint8
+        ).reshape(height, width, 3)[::-1]
+
+        path = Path(path)
+
+        path.parent.mkdir(
+            parents=True,
+            exist_ok=True
+        )
+
+        Image.fromarray(image).save(path)
+
+        Logger.info(
+            "[Application] Saved screenshot '%s'.",
+            path
         )
 
     # =====================================================
@@ -680,6 +987,21 @@ class Application:
             self.on_window_resize
         )
 
+        dispatcher.dispatch(
+            WindowLostFocusEvent,
+            self.on_window_lost_focus
+        )
+
+        dispatcher.dispatch(
+            MouseButtonPressedEvent,
+            self.on_mouse_button_pressed
+        )
+
+        dispatcher.dispatch(
+            MouseButtonReleasedEvent,
+            self.on_mouse_button_released
+        )
+
     def on_window_close(
         self,
         event
@@ -690,30 +1012,93 @@ class Application:
         )
 
         return True
-    
+
     def on_window_resize(
         self,
         event
     ):
 
-        if (
-            event.width <= 0
-            or event.height <= 0
-        ):
-            return False
+        # RenderSystem sets the viewport and resizes its
+        # framebuffers every frame from the framebuffer
+        # size, so nothing to do here.
 
-        RenderCommand.set_viewport(
-            0,
-            0,
-            event.width,
-            event.height
+        return False
+
+    def on_window_lost_focus(
+        self,
+        event
+    ):
+
+        self._set_looking(
+            False
         )
 
         return False
-    
+
+    # -----------------------------------------------------
+    # Mouse Look
+    # -----------------------------------------------------
+    #
+    # Hold the right mouse button to capture the cursor and
+    # look around. Releasing it frees the cursor for the
+    # debug UI. Clicks that land on the UI never start
+    # looking.
+
+    def on_mouse_button_pressed(
+        self,
+        event
+    ):
+
+        if (
+            event.button == MouseButton.RIGHT
+            and not self.imgui_layer.wants_mouse
+        ):
+
+            self._set_looking(
+                True
+            )
+
+            return True
+
+        return False
+
+    def on_mouse_button_released(
+        self,
+        event
+    ):
+
+        if event.button == MouseButton.RIGHT:
+
+            self._set_looking(
+                False
+            )
+
+            return True
+
+        return False
+
+    def _set_looking(
+        self,
+        looking: bool
+    ):
+
+        if looking == self._looking:
+            return
+
+        self._looking = looking
+
+        self.window.set_cursor_captured(
+            looking
+        )
+
+        self.imgui_layer.set_mouse_enabled(
+            not looking
+        )
+
     # =====================================================
     # Shutdown
     # =====================================================
+
     def shutdown(self):
 
         if self._shutdown:
@@ -723,35 +1108,49 @@ class Application:
             "[Application] Shutting down."
         )
 
-        # =====================================================
+        # =================================================
+        # UI
+        # =================================================
+
+        if self.imgui_layer is not None:
+
+            self.imgui_layer.shutdown()
+
+            self.imgui_layer = None
+
+        self.debug_panel = None
+
+        # =================================================
+        # Scene
+        # =================================================
+
+        if self.scene is not None:
+
+            self.scene.shutdown()
+
+            self.scene = None
+
+        self.camera_entity = None
+
+        # =================================================
         # Systems
-        # =====================================================
+        # =================================================
+
+        if self.render_system is not None:
+
+            self.render_system.shutdown()
+
+            self.render_system = None
 
         self.camera_controller_system = None
-        self.render_system = None
+        self.transform_system = None
+        self.rotator_system = None
 
-        # =====================================================
-        # Scene
-        # =====================================================
+        self.handles.clear()
 
-        self.shader_handle: Handle | None = None
-        self.texture_handle: Handle | None = None
-        self.material_handle: Handle | None = None
-        self.cube_handle: Handle | None = None
-        self.plane_handle: Handle | None = None
-
-        self.scene: Scene | None = None
-
-        self.camera_entity: Entity | None = None
-        self.cube_entity: Entity | None = None
-        self.floor_entity: Entity | None = None
-        self.light_entity: Entity | None = None
-        self.point_light_entity: Entity | None = None
-        self.spot_light_entity: Entity | None = None
-
-        # =====================================================
+        # =================================================
         # Resources
-        # =====================================================
+        # =================================================
 
         if self.resources is not None:
 
@@ -759,9 +1158,9 @@ class Application:
 
             self.resources = None
 
-        # =====================================================
+        # =================================================
         # Renderer
-        # =====================================================
+        # =================================================
 
         if self.renderer is not None:
 
@@ -769,15 +1168,15 @@ class Application:
 
             self.renderer = None
 
-        # =====================================================
+        # =================================================
         # Timer
-        # =====================================================
+        # =================================================
 
         self.timer = None
 
-        # =====================================================
+        # =================================================
         # Window
-        # =====================================================
+        # =================================================
 
         if self.window is not None:
 
@@ -785,9 +1184,9 @@ class Application:
 
             self.window = None
 
-        # =====================================================
+        # =================================================
         # Input
-        # =====================================================
+        # =================================================
 
         Input.clear()
 

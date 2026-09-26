@@ -10,10 +10,61 @@ from graphics.buffer import (
     IndexBuffer
 )
 
+from graphics.mesh_data import (
+    COLOR_SIZE,
+    NORMAL_SIZE,
+    POSITION_SIZE,
+    TANGENT_SIZE,
+    UV_SIZE,
+    MeshData
+)
 from graphics.vertex_array import VertexArray
+from graphics.vertex_layout import VertexLayout
+
+
+def standard_layout() -> VertexLayout:
+
+    # Must match graphics/mesh_data.py and the
+    # layout(location = N) inputs in the vertex shaders.
+
+    return (
+        VertexLayout()
+        .add(POSITION_SIZE)     # 0 Position
+        .add(NORMAL_SIZE)       # 1 Normal
+        .add(COLOR_SIZE)        # 2 Color
+        .add(UV_SIZE)           # 3 UV
+        .add(TANGENT_SIZE)      # 4 Tangent (w = handedness)
+    )
 
 
 class Mesh:
+
+    # =====================================================
+    # From MeshData
+    # =====================================================
+
+    @classmethod
+    def from_data(
+        cls,
+        data: MeshData
+    ) -> "Mesh":
+
+        engine_assert(
+            data is not None,
+            "Mesh.from_data() requires MeshData."
+        )
+
+        mesh = cls(
+            data.vertices,
+            standard_layout(),
+            data.indices
+        )
+
+        # Kept for CPU-side queries (bounds, picking).
+
+        mesh.data = data
+
+        return mesh
 
     def __init__(
         self,
@@ -35,6 +86,8 @@ class Mesh:
 
         self.layout = layout
         self.primitive = primitive
+
+        self.data: MeshData | None = None
 
         # =================================================
         # Vertex Data

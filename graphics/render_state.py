@@ -1,16 +1,21 @@
 from OpenGL.GL import (
+    GL_BACK,
     GL_BLEND,
+    GL_CCW,
     GL_CULL_FACE,
     GL_DEPTH_TEST,
+    GL_FRONT,
     GL_LESS,
     GL_ONE_MINUS_SRC_ALPHA,
     GL_SRC_ALPHA,
     GL_TEXTURE0,
     glActiveTexture,
     glBlendFunc,
+    glCullFace,
     glDepthFunc,
     glDisable,
-    glEnable
+    glEnable,
+    glFrontFace
 )
 
 from core.assertions import engine_assert
@@ -28,6 +33,7 @@ class RenderState:
     _depth_test_enabled: bool | None = None
     _blending_enabled: bool | None = None
     _face_culling_enabled: bool | None = None
+    _cull_front_faces: bool | None = None
 
     _active_texture_slot: int | None = None
 
@@ -87,10 +93,20 @@ class RenderState:
         # Face Culling
         # -------------------------------------------------
         #
-        # Keep this disabled until all mesh winding is known
-        # to be consistently counter-clockwise.
+        # Every MeshFactory / model-loader mesh is wound
+        # counter-clockwise when viewed from the side its
+        # normals face (verified by tests/test_mesh_data.py),
+        # so back faces can be skipped.
+
+        glFrontFace(
+            GL_CCW
+        )
 
         cls.set_face_culling(
+            True
+        )
+
+        cls.set_cull_front_faces(
             False
         )
 
@@ -189,6 +205,28 @@ class RenderState:
 
         cls._face_culling_enabled = enabled
 
+    @classmethod
+    def set_cull_front_faces(
+        cls,
+        cull_front: bool
+    ):
+        """
+        True culls front faces (used by the shadow pass to
+        reduce self-shadowing acne); False culls back
+        faces (normal rendering).
+        """
+
+        if cls._cull_front_faces == cull_front:
+            return
+
+        glCullFace(
+            GL_FRONT
+            if cull_front
+            else GL_BACK
+        )
+
+        cls._cull_front_faces = cull_front
+
     # =====================================================
     # Texture Unit
     # =====================================================
@@ -228,6 +266,7 @@ class RenderState:
         cls._depth_test_enabled = None
         cls._blending_enabled = None
         cls._face_culling_enabled = None
+        cls._cull_front_faces = None
 
         cls._active_texture_slot = None
 

@@ -1,0 +1,121 @@
+{
+  "asset": {
+    "version": "2.0",
+    "generator": "tools/generate_assets.py"
+  },
+  "scene": 0,
+  "scenes": [
+    {
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "name": "PyramidRoot",
+      "rotation": [
+        0.0,
+        0.38268343,
+        0.0,
+        0.92387953
+      ],
+      "children": [
+        1
+      ]
+    },
+    {
+      "name": "Pyramid",
+      "mesh": 0,
+      "scale": [
+        1.0,
+        1.0,
+        1.0
+      ]
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Pyramid",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "NORMAL": 1,
+            "TEXCOORD_0": 2
+          },
+          "indices": 3,
+          "mode": 4
+        }
+      ]
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 548,
+      "uri": "data:application/octet-stream;base64,AAAAvwAAAAAAAAA/AAAAPwAAAAAAAAA/AAAAAM3MTD8AAAAAAAAAPwAAAAAAAAA/AAAAPwAAAAAAAAC/AAAAAM3MTD8AAAAAAAAAPwAAAAAAAAC/AAAAvwAAAAAAAAC/AAAAAM3MTD8AAAAAAAAAvwAAAAAAAAC/AAAAvwAAAAAAAAA/AAAAAM3MTD8AAAAAAAAAvwAAAAAAAAA/AAAAvwAAAAAAAAC/AAAAPwAAAAAAAAC/AAAAPwAAAAAAAAA/AAAAgAOuBz9rFlk/AAAAgAOuBz9rFlk/AAAAgAOuBz9rFlk/axZZPwOuBz8AAAAAaxZZPwOuBz8AAAAAaxZZPwOuBz8AAAAAAAAAAAOuBz9rFlm/AAAAAAOuBz9rFlm/AAAAAAOuBz9rFlm/axZZvwOuBz8AAAAAaxZZvwOuBz8AAAAAaxZZvwOuBz8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgL8AAAAAAAAAAAAAgD8AAIA/AACAPwAAAD8AAAAAAAAAAAAAgD8AAIA/AACAPwAAAD8AAAAAAAAAAAAAgD8AAIA/AACAPwAAAD8AAAAAAAAAAAAAgD8AAIA/AACAPwAAAD8AAAAAAAAAAAAAgD8AAIA/AACAPwAAgD8AAAAAAAAAAAAAAAAAAAEAAgADAAQABQAGAAcACAAJAAoACwAMAA0ADgAOAA8ADAA="
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteOffset": 0,
+      "byteLength": 192,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 192,
+      "byteLength": 192,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 384,
+      "byteLength": 128,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteOffset": 512,
+      "byteLength": 36,
+      "target": 34963
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 16,
+      "type": "VEC3",
+      "min": [
+        -0.5,
+        0.0,
+        -0.5
+      ],
+      "max": [
+        0.5,
+        0.800000011920929,
+        0.5
+      ]
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 16,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 16,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5123,
+      "count": 18,
+      "type": "SCALAR"
+    }
+  ]
+}

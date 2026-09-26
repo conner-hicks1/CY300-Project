@@ -1,5 +1,3 @@
-from collections.abc import Iterator
-
 from typing import (
     TypeVar,
     cast
@@ -445,7 +443,17 @@ class Registry:
     def view(
         self,
         *component_types: type
-    ) -> Iterator[Entity]:
+    ) -> list[Entity]:
+        """
+        Entities that have every listed component.
+
+        Returns a snapshot list rather than a live
+        generator, so callers may add/remove components or
+        destroy entities while iterating without hitting
+        "dictionary changed size during iteration".
+        Entities destroyed mid-iteration are still in the
+        snapshot; check is_alive() if that matters.
+        """
 
         engine_assert(
             len(component_types) > 0,
@@ -466,7 +474,7 @@ class Registry:
             )
 
             if storage is None:
-                return
+                return []
 
             storages.append(
                 storage
@@ -480,6 +488,8 @@ class Registry:
             storages,
             key=len
         )
+
+        result: list[Entity] = []
 
         for index in smallest:
 
@@ -497,10 +507,14 @@ class Registry:
             if not slot.alive:
                 continue
 
-            yield Entity(
-                index=index,
-                generation=slot.generation
+            result.append(
+                Entity(
+                    index=index,
+                    generation=slot.generation
+                )
             )
+
+        return result
 
     # =====================================================
     # Entity Iteration
@@ -508,19 +522,20 @@ class Registry:
 
     def entities(
         self
-    ) -> Iterator[Entity]:
+    ) -> list[Entity]:
 
-        for index, slot in enumerate(
-            self._entities
-        ):
+        # Snapshot for the same reason as view().
 
-            if not slot.alive:
-                continue
-
-            yield Entity(
+        return [
+            Entity(
                 index=index,
                 generation=slot.generation
             )
+            for index, slot in enumerate(
+                self._entities
+            )
+            if slot.alive
+        ]
 
     # =====================================================
     # Clear

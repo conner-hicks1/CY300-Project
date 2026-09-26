@@ -1,105 +1,130 @@
+import numpy as np
+
+from core.assertions import engine_assert
+
 from graphics.mesh import Mesh
-from graphics.vertex_layout import VertexLayout
+from graphics.mesh_data import MeshData
+from graphics.model_loader import load_model_data
 
 
 class MeshFactory:
 
     # =====================================================
-    # Common Layout
+    # Conventions
     # =====================================================
-
-    @staticmethod
-    def _standard_layout() -> VertexLayout:
-
-        return (
-            VertexLayout()
-            .add(3)    # Position
-            .add(3)    # Normal
-            .add(3)    # Color
-            .add(2)    # UV
-        )
+    #
+    # Every *_data() builder returns CPU-side MeshData and
+    # needs no OpenGL context (tests use them directly).
+    # create_*() uploads the same data as a Mesh.
+    #
+    # Triangles are counter-clockwise when viewed from the
+    # side their normals face, which face culling relies
+    # on. Tangents are derived from UVs by MeshData.
 
     # =====================================================
     # Triangle
     # =====================================================
+
+    @staticmethod
+    def triangle_data() -> MeshData:
+
+        # Lies in the XY plane and faces +Z.
+
+        return MeshData.from_attributes(
+            positions=[
+                (-0.5, -0.5, 0.0),
+                (0.5, -0.5, 0.0),
+                (0.0, 0.5, 0.0),
+            ],
+            normals=[(0.0, 0.0, 1.0)] * 3,
+            uvs=[
+                (0.0, 0.0),
+                (1.0, 0.0),
+                (0.5, 1.0),
+            ],
+            indices=[0, 1, 2]
+        )
 
     @classmethod
     def create_triangle(
         cls
     ) -> Mesh:
 
-        # -------------------------------------------------
-        # Vertex Format
-        # -------------------------------------------------
-        #
-        # Position
-        # Normal
-        # Color
-        # UV
-        #
-        # Triangle lies in the XY plane and faces +Z.
-
-        vertices = [
-
-            # Position             Normal            Color            UV
-
-            -0.5, -0.5, 0.0,       0.0, 0.0, 1.0,   1.0, 1.0, 1.0,   0.0, 0.0,
-             0.5, -0.5, 0.0,       0.0, 0.0, 1.0,   1.0, 1.0, 1.0,   1.0, 0.0,
-             0.0,  0.5, 0.0,       0.0, 0.0, 1.0,   1.0, 1.0, 1.0,   0.5, 1.0,
-        ]
-
-        indices = [
-            0, 1, 2
-        ]
-
-        return Mesh(
-            vertices,
-            cls._standard_layout(),
-            indices
+        return Mesh.from_data(
+            cls.triangle_data()
         )
 
     # =====================================================
     # Quad
     # =====================================================
 
-    @classmethod
-    def create_quad(
-        cls
-    ) -> Mesh:
+    @staticmethod
+    def quad_data() -> MeshData:
 
-        # -------------------------------------------------
-        # Geometry
-        # -------------------------------------------------
-        #
         # Quad lies in the XY plane and faces +Z.
         #
         # (-0.5, +0.5) -------- (+0.5, +0.5)
         #       3                      2
         #       |                      |
-        #       |                      |
-        #       |                      |
         #       0                      1
         # (-0.5, -0.5) -------- (+0.5, -0.5)
 
-        vertices = [
+        return MeshData.from_attributes(
+            positions=[
+                (-0.5, -0.5, 0.0),
+                (0.5, -0.5, 0.0),
+                (0.5, 0.5, 0.0),
+                (-0.5, 0.5, 0.0),
+            ],
+            normals=[(0.0, 0.0, 1.0)] * 4,
+            uvs=[
+                (0.0, 0.0),
+                (1.0, 0.0),
+                (1.0, 1.0),
+                (0.0, 1.0),
+            ],
+            indices=[
+                0, 1, 2,
+                2, 3, 0
+            ]
+        )
 
-            # Position             Normal            Color            UV
+    @classmethod
+    def create_quad(
+        cls
+    ) -> Mesh:
 
-            -0.5, -0.5, 0.0,       0.0, 0.0, 1.0,   1.0, 1.0, 1.0,   0.0, 0.0,
-             0.5, -0.5, 0.0,       0.0, 0.0, 1.0,   1.0, 1.0, 1.0,   1.0, 0.0,
-             0.5,  0.5, 0.0,       0.0, 0.0, 1.0,   1.0, 1.0, 1.0,   1.0, 1.0,
-            -0.5,  0.5, 0.0,       0.0, 0.0, 1.0,   1.0, 1.0, 1.0,   0.0, 1.0,
-        ]
+        return Mesh.from_data(
+            cls.quad_data()
+        )
 
-        indices = [
-            0, 1, 2,
-            2, 3, 0
-        ]
+    # =====================================================
+    # Plane
+    # =====================================================
 
-        return Mesh(
-            vertices,
-            cls._standard_layout(),
-            indices
+    @staticmethod
+    def plane_data() -> MeshData:
+
+        # Lies in the XZ plane and faces +Y.
+
+        return MeshData.from_attributes(
+            positions=[
+                (-0.5, 0.0, 0.5),
+                (0.5, 0.0, 0.5),
+                (0.5, 0.0, -0.5),
+                (-0.5, 0.0, -0.5),
+            ],
+            normals=[(0.0, 1.0, 0.0)] * 4,
+            uvs=[
+                (0.0, 0.0),
+                (1.0, 0.0),
+                (1.0, 1.0),
+                (0.0, 1.0),
+            ],
+            indices=[
+                0, 1, 2,
+                2, 3, 0
+            ]
         )
 
     @classmethod
@@ -107,140 +132,257 @@ class MeshFactory:
         cls
     ) -> Mesh:
 
-        vertices = [
-
-            # Position             Normal            Color            UV
-
-            -0.5, 0.0,  0.5,       0.0, 1.0, 0.0,   1.0, 1.0, 1.0,   0.0, 0.0,
-            0.5, 0.0,  0.5,       0.0, 1.0, 0.0,   1.0, 1.0, 1.0,   1.0, 0.0,
-            0.5, 0.0, -0.5,       0.0, 1.0, 0.0,   1.0, 1.0, 1.0,   1.0, 1.0,
-            -0.5, 0.0, -0.5,       0.0, 1.0, 0.0,   1.0, 1.0, 1.0,   0.0, 1.0,
-        ]
-
-        indices = [
-            0, 1, 2,
-            2, 3, 0
-        ]
-
-        return Mesh(
-            vertices,
-            cls._standard_layout(),
-            indices
+        return Mesh.from_data(
+            cls.plane_data()
         )
 
     # =====================================================
     # Cube
     # =====================================================
 
+    @staticmethod
+    def cube_data() -> MeshData:
+
+        # 24 vertices rather than 8 because each face needs
+        # independent normals and UV coordinates.
+        #
+        # Each face lists its corners counter-clockwise as
+        # seen from outside: bottom-left, bottom-right,
+        # top-right, top-left (in that face's UV space).
+
+        faces = [
+
+            # Normal            Corners
+
+            # Front (+Z)
+            (
+                (0.0, 0.0, 1.0),
+                [
+                    (-0.5, -0.5, 0.5),
+                    (0.5, -0.5, 0.5),
+                    (0.5, 0.5, 0.5),
+                    (-0.5, 0.5, 0.5),
+                ]
+            ),
+
+            # Back (-Z)
+            (
+                (0.0, 0.0, -1.0),
+                [
+                    (0.5, -0.5, -0.5),
+                    (-0.5, -0.5, -0.5),
+                    (-0.5, 0.5, -0.5),
+                    (0.5, 0.5, -0.5),
+                ]
+            ),
+
+            # Left (-X)
+            (
+                (-1.0, 0.0, 0.0),
+                [
+                    (-0.5, -0.5, -0.5),
+                    (-0.5, -0.5, 0.5),
+                    (-0.5, 0.5, 0.5),
+                    (-0.5, 0.5, -0.5),
+                ]
+            ),
+
+            # Right (+X)
+            (
+                (1.0, 0.0, 0.0),
+                [
+                    (0.5, -0.5, 0.5),
+                    (0.5, -0.5, -0.5),
+                    (0.5, 0.5, -0.5),
+                    (0.5, 0.5, 0.5),
+                ]
+            ),
+
+            # Top (+Y)
+            (
+                (0.0, 1.0, 0.0),
+                [
+                    (-0.5, 0.5, 0.5),
+                    (0.5, 0.5, 0.5),
+                    (0.5, 0.5, -0.5),
+                    (-0.5, 0.5, -0.5),
+                ]
+            ),
+
+            # Bottom (-Y)
+            (
+                (0.0, -1.0, 0.0),
+                [
+                    (-0.5, -0.5, -0.5),
+                    (0.5, -0.5, -0.5),
+                    (0.5, -0.5, 0.5),
+                    (-0.5, -0.5, 0.5),
+                ]
+            ),
+        ]
+
+        face_uvs = [
+            (0.0, 0.0),
+            (1.0, 0.0),
+            (1.0, 1.0),
+            (0.0, 1.0),
+        ]
+
+        positions = []
+        normals = []
+        uvs = []
+        indices = []
+
+        for face_index, (normal, corners) in enumerate(faces):
+
+            base = face_index * 4
+
+            positions.extend(corners)
+            normals.extend([normal] * 4)
+            uvs.extend(face_uvs)
+
+            indices.extend(
+                [
+                    base, base + 1, base + 2,
+                    base + 2, base + 3, base
+                ]
+            )
+
+        return MeshData.from_attributes(
+            positions=positions,
+            normals=normals,
+            uvs=uvs,
+            indices=indices
+        )
+
     @classmethod
     def create_cube(
         cls
     ) -> Mesh:
 
-        # -------------------------------------------------
-        # Geometry
-        # -------------------------------------------------
-        #
-        # 24 vertices rather than 8 because each face needs
-        # independent normals and UV coordinates.
-        #
-        # 6 faces
-        # 4 vertices per face
-        # 2 triangles per face
-        #
-        # Total:
-        #
-        #     24 vertices
-        #     36 indices
+        return Mesh.from_data(
+            cls.cube_data()
+        )
 
-        vertices = [
+    # =====================================================
+    # Sphere
+    # =====================================================
 
-            # =================================================
-            # Front (+Z)
-            # =================================================
-            #
-            # Position              Normal             Color             UV
+    @staticmethod
+    def sphere_data(
+        segments: int = 48,
+        rings: int = 24,
+        radius: float = 0.5
+    ) -> MeshData:
 
-            -0.5, -0.5,  0.5,       0.0,  0.0,  1.0,   1.0, 1.0, 1.0,   0.0, 0.0,
-             0.5, -0.5,  0.5,       0.0,  0.0,  1.0,   1.0, 1.0, 1.0,   1.0, 0.0,
-             0.5,  0.5,  0.5,       0.0,  0.0,  1.0,   1.0, 1.0, 1.0,   1.0, 1.0,
-            -0.5,  0.5,  0.5,       0.0,  0.0,  1.0,   1.0, 1.0, 1.0,   0.0, 1.0,
+        # UV sphere. Ring i runs from the north pole
+        # (i = 0) to the south pole (i = rings); segment j
+        # runs around the Y axis. The seam column is
+        # duplicated so UVs can wrap from 1 back to 0.
 
-            # =================================================
-            # Back (-Z)
-            # =================================================
+        engine_assert(
+            segments >= 3 and rings >= 2,
+            "Sphere needs at least 3 segments and 2 rings."
+        )
 
-             0.5, -0.5, -0.5,       0.0,  0.0, -1.0,   1.0, 1.0, 1.0,   0.0, 0.0,
-            -0.5, -0.5, -0.5,       0.0,  0.0, -1.0,   1.0, 1.0, 1.0,   1.0, 0.0,
-            -0.5,  0.5, -0.5,       0.0,  0.0, -1.0,   1.0, 1.0, 1.0,   1.0, 1.0,
-             0.5,  0.5, -0.5,       0.0,  0.0, -1.0,   1.0, 1.0, 1.0,   0.0, 1.0,
+        engine_assert(
+            radius > 0.0,
+            "Sphere radius must be positive."
+        )
 
-            # =================================================
-            # Left (-X)
-            # =================================================
+        ring_angles = np.linspace(
+            0.0,
+            np.pi,
+            rings + 1
+        )
 
-            -0.5, -0.5, -0.5,      -1.0,  0.0,  0.0,   1.0, 1.0, 1.0,   0.0, 0.0,
-            -0.5, -0.5,  0.5,      -1.0,  0.0,  0.0,   1.0, 1.0, 1.0,   1.0, 0.0,
-            -0.5,  0.5,  0.5,      -1.0,  0.0,  0.0,   1.0, 1.0, 1.0,   1.0, 1.0,
-            -0.5,  0.5, -0.5,      -1.0,  0.0,  0.0,   1.0, 1.0, 1.0,   0.0, 1.0,
+        segment_angles = np.linspace(
+            0.0,
+            2.0 * np.pi,
+            segments + 1
+        )
 
-            # =================================================
-            # Right (+X)
-            # =================================================
+        phi, theta = np.meshgrid(
+            ring_angles,
+            segment_angles,
+            indexing="ij"
+        )
 
-             0.5, -0.5,  0.5,       1.0,  0.0,  0.0,   1.0, 1.0, 1.0,   0.0, 0.0,
-             0.5, -0.5, -0.5,       1.0,  0.0,  0.0,   1.0, 1.0, 1.0,   1.0, 0.0,
-             0.5,  0.5, -0.5,       1.0,  0.0,  0.0,   1.0, 1.0, 1.0,   1.0, 1.0,
-             0.5,  0.5,  0.5,       1.0,  0.0,  0.0,   1.0, 1.0, 1.0,   0.0, 1.0,
+        normals = np.stack(
+            (
+                np.sin(phi) * np.cos(theta),
+                np.cos(phi),
+                np.sin(phi) * np.sin(theta)
+            ),
+            axis=-1
+        ).reshape(-1, 3)
 
-            # =================================================
-            # Top (+Y)
-            # =================================================
+        positions = normals * radius
 
-            -0.5,  0.5,  0.5,       0.0,  1.0,  0.0,   1.0, 1.0, 1.0,   0.0, 0.0,
-             0.5,  0.5,  0.5,       0.0,  1.0,  0.0,   1.0, 1.0, 1.0,   1.0, 0.0,
-             0.5,  0.5, -0.5,       0.0,  1.0,  0.0,   1.0, 1.0, 1.0,   1.0, 1.0,
-            -0.5,  0.5, -0.5,       0.0,  1.0,  0.0,   1.0, 1.0, 1.0,   0.0, 1.0,
+        uvs = np.stack(
+            (
+                theta / (2.0 * np.pi),
+                1.0 - phi / np.pi
+            ),
+            axis=-1
+        ).reshape(-1, 2)
 
-            # =================================================
-            # Bottom (-Y)
-            # =================================================
+        columns = segments + 1
 
-            -0.5, -0.5, -0.5,       0.0, -1.0,  0.0,   1.0, 1.0, 1.0,   0.0, 0.0,
-             0.5, -0.5, -0.5,       0.0, -1.0,  0.0,   1.0, 1.0, 1.0,   1.0, 0.0,
-             0.5, -0.5,  0.5,       0.0, -1.0,  0.0,   1.0, 1.0, 1.0,   1.0, 1.0,
-            -0.5, -0.5,  0.5,       0.0, -1.0,  0.0,   1.0, 1.0, 1.0,   0.0, 1.0,
-        ]
+        indices = []
 
-        indices = [
+        for i in range(rings):
 
-            # Front
-             0,  1,  2,
-             2,  3,  0,
+            for j in range(segments):
 
-            # Back
-             4,  5,  6,
-             6,  7,  4,
+                a = i * columns + j           # (i,   j)
+                b = (i + 1) * columns + j     # (i+1, j)
+                c = i * columns + j + 1       # (i,   j+1)
+                d = (i + 1) * columns + j + 1 # (i+1, j+1)
 
-            # Left
-             8,  9, 10,
-            10, 11,  8,
+                # Skip the zero-area triangle at each pole.
 
-            # Right
-            12, 13, 14,
-            14, 15, 12,
+                if i != 0:
+                    indices.extend((a, c, b))
 
-            # Top
-            16, 17, 18,
-            18, 19, 16,
+                if i != rings - 1:
+                    indices.extend((c, d, b))
 
-            # Bottom
-            20, 21, 22,
-            22, 23, 20,
-        ]
+        return MeshData.from_attributes(
+            positions=positions,
+            normals=normals,
+            uvs=uvs,
+            indices=indices
+        )
 
-        return Mesh(
-            vertices,
-            cls._standard_layout(),
-            indices
+    @classmethod
+    def create_sphere(
+        cls,
+        segments: int = 48,
+        rings: int = 24,
+        radius: float = 0.5
+    ) -> Mesh:
+
+        return Mesh.from_data(
+            cls.sphere_data(
+                segments,
+                rings,
+                radius
+            )
+        )
+
+    # =====================================================
+    # Models
+    # =====================================================
+
+    @staticmethod
+    def load_model(
+        path
+    ) -> Mesh:
+        """
+        Load an .obj, .gltf or .glb file as a single Mesh.
+        """
+
+        return Mesh.from_data(
+            load_model_data(path)
         )

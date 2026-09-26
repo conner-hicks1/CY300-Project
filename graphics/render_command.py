@@ -1,8 +1,10 @@
 from OpenGL.GL import (
     GL_COLOR_BUFFER_BIT,
     GL_DEPTH_BUFFER_BIT,
+    GL_TEXTURE_2D,
     GL_TRIANGLES,
     GL_UNSIGNED_INT,
+    glBindTexture,
     glClear,
     glClearColor,
     glDrawArrays,
@@ -11,6 +13,8 @@ from OpenGL.GL import (
 )
 
 from core.assertions import engine_assert
+
+from graphics.render_state import RenderState
 
 
 class RenderCommand:
@@ -37,11 +41,26 @@ class RenderCommand:
         )
 
     @staticmethod
-    def clear():
+    def clear(
+        color: bool = True,
+        depth: bool = True
+    ):
+
+        mask = 0
+
+        if color:
+            mask |= GL_COLOR_BUFFER_BIT
+
+        if depth:
+            mask |= GL_DEPTH_BUFFER_BIT
+
+        engine_assert(
+            mask != 0,
+            "RenderCommand.clear() must clear something."
+        )
 
         glClear(
-            GL_COLOR_BUFFER_BIT
-            | GL_DEPTH_BUFFER_BIT
+            mask
         )
 
     # =====================================================
@@ -83,6 +102,29 @@ class RenderCommand:
             GL_TRIANGLES,
             0,
             vertex_count
+        )
+
+    # =====================================================
+    # Textures
+    # =====================================================
+
+    @staticmethod
+    def bind_texture(
+        texture_id: int,
+        slot: int
+    ):
+        """
+        Bind a raw GL texture (e.g. a framebuffer
+        attachment) to a texture unit.
+        """
+
+        RenderState.set_active_texture_slot(
+            slot
+        )
+
+        glBindTexture(
+            GL_TEXTURE_2D,
+            texture_id
         )
 
     # =====================================================

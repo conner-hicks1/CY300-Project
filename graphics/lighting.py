@@ -7,8 +7,9 @@ import numpy as np
 # Limits
 # =========================================================
 #
-# Must match MAX_POINT_LIGHTS / MAX_SPOT_LIGHTS in
-# assets/shaders/fragment_shader.glsl.
+# Injected into every shader as #defines (see
+# graphics/uniform_blocks.ENGINE_SHADER_DEFINES), so this
+# is the single place to change them.
 
 MAX_POINT_LIGHTS = 8
 MAX_SPOT_LIGHTS = 4
@@ -30,6 +31,7 @@ class DirectionalLight:
 
     color: tuple[float, float, float] = (1.0, 1.0, 1.0)
     intensity: float = 1.0
+    casts_shadows: bool = False
 
 
 # =========================================================

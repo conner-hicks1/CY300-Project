@@ -311,6 +311,38 @@ class ResourceManager(
         return handle
 
     # =====================================================
+    # Iteration
+    # =====================================================
+
+    def items(
+        self
+    ) -> list[tuple[str, T]]:
+        """
+        Snapshot of (key, resource) for every loaded
+        resource, sorted by key.
+        """
+
+        return [
+            (key, self._handles.get(handle))
+            for key, handle in sorted(
+                self._key_to_handle.items()
+            )
+            if self._handles.is_valid(handle)
+        ]
+
+    def handle_items(
+        self
+    ) -> list[tuple[str, Handle]]:
+
+        return [
+            (key, handle)
+            for key, handle in sorted(
+                self._key_to_handle.items()
+            )
+            if self._handles.is_valid(handle)
+        ]
+
+    # =====================================================
     # Queries
     # =====================================================
 
