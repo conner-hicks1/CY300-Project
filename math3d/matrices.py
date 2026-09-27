@@ -47,33 +47,85 @@ def normalize(
 # View
 # =========================================================
 
+# ---------------------------------------------------------
+# Scalar 3-vector helpers
+# ---------------------------------------------------------
+#
+# Called every frame on single 3-vectors. np.cross/np.dot
+# spend far more time on argument handling (axis
+# normalization, moveaxis) than on the math itself, so
+# per-frame paths use plain floats and build one array at
+# the end. (Batched geometry work, e.g. in mesh_data.py,
+# should keep using numpy.)
+
+def _cross(
+    a,
+    b
+) -> tuple[float, float, float]:
+
+    ax, ay, az = a
+    bx, by, bz = b
+
+    return (
+        ay * bz - az * by,
+        az * bx - ax * bz,
+        ax * by - ay * bx
+    )
+
+
+def _dot(
+    a,
+    b
+) -> float:
+
+    return (
+        a[0] * b[0]
+        + a[1] * b[1]
+        + a[2] * b[2]
+    )
+
+
+def _normalized(
+    v,
+    message: str
+) -> tuple[float, float, float]:
+
+    length = _dot(v, v) ** 0.5
+
+    engine_assert(
+        length > 0.0,
+        message
+    )
+
+    return (
+        v[0] / length,
+        v[1] / length,
+        v[2] / length
+    )
+
+
 def look_at(
     eye,
     target,
     up
 ) -> np.ndarray:
 
-    eye = np.asarray(
-        eye,
-        dtype=np.float32
-    )
+    ex, ey, ez = (float(c) for c in eye)
+    tx, ty, tz = (float(c) for c in target)
 
-    forward = normalize(
-        np.asarray(target, dtype=np.float32) - eye,
+    eye = (ex, ey, ez)
+
+    forward = _normalized(
+        (tx - ex, ty - ey, tz - ez),
         "look_at eye and target cannot be identical."
     )
 
-    right = np.cross(
-        forward,
-        np.asarray(up, dtype=np.float32)
-    )
-
-    right = normalize(
-        right,
+    right = _normalized(
+        _cross(forward, tuple(float(c) for c in up)),
         "look_at up vector cannot be parallel to the view direction."
     )
 
-    camera_up = np.cross(
+    camera_up = _cross(
         right,
         forward
     )
@@ -84,19 +136,19 @@ def look_at(
                 right[0],
                 right[1],
                 right[2],
-                -np.dot(right, eye)
+                -_dot(right, eye)
             ],
             [
                 camera_up[0],
                 camera_up[1],
                 camera_up[2],
-                -np.dot(camera_up, eye)
+                -_dot(camera_up, eye)
             ],
             [
                 -forward[0],
                 -forward[1],
                 -forward[2],
-                np.dot(forward, eye)
+                _dot(forward, eye)
             ],
             [
                 0.0,
@@ -236,30 +288,33 @@ def normal_matrix(
     restored for mirrored (negative determinant) matrices.
     """
 
-    linear = np.asarray(
-        model,
-        dtype=np.float64
-    )[:3, :3]
+    # Per-draw hot path: plain floats (see _cross).
 
-    c0 = linear[:, 0]
-    c1 = linear[:, 1]
-    c2 = linear[:, 2]
-
-    cofactor = np.column_stack(
-        (
-            np.cross(c1, c2),
-            np.cross(c2, c0),
-            np.cross(c0, c1)
-        )
+    (m00, m01, m02, _), (m10, m11, m12, _), (m20, m21, m22, _) = (
+        np.asarray(model, dtype=np.float64)[:3].tolist()
     )
 
-    determinant = float(
-        np.dot(c0, np.cross(c1, c2))
+    c0 = (m00, m10, m20)
+    c1 = (m01, m11, m21)
+    c2 = (m02, m12, m22)
+
+    # Columns of the cofactor matrix.
+
+    k0 = _cross(c1, c2)
+    k1 = _cross(c2, c0)
+    k2 = _cross(c0, c1)
+
+    sign = (
+        -1.0
+        if _dot(c0, k0) < 0.0
+        else 1.0
     )
 
-    if determinant < 0.0:
-        cofactor = -cofactor
-
-    return cofactor.astype(
-        np.float32
+    return np.array(
+        [
+            [k0[0] * sign, k1[0] * sign, k2[0] * sign],
+            [k0[1] * sign, k1[1] * sign, k2[1] * sign],
+            [k0[2] * sign, k1[2] * sign, k2[2] * sign],
+        ],
+        dtype=np.float32
     )

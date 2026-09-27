@@ -4,7 +4,10 @@ from typing import (
     cast
 )
 
-from core.assertions import engine_assert
+from core.assertions import (
+    engine_assert,
+    engine_fail
+)
 from core.handle import Handle
 from core.logger import Logger
 
@@ -180,13 +183,15 @@ class HandleManager(
         handle: Handle
     ) -> T:
 
-        engine_assert(
-            self.is_valid(handle),
-            (
+        # Per-frame hot path: format the message only on
+        # failure.
+
+        if not self.is_valid(handle):
+
+            engine_fail(
                 f"{self._name} received invalid "
                 f"or stale handle: {handle}"
             )
-        )
 
         value = self._slots[
             handle.index

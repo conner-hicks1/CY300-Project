@@ -3,7 +3,10 @@ from typing import (
     cast
 )
 
-from core.assertions import engine_assert
+from core.assertions import (
+    engine_assert,
+    engine_fail
+)
 from core.logger import Logger
 
 from ecs.entity import Entity
@@ -317,6 +320,9 @@ class Registry:
         component_type: type[T]
     ) -> T:
 
+        # Per-frame hot path: checks are inlined and error
+        # messages are only formatted on failure.
+
         self._assert_alive(
             entity
         )
@@ -325,25 +331,18 @@ class Registry:
             component_type
         )
 
-        engine_assert(
-            storage is not None,
-            (
-                f"No {component_type.__name__} "
-                f"storage exists."
-            )
+        component = (
+            storage.get(entity.index)
+            if storage is not None
+            else None
         )
 
-        component = storage.get(
-            entity.index
-        )
+        if component is None:
 
-        engine_assert(
-            component is not None,
-            (
+            engine_fail(
                 f"{entity} does not have "
                 f"{component_type.__name__}."
             )
-        )
 
         return cast(
             T,
@@ -516,6 +515,97 @@ class Registry:
 
         return result
 
+    def view_with(
+        self,
+        *component_types: type
+    ) -> list[tuple]:
+        """
+        Like view(), but each item is
+        (entity, component_1, component_2, ...) in the
+        order the types were given. Saves a get() per
+        component per entity in per-frame loops:
+
+            for entity, transform, renderer in registry.view_with(
+                TransformComponent,
+                MeshRendererComponent
+            ):
+                ...
+
+        Also a snapshot, like view().
+        """
+
+        engine_assert(
+            len(component_types) > 0,
+            (
+                "Registry.view_with() requires "
+                "at least one component type."
+            )
+        )
+
+        storages: list[
+            dict[int, object]
+        ] = []
+
+        for component_type in component_types:
+
+            storage = self._components.get(
+                component_type
+            )
+
+            if storage is None:
+                return []
+
+            storages.append(
+                storage
+            )
+
+        smallest = min(
+            storages,
+            key=len
+        )
+
+        entities = self._entities
+
+        result: list[tuple] = []
+
+        for index in smallest:
+
+            slot = entities[
+                index
+            ]
+
+            if not slot.alive:
+                continue
+
+            components = []
+
+            for storage in storages:
+
+                component = storage.get(
+                    index
+                )
+
+                if component is None:
+                    break
+
+                components.append(
+                    component
+                )
+
+            else:
+
+                result.append(
+                    (
+                        Entity(
+                            index=index,
+                            generation=slot.generation
+                        ),
+                        *components
+                    )
+                )
+
+        return result
+
     # =====================================================
     # Entity Iteration
     # =====================================================
@@ -568,12 +658,29 @@ class Registry:
         entity: Entity
     ):
 
-        engine_assert(
-            self.is_alive(entity),
-            (
-                "Registry received invalid "
-                f"or stale entity: {entity}"
-            )
+        # Fast path for the common case (a live Entity).
+        # Anything else (None, wrong type, stale, invalid)
+        # falls through to the failure below.
+
+        if entity.__class__ is Entity:
+
+            index = entity.index
+
+            entities = self._entities
+
+            if 0 <= index < len(entities):
+
+                slot = entities[index]
+
+                if (
+                    slot.alive
+                    and slot.generation == entity.generation
+                ):
+                    return
+
+        engine_fail(
+            "Registry received invalid "
+            f"or stale entity: {entity}"
         )
 
     # =====================================================

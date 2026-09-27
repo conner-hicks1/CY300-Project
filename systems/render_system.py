@@ -483,15 +483,10 @@ class RenderSystem:
             True
         )
 
-        for entity in registry.view(
+        for _, transform, mesh_renderer in registry.view_with(
             TransformComponent,
             MeshRendererComponent
         ):
-
-            mesh_renderer = registry.get(
-                entity,
-                MeshRendererComponent
-            )
 
             if not mesh_renderer.casts_shadows:
                 continue
@@ -501,10 +496,7 @@ class RenderSystem:
                     mesh_renderer.mesh
                 ),
                 shader,
-                registry.get(
-                    entity,
-                    TransformComponent
-                ).world_matrix
+                transform.world_matrix
             )
 
         RenderState.set_cull_front_faces(
@@ -546,15 +538,10 @@ class RenderSystem:
         registry: Registry
     ):
 
-        for entity in registry.view(
+        for _, transform, mesh_renderer in registry.view_with(
             TransformComponent,
             MeshRendererComponent
         ):
-
-            mesh_renderer = registry.get(
-                entity,
-                MeshRendererComponent
-            )
 
             self._renderer.draw(
                 self._resources.meshes.get(
@@ -564,10 +551,7 @@ class RenderSystem:
                     mesh_renderer.material
                 ),
                 self._resources,
-                registry.get(
-                    entity,
-                    TransformComponent
-                ).world_matrix
+                transform.world_matrix
             )
 
     def _render_light_gizmos(
@@ -672,15 +656,10 @@ class RenderSystem:
         primary_transform = None
         primary_camera = None
 
-        for entity in registry.view(
+        for _, transform, camera_component in registry.view_with(
             TransformComponent,
             CameraComponent
         ):
-
-            camera_component = registry.get(
-                entity,
-                CameraComponent
-            )
 
             if not camera_component.primary:
                 continue
@@ -690,11 +669,7 @@ class RenderSystem:
                 "Scene contains more than one primary camera."
             )
 
-            primary_transform = registry.get(
-                entity,
-                TransformComponent
-            )
-
+            primary_transform = transform
             primary_camera = camera_component
 
         engine_assert(
@@ -737,7 +712,7 @@ class RenderSystem:
         # Scene ambient comes from the directional light.
         # With no directional light, ambient is zero.
 
-        for entity in registry.view(
+        for _, transform, component in registry.view_with(
             TransformComponent,
             DirectionalLightComponent
         ):
@@ -745,16 +720,6 @@ class RenderSystem:
             engine_assert(
                 lighting.directional is None,
                 "Scene contains more than one directional light."
-            )
-
-            transform = registry.get(
-                entity,
-                TransformComponent
-            )
-
-            component = registry.get(
-                entity,
-                DirectionalLightComponent
             )
 
             lighting.directional = DirectionalLight(
@@ -770,20 +735,10 @@ class RenderSystem:
         # Point Lights
         # -------------------------------------------------
 
-        for entity in registry.view(
+        for _, transform, component in registry.view_with(
             TransformComponent,
             PointLightComponent
         ):
-
-            transform = registry.get(
-                entity,
-                TransformComponent
-            )
-
-            component = registry.get(
-                entity,
-                PointLightComponent
-            )
 
             engine_assert(
                 component.range > 0.0,
@@ -811,20 +766,10 @@ class RenderSystem:
         # Spot Lights
         # -------------------------------------------------
 
-        for entity in registry.view(
+        for _, transform, component in registry.view_with(
             TransformComponent,
             SpotLightComponent
         ):
-
-            transform = registry.get(
-                entity,
-                TransformComponent
-            )
-
-            component = registry.get(
-                entity,
-                SpotLightComponent
-            )
 
             engine_assert(
                 component.range > 0.0,
