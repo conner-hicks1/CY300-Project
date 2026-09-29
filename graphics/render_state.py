@@ -4,9 +4,13 @@ from OpenGL.GL import (
     GL_CCW,
     GL_CULL_FACE,
     GL_DEPTH_TEST,
+    GL_FILL,
     GL_FRONT,
+    GL_FRONT_AND_BACK,
     GL_LESS,
+    GL_LINE,
     GL_ONE_MINUS_SRC_ALPHA,
+    GL_POLYGON_OFFSET_LINE,
     GL_SRC_ALPHA,
     GL_TEXTURE0,
     glActiveTexture,
@@ -15,7 +19,9 @@ from OpenGL.GL import (
     glDepthFunc,
     glDisable,
     glEnable,
-    glFrontFace
+    glFrontFace,
+    glPolygonMode,
+    glPolygonOffset
 )
 
 from core.assertions import engine_assert
@@ -34,6 +40,7 @@ class RenderState:
     _blending_enabled: bool | None = None
     _face_culling_enabled: bool | None = None
     _cull_front_faces: bool | None = None
+    _wireframe: bool | None = None
 
     _active_texture_slot: int | None = None
 
@@ -228,6 +235,45 @@ class RenderState:
         cls._cull_front_faces = cull_front
 
     # =====================================================
+    # Wireframe
+    # =====================================================
+
+    @classmethod
+    def set_wireframe(
+        cls,
+        enabled: bool
+    ):
+        """
+        Draw polygons as lines. Lines are pulled slightly
+        toward the camera (polygon offset) so an outline
+        drawn over a solid object is not lost to depth
+        fighting with its own surface.
+        """
+
+        if cls._wireframe == enabled:
+            return
+
+        glPolygonMode(
+            GL_FRONT_AND_BACK,
+            GL_LINE if enabled else GL_FILL
+        )
+
+        if enabled:
+
+            glEnable(GL_POLYGON_OFFSET_LINE)
+
+            glPolygonOffset(
+                -1.0,
+                -1.0
+            )
+
+        else:
+
+            glDisable(GL_POLYGON_OFFSET_LINE)
+
+        cls._wireframe = enabled
+
+    # =====================================================
     # Texture Unit
     # =====================================================
 
@@ -267,6 +313,7 @@ class RenderState:
         cls._blending_enabled = None
         cls._face_culling_enabled = None
         cls._cull_front_faces = None
+        cls._wireframe = None
 
         cls._active_texture_slot = None
 

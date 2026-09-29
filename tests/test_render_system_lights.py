@@ -27,12 +27,21 @@ def add(scene, component, transform, parent=None):
     return entity
 
 
+def gl_free_render_system() -> RenderSystem:
+
+    # Light gathering needs no GL; skip __init__, which
+    # loads shaders.
+    system = RenderSystem.__new__(RenderSystem)
+    system._warnings = set()
+
+    return system
+
+
 def build(scene):
 
     TransformSystem().update(scene)
 
-    # The light gathering needs no GL state.
-    return RenderSystem._build_light_environment(None, scene.registry)
+    return gl_free_render_system()._build_light_environment(scene.registry)
 
 
 def test_gathers_all_light_types():
@@ -78,25 +87,44 @@ def test_light_positions_use_hierarchy():
     assert np.allclose(lighting.point_lights[0].position, (0.0, 1.0, -2.0), atol=1e-5)
 
 
-def test_rejects_two_directional_lights():
+def test_second_directional_light_is_ignored():
 
     scene = Scene("test")
 
-    add(scene, DirectionalLightComponent(), Transform())
-    add(scene, DirectionalLightComponent(), Transform())
+    add(scene, DirectionalLightComponent(intensity=1.0), Transform())
+    add(scene, DirectionalLightComponent(intensity=9.0), Transform())
 
-    with pytest.raises(Exception, match="more than one"):
-        build(scene)
+    lighting = build(scene)
+
+    assert lighting.directional.intensity == 1.0
 
 
-def test_rejects_inverted_spot_angles():
+def test_inverted_spot_angles_are_clamped():
 
     scene = Scene("test")
 
     add(scene, SpotLightComponent(inner_angle=30.0, outer_angle=20.0), Transform())
 
-    with pytest.raises(Exception, match="angles"):
-        build(scene)
+    spot = build(scene).spot_lights[0]
+
+    # inner clamped down to outer.
+    assert spot.inner_cutoff == pytest.approx(spot.outer_cutoff)
+    assert spot.outer_cutoff == pytest.approx(np.cos(np.radians(20.0)))
+
+
+def test_excess_point_lights_and_bad_range_are_tolerated():
+
+    from graphics.lighting import MAX_POINT_LIGHTS
+
+    scene = Scene("test")
+
+    for _ in range(MAX_POINT_LIGHTS + 3):
+        add(scene, PointLightComponent(range=0.0), Transform())
+
+    lighting = build(scene)
+
+    assert len(lighting.point_lights) == MAX_POINT_LIGHTS
+    assert all(light.range > 0.0 for light in lighting.point_lights)
 
 
 def test_light_space_matrix_keeps_extent_in_clip_space():

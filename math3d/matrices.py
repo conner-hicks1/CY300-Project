@@ -318,3 +318,89 @@ def normal_matrix(
         ],
         dtype=np.float32
     )
+
+
+# =========================================================
+# Decomposition
+# =========================================================
+
+def decompose_trs(
+    matrix
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    Split an affine matrix into (position, rotation, scale)
+    matching Transform's convention:
+
+        M = T @ Rz @ Ry @ Rx @ S
+
+    Rotation is Euler degrees (X, Y, Z). A mirroring
+    matrix (negative determinant) is represented with a
+    negative X scale. Shear, which T/R/S cannot express
+    (e.g. a rotated child under a non-uniformly scaled
+    parent), is discarded.
+    """
+
+    m = np.asarray(
+        matrix,
+        dtype=np.float64
+    )
+
+    position = m[:3, 3].copy()
+
+    columns = m[:3, :3]
+
+    scale = np.linalg.norm(
+        columns,
+        axis=0
+    )
+
+    if np.linalg.det(columns) < 0.0:
+        scale[0] = -scale[0]
+
+    # Zero scale on an axis leaves no rotation information
+    # for it; treat that column as unrotated.
+
+    safe_scale = np.where(
+        np.abs(scale) > 1e-12,
+        scale,
+        1.0
+    )
+
+    r = columns / safe_scale
+
+    # R = Rz(z) @ Ry(y) @ Rx(x):
+    #
+    #   r[2,0] = -sin(y)
+    #   r[2,1] =  cos(y) sin(x),  r[2,2] = cos(y) cos(x)
+    #   r[1,0] =  cos(y) sin(z),  r[0,0] = cos(y) cos(z)
+
+    sin_y = float(
+        np.clip(-r[2, 0], -1.0, 1.0)
+    )
+
+    y = np.arcsin(
+        sin_y
+    )
+
+    if abs(sin_y) < 0.99999:
+
+        x = np.arctan2(r[2, 1], r[2, 2])
+        z = np.arctan2(r[1, 0], r[0, 0])
+
+    else:
+
+        # Gimbal lock: X and Z rotate about the same axis;
+        # put all of it into Z.
+
+        x = 0.0
+        z = np.arctan2(-r[0, 1], r[1, 1])
+
+    rotation = np.degrees(
+        [x, y, z]
+    )
+
+    return (
+        position.astype(np.float32),
+        rotation.astype(np.float32),
+        scale.astype(np.float32)
+    )

@@ -1,0 +1,403 @@
+{
+  "format": "cy300-scene",
+  "version": 1,
+  "name": "Demo Scene",
+  "entities": [
+    {
+      "id": 0,
+      "components": {
+        "Name": {
+          "name": "Camera"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            1.2,
+            4.5
+          ],
+          "rotation": [
+            -12.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "Camera": {
+          "fov": 50.0,
+          "near": 0.1,
+          "far": 100.0,
+          "primary": true
+        },
+        "CameraController": {
+          "movement_speed": 3.0,
+          "mouse_sensitivity": 0.1,
+          "min_pitch": -89.0,
+          "max_pitch": 89.0
+        }
+      }
+    },
+    {
+      "id": 1,
+      "components": {
+        "Name": {
+          "name": "Sun"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            -50.0,
+            30.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "DirectionalLight": {
+          "color": [
+            1.0,
+            0.96,
+            0.9
+          ],
+          "intensity": 1.2,
+          "ambient": 0.05,
+          "casts_shadows": true
+        }
+      }
+    },
+    {
+      "id": 2,
+      "components": {
+        "Name": {
+          "name": "Orbit Pivot"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            0.6,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "Rotator": {
+          "degrees_per_second": [
+            0.0,
+            40.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "id": 3,
+      "components": {
+        "Name": {
+          "name": "Orbiting Point Light"
+        },
+        "Transform": {
+          "position": [
+            2.2,
+            0.0,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "Hierarchy": {
+          "parent": 2
+        },
+        "PointLight": {
+          "color": [
+            1.0,
+            0.55,
+            0.25
+          ],
+          "intensity": 5.0,
+          "range": 6.0
+        }
+      }
+    },
+    {
+      "id": 4,
+      "components": {
+        "Name": {
+          "name": "Spot Light"
+        },
+        "Transform": {
+          "position": [
+            -2.2,
+            2.5,
+            -1.5
+          ],
+          "rotation": [
+            -90.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "SpotLight": {
+          "color": [
+            0.3,
+            0.5,
+            1.0
+          ],
+          "intensity": 10.0,
+          "range": 8.0,
+          "inner_angle": 18.0,
+          "outer_angle": 28.0
+        }
+      }
+    },
+    {
+      "id": 5,
+      "components": {
+        "Name": {
+          "name": "Floor"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            -0.5,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            12.0,
+            1.0,
+            12.0
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "plane",
+          "material": "floor",
+          "casts_shadows": false
+        }
+      }
+    },
+    {
+      "id": 6,
+      "components": {
+        "Name": {
+          "name": "Cube"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            0.25,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "cube",
+          "material": "cube",
+          "casts_shadows": true
+        },
+        "Rotator": {
+          "degrees_per_second": [
+            0.0,
+            30.0,
+            0.0
+          ]
+        }
+      }
+    },
+    {
+      "id": 7,
+      "components": {
+        "Name": {
+          "name": "Moon"
+        },
+        "Transform": {
+          "position": [
+            0.0,
+            0.85,
+            0.0
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            0.35,
+            0.35,
+            0.35
+          ]
+        },
+        "Hierarchy": {
+          "parent": 6
+        },
+        "MeshRenderer": {
+          "mesh": "sphere",
+          "material": "glossy_gold",
+          "casts_shadows": true
+        }
+      }
+    },
+    {
+      "id": 8,
+      "components": {
+        "Name": {
+          "name": "Sphere"
+        },
+        "Transform": {
+          "position": [
+            1.6,
+            0.0,
+            -0.8
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "sphere",
+          "material": "glossy_red",
+          "casts_shadows": true
+        }
+      }
+    },
+    {
+      "id": 9,
+      "components": {
+        "Name": {
+          "name": "Torus (OBJ)"
+        },
+        "Transform": {
+          "position": [
+            -1.6,
+            0.0,
+            0.6
+          ],
+          "rotation": [
+            60.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/torus.obj",
+          "material": "glossy_teal",
+          "casts_shadows": true
+        },
+        "Rotator": {
+          "degrees_per_second": [
+            0.0,
+            0.0,
+            45.0
+          ]
+        }
+      }
+    },
+    {
+      "id": 10,
+      "components": {
+        "Name": {
+          "name": "Pyramid (glTF)"
+        },
+        "Transform": {
+          "position": [
+            1.4,
+            -0.5,
+            1.4
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            1.0,
+            1.0,
+            1.0
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "assets/models/pyramid.gltf",
+          "material": "cube",
+          "casts_shadows": true
+        }
+      }
+    }
+  ],
+  "render_settings": {
+    "clear_color": [
+      0.01,
+      0.01,
+      0.015
+    ],
+    "exposure": 1.0,
+    "tonemapper": "ACES",
+    "gamma": 2.2,
+    "shadows_enabled": true,
+    "shadow_map_size": 2048,
+    "shadow_extent": 8.0,
+    "shadow_center": [
+      0.0,
+      0.0,
+      0.0
+    ],
+    "shadow_bias_min": 0.0005,
+    "shadow_bias_max": 0.005,
+    "show_light_gizmos": true,
+    "gizmo_scale": 0.12
+  }
+}

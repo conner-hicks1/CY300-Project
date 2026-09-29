@@ -64,6 +64,8 @@ class Mesh:
 
         mesh.data = data
 
+        mesh.bounds = data.bounds
+
         return mesh
 
     def __init__(
@@ -88,6 +90,10 @@ class Mesh:
         self.primitive = primitive
 
         self.data: MeshData | None = None
+
+        # Local-space (min, max); None for meshes built
+        # without MeshData (they cannot be picked).
+        self.bounds: tuple[np.ndarray, np.ndarray] | None = None
 
         # =================================================
         # Vertex Data

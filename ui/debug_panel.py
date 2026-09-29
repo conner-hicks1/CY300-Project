@@ -10,18 +10,6 @@ from core.profiler import Profiler
 from core.timer import Timer
 from core.window import Window
 
-from ecs.components import (
-    CameraComponent,
-    DirectionalLightComponent,
-    MeshRendererComponent,
-    NameComponent,
-    PointLightComponent,
-    RotatorComponent,
-    SpotLightComponent,
-    TransformComponent
-)
-from ecs.entity import Entity
-
 from graphics.render_settings import (
     RenderSettings,
     Tonemapper
@@ -32,8 +20,6 @@ from graphics.renderer import (
 )
 
 from resources.resources import Resources
-
-from scene.scene import Scene
 
 
 # =========================================================
@@ -46,7 +32,6 @@ from scene.scene import Scene
 @dataclass(slots=True)
 class DebugContext:
 
-    scene: Scene
     resources: Resources
     settings: RenderSettings
     stats: RenderStats
@@ -91,14 +76,6 @@ class DebugPanel:
             context
         )
 
-        self._draw_scene_window(
-            context
-        )
-
-        self._draw_materials_window(
-            context
-        )
-
         self._draw_profiler_window(
             context
         )
@@ -124,6 +101,13 @@ class DebugPanel:
 
         imgui.set_next_window_size(
             (max(460.0, display.x - 700), 300),
+            imgui.Cond_.first_use_ever
+        )
+
+        # Starts collapsed so it does not cover the middle
+        # of the viewport; the layout file remembers it.
+        imgui.set_next_window_collapsed(
+            True,
             imgui.Cond_.first_use_ever
         )
 
@@ -372,17 +356,6 @@ class DebugPanel:
 
         imgui.end_table()
 
-    @staticmethod
-    def _right_column_x() -> float:
-
-        # Scene/Materials dock to the right edge; Engine
-        # takes the left, keeping the middle clear.
-
-        return max(
-            350.0,
-            imgui.get_io().display_size.x - 340.0
-        )
-
     # =====================================================
     # Engine Window
     # =====================================================
@@ -393,7 +366,7 @@ class DebugPanel:
     ):
 
         imgui.set_next_window_pos(
-            (10, 10),
+            (10, imgui.get_frame_height() + 4.0),
             imgui.Cond_.first_use_ever
         )
 
@@ -421,7 +394,9 @@ class DebugPanel:
         )
 
         imgui.text_disabled(
-            "Hold RMB: look  |  WASD/QE: move  |  "
+            "Hold RMB + WASD/QE: fly  |  Click: select\n"
+            "Q/W/E/R: select/move/rotate/scale  |  F: focus\n"
+            "Ctrl+Z/Y: undo/redo  |  Ctrl+S: save  |  Ctrl+P: play\n"
             "F1: UI  |  F5: reload shaders"
         )
 
@@ -574,316 +549,26 @@ class DebugPanel:
                     self._last_reload_message
                 )
 
+        self._draw_materials_section(
+            context
+        )
+
         imgui.end()
 
     # =====================================================
-    # Scene Window
+    # Materials Section
     # =====================================================
 
-    def _draw_scene_window(
+    def _draw_materials_section(
         self,
         context: DebugContext
     ):
 
-        imgui.set_next_window_pos(
-            (self._right_column_x(), 10),
-            imgui.Cond_.first_use_ever
-        )
-
-        imgui.set_next_window_size(
-            (330, 400),
-            imgui.Cond_.first_use_ever
-        )
-
-        imgui.begin("Scene")
-
-        scene = context.scene
-
-        for entity in scene.entities():
-
-            imgui.push_id(
-                f"entity{entity.index}"
-            )
-
-            if imgui.tree_node(
-                self._entity_label(scene, entity)
-            ):
-
-                self._draw_entity(
-                    scene,
-                    entity
-                )
-
-                imgui.tree_pop()
-
-            imgui.pop_id()
-
-        imgui.end()
-
-    @staticmethod
-    def _entity_label(
-        scene: Scene,
-        entity: Entity
-    ) -> str:
-
-        name = scene.try_get_component(
-            entity,
-            NameComponent
-        )
-
-        tags = []
-
-        for component_type, tag in (
-            (CameraComponent, "camera"),
-            (DirectionalLightComponent, "sun"),
-            (PointLightComponent, "point"),
-            (SpotLightComponent, "spot"),
-            (MeshRendererComponent, "mesh"),
-        ):
-
-            if scene.has_component(entity, component_type):
-                tags.append(tag)
-
-        label = (
-            name.name
-            if name is not None
-            else f"Entity {entity.index}"
-        )
-
-        return (
-            f"{label}  [{', '.join(tags)}]"
-            if tags
-            else label
-        )
-
-    def _draw_entity(
-        self,
-        scene: Scene,
-        entity: Entity
-    ):
-
-        # -------------------------------------------------
-        # Transform
-        # -------------------------------------------------
-
-        transform_component = scene.try_get_component(
-            entity,
-            TransformComponent
-        )
-
-        if transform_component is not None:
-
-            transform = transform_component.transform
-
-            changed, value = imgui.drag_float3(
-                "Position",
-                transform.position.tolist(),
-                0.02
-            )
-
-            if changed:
-                transform.position = value
-
-            changed, value = imgui.drag_float3(
-                "Rotation",
-                transform.rotation.tolist(),
-                0.5
-            )
-
-            if changed:
-                transform.rotation = value
-
-            changed, value = imgui.drag_float3(
-                "Scale",
-                transform.scale.tolist(),
-                0.01
-            )
-
-            if changed:
-                transform.scale = value
-
-        # -------------------------------------------------
-        # Rotator
-        # -------------------------------------------------
-
-        rotator = scene.try_get_component(
-            entity,
-            RotatorComponent
-        )
-
-        if rotator is not None:
-
-            changed, value = imgui.drag_float3(
-                "Spin (deg/s)",
-                list(rotator.degrees_per_second),
-                0.5
-            )
-
-            if changed:
-                rotator.degrees_per_second = tuple(value)
-
-        # -------------------------------------------------
-        # Mesh Renderer
-        # -------------------------------------------------
-
-        mesh_renderer = scene.try_get_component(
-            entity,
-            MeshRendererComponent
-        )
-
-        if mesh_renderer is not None:
-
-            _, mesh_renderer.casts_shadows = imgui.checkbox(
-                "Casts shadows",
-                mesh_renderer.casts_shadows
-            )
-
-        # -------------------------------------------------
-        # Lights
-        # -------------------------------------------------
-
-        directional = scene.try_get_component(
-            entity,
-            DirectionalLightComponent
-        )
-
-        if directional is not None:
-
-            imgui.separator_text("Directional light")
-
-            self._edit_color_intensity(directional, 0.0, 10.0)
-
-            _, directional.ambient = imgui.slider_float(
-                "Ambient",
-                directional.ambient,
-                0.0,
-                1.0,
-                "%.3f"
-            )
-
-            _, directional.casts_shadows = imgui.checkbox(
-                "Casts shadows##light",
-                directional.casts_shadows
-            )
-
-        point = scene.try_get_component(
-            entity,
-            PointLightComponent
-        )
-
-        if point is not None:
-
-            imgui.separator_text("Point light")
-
-            self._edit_color_intensity(point, 0.0, 50.0)
-
-            _, point.range = imgui.slider_float(
-                "Range",
-                point.range,
-                0.1,
-                50.0,
-                "%.2f"
-            )
-
-        spot = scene.try_get_component(
-            entity,
-            SpotLightComponent
-        )
-
-        if spot is not None:
-
-            imgui.separator_text("Spot light")
-
-            self._edit_color_intensity(spot, 0.0, 50.0)
-
-            _, spot.range = imgui.slider_float(
-                "Range",
-                spot.range,
-                0.1,
-                50.0,
-                "%.2f"
-            )
-
-            _, spot.outer_angle = imgui.slider_float(
-                "Outer angle",
-                spot.outer_angle,
-                0.0,
-                89.0,
-                "%.1f"
-            )
-
-            _, spot.inner_angle = imgui.slider_float(
-                "Inner angle",
-                min(spot.inner_angle, spot.outer_angle),
-                0.0,
-                spot.outer_angle,
-                "%.1f"
-            )
-
-        # -------------------------------------------------
-        # Camera
-        # -------------------------------------------------
-
-        camera = scene.try_get_component(
-            entity,
-            CameraComponent
-        )
-
-        if camera is not None:
-
-            imgui.separator_text("Camera")
-
-            _, camera.fov = imgui.slider_float(
-                "FOV",
-                camera.fov,
-                10.0,
-                120.0,
-                "%.1f"
-            )
-
-    @staticmethod
-    def _edit_color_intensity(
-        light,
-        min_intensity: float,
-        max_intensity: float
-    ):
-
-        changed, color = imgui.color_edit3(
-            "Color",
-            list(light.color)
-        )
-
-        if changed:
-            light.color = tuple(color)
-
-        _, light.intensity = imgui.slider_float(
-            "Intensity",
-            light.intensity,
-            min_intensity,
-            max_intensity,
-            "%.2f"
-        )
-
-    # =====================================================
-    # Materials Window
-    # =====================================================
-
-    def _draw_materials_window(
-        self,
-        context: DebugContext
-    ):
-
-        imgui.set_next_window_pos(
-            (self._right_column_x(), 420),
-            imgui.Cond_.first_use_ever
-        )
-
-        imgui.set_next_window_size(
-            (330, 0),
-            imgui.Cond_.first_use_ever
-        )
-
-        imgui.begin("Materials")
+        # A section of the Engine window rather than its own
+        # window, so it never overlaps the other panels.
+
+        if not imgui.collapsing_header("Materials"):
+            return
 
         defaults = Renderer.DEFAULT_MATERIAL_VALUES
 
@@ -968,4 +653,3 @@ class DebugPanel:
 
             imgui.pop_id()
 
-        imgui.end()

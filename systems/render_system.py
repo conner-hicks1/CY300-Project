@@ -1,6 +1,7 @@
 import numpy as np
 
 from core.assertions import engine_assert
+from core.logger import Logger
 from core.profiler import Profiler
 
 from ecs.components import (
@@ -11,6 +12,7 @@ from ecs.components import (
     SpotLightComponent,
     TransformComponent
 )
+from ecs.entity import Entity
 from ecs.registry import Registry
 
 from graphics.framebuffer import (
@@ -104,6 +106,13 @@ class RenderSystem:
             profiler.enabled = False
 
         self._profiler = profiler
+
+        # Camera used for the most recent frame (editor
+        # picking / gizmos); None before the first render.
+        self.last_camera: Camera | None = None
+
+        # Messages already logged by _warn_once().
+        self._warnings: set[str] = set()
 
         # -------------------------------------------------
         # Engine Shaders
@@ -209,8 +218,12 @@ class RenderSystem:
         self,
         scene: Scene,
         width: int,
-        height: int
+        height: int,
+        selected: Entity | None = None
     ):
+        """
+        selected: entity to outline (editor selection).
+        """
 
         engine_assert(
             scene is not None,
@@ -243,6 +256,10 @@ class RenderSystem:
                 registry,
                 width / height
             )
+
+            # For editor picking and gizmos, which work in
+            # the same space as the frame on screen.
+            self.last_camera = camera
 
             lighting = self._build_light_environment(
                 registry
@@ -306,6 +323,16 @@ class RenderSystem:
                     self._render_light_gizmos(
                         lighting
                     )
+
+            if (
+                selected is not None
+                and registry.is_alive(selected)
+            ):
+
+                self._render_selection(
+                    registry,
+                    selected
+                )
 
         # -------------------------------------------------
         # 5. Post Pass (to window)
@@ -604,6 +631,74 @@ class RenderSystem:
             )
 
     # =====================================================
+    # Selection Outline
+    # =====================================================
+
+    # Bright (HDR) orange so it stays saturated after tone
+    # mapping.
+    SELECTION_COLOR = (4.0, 1.4, 0.15)
+
+    def _render_selection(
+        self,
+        registry: Registry,
+        entity: Entity
+    ):
+
+        transform = registry.try_get(
+            entity,
+            TransformComponent
+        )
+
+        if transform is None:
+            return
+
+        mesh_renderer = registry.try_get(
+            entity,
+            MeshRendererComponent
+        )
+
+        shader = self._resources.shaders.get(
+            self._unlit_shader_handle
+        )
+
+        if mesh_renderer is not None:
+
+            mesh = self._resources.meshes.get(
+                mesh_renderer.mesh
+            )
+
+            model = transform.world_matrix
+
+        else:
+
+            # Lights, cameras and empty entities have no
+            # geometry: outline a marker cube at their
+            # position, a bit larger than a light gizmo.
+
+            mesh = self._resources.meshes.get(
+                self._gizmo_mesh_handle
+            )
+
+            scale = self.settings.gizmo_scale * 1.6
+
+            model = np.diag(
+                [scale, scale, scale, 1.0]
+            ).astype(np.float32)
+
+            model[:3, 3] = transform.world_position
+
+        RenderState.set_wireframe(True)
+
+        self._renderer.draw_unlit(
+            mesh,
+            shader,
+            model,
+            self.SELECTION_COLOR
+        )
+
+        RenderState.set_wireframe(False)
+
+    # =====================================================
     # Post Pass
     # =====================================================
 
@@ -656,6 +751,8 @@ class RenderSystem:
         primary_transform = None
         primary_camera = None
 
+        primary_count = 0
+
         for _, transform, camera_component in registry.view_with(
             TransformComponent,
             CameraComponent
@@ -664,23 +761,36 @@ class RenderSystem:
             if not camera_component.primary:
                 continue
 
-            engine_assert(
-                primary_camera is None,
-                "Scene contains more than one primary camera."
+            primary_count += 1
+
+            # With several primaries the first one wins.
+            # (An editor user can easily tick "primary" on
+            # a second camera; that must not crash.)
+
+            if primary_camera is None:
+
+                primary_transform = transform
+                primary_camera = camera_component
+
+        if primary_count > 1:
+
+            self._warn_once(
+                "Scene has more than one primary camera; "
+                "using the first."
             )
 
-            primary_transform = transform
-            primary_camera = camera_component
+        if primary_camera is None:
 
-        engine_assert(
-            primary_transform is not None,
-            "Scene has no primary camera TransformComponent."
-        )
+            self._warn_once(
+                "Scene has no primary camera; using a default "
+                "view."
+            )
 
-        engine_assert(
-            primary_camera is not None,
-            "Scene has no primary CameraComponent."
-        )
+            return Camera(
+                position=(0.0, 3.0, 8.0),
+                target=(0.0, 0.0, 0.0),
+                aspect_ratio=aspect_ratio
+            )
 
         position = primary_transform.world_position
 
@@ -705,6 +815,12 @@ class RenderSystem:
 
         lighting = LightEnvironment()
 
+        # Scenes are edited live, so bad values (too many
+        # lights, a zero range, crossed spot angles) are
+        # clamped or skipped with a one-time warning rather
+        # than crashing the frame. Scene files are validated
+        # strictly on load (scene/scene_serializer.py).
+
         # -------------------------------------------------
         # Directional (optional, at most one)
         # -------------------------------------------------
@@ -717,10 +833,14 @@ class RenderSystem:
             DirectionalLightComponent
         ):
 
-            engine_assert(
-                lighting.directional is None,
-                "Scene contains more than one directional light."
-            )
+            if lighting.directional is not None:
+
+                self._warn_once(
+                    "Scene has more than one directional light; "
+                    "using the first."
+                )
+
+                continue
 
             lighting.directional = DirectionalLight(
                 direction=transform.world_forward,
@@ -740,27 +860,23 @@ class RenderSystem:
             PointLightComponent
         ):
 
-            engine_assert(
-                component.range > 0.0,
-                "PointLightComponent range must be positive."
-            )
+            if len(lighting.point_lights) >= MAX_POINT_LIGHTS:
+
+                self._warn_once(
+                    f"Scene has more than {MAX_POINT_LIGHTS} point "
+                    "lights; extra ones are ignored."
+                )
+
+                break
 
             lighting.point_lights.append(
                 PointLight(
                     position=transform.world_position,
                     color=component.color,
                     intensity=component.intensity,
-                    range=component.range
+                    range=self._valid_range(component.range)
                 )
             )
-
-        engine_assert(
-            len(lighting.point_lights) <= MAX_POINT_LIGHTS,
-            (
-                "Scene exceeds the maximum of "
-                f"{MAX_POINT_LIGHTS} point lights."
-            )
-        )
 
         # -------------------------------------------------
         # Spot Lights
@@ -771,20 +887,25 @@ class RenderSystem:
             SpotLightComponent
         ):
 
-            engine_assert(
-                component.range > 0.0,
-                "SpotLightComponent range must be positive."
+            if len(lighting.spot_lights) >= MAX_SPOT_LIGHTS:
+
+                self._warn_once(
+                    f"Scene has more than {MAX_SPOT_LIGHTS} spot "
+                    "lights; extra ones are ignored."
+                )
+
+                break
+
+            # 0 <= inner <= outer < 90
+
+            outer_angle = min(
+                max(float(component.outer_angle), 0.0),
+                89.0
             )
 
-            engine_assert(
-                0.0
-                <= component.inner_angle
-                <= component.outer_angle
-                < 90.0,
-                (
-                    "SpotLightComponent angles must satisfy "
-                    "0 <= inner_angle <= outer_angle < 90."
-                )
+            inner_angle = min(
+                max(float(component.inner_angle), 0.0),
+                outer_angle
             )
 
             lighting.spot_lights.append(
@@ -793,25 +914,45 @@ class RenderSystem:
                     direction=transform.world_forward,
                     color=component.color,
                     intensity=component.intensity,
-                    range=component.range,
+                    range=self._valid_range(component.range),
                     inner_cutoff=float(
-                        np.cos(np.radians(component.inner_angle))
+                        np.cos(np.radians(inner_angle))
                     ),
                     outer_cutoff=float(
-                        np.cos(np.radians(component.outer_angle))
+                        np.cos(np.radians(outer_angle))
                     )
                 )
             )
 
-        engine_assert(
-            len(lighting.spot_lights) <= MAX_SPOT_LIGHTS,
-            (
-                "Scene exceeds the maximum of "
-                f"{MAX_SPOT_LIGHTS} spot lights."
-            )
+        return lighting
+
+    @staticmethod
+    def _valid_range(
+        value: float
+    ) -> float:
+
+        # The shader divides by range.
+        return max(
+            float(value),
+            0.01
         )
 
-        return lighting
+    def _warn_once(
+        self,
+        message: str
+    ):
+
+        if message in self._warnings:
+            return
+
+        self._warnings.add(
+            message
+        )
+
+        Logger.warning(
+            "[RenderSystem] %s",
+            message
+        )
 
     # =====================================================
     # Shutdown

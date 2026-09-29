@@ -330,6 +330,19 @@ class ResourceManager(
             if self._handles.is_valid(handle)
         ]
 
+    def key_of(
+        self,
+        handle: Handle
+    ) -> str | None:
+        """Key a handle was loaded under (None if unknown)."""
+
+        if not self._handles.is_valid(handle):
+            return None
+
+        return self._handle_to_key.get(
+            handle
+        )
+
     def handle_items(
         self
     ) -> list[tuple[str, Handle]]:

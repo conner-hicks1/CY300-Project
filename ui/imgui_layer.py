@@ -44,7 +44,7 @@ class ImGuiLayer:
         io = imgui.get_io()
 
         # Window layout persistence (gitignored).
-        io.set_ini_filename("imgui.ini")
+        io.set_ini_filename("editor_layout.ini")
 
         self._backend = GlfwRenderer(
             window.handle,

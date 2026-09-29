@@ -235,6 +235,19 @@ class Scene:
 
         return self._name
 
+    @name.setter
+    def name(
+        self,
+        value: str
+    ):
+
+        engine_assert(
+            isinstance(value, str) and bool(value.strip()),
+            "Scene name must be a non-empty string."
+        )
+
+        self._name = value.strip()
+
     @property
     def registry(
         self

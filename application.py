@@ -1,3 +1,5 @@
+from pathlib import Path
+
 from core.assertions import engine_assert
 from core.cprofile_capture import CProfileCapture
 from core.events import (
@@ -51,6 +53,9 @@ from systems.rotator_system import RotatorSystem
 from systems.transform_system import TransformSystem
 
 from scene.scene import Scene
+from scene.scene_serializer import SceneSerializer
+
+from editor.scene_editor import SceneEditor
 
 from ui.debug_panel import DebugContext, DebugPanel
 from ui.imgui_layer import ImGuiLayer
@@ -144,13 +149,21 @@ class Application:
 
         self.scene: Scene | None = None
 
-        self.camera_entity: Entity | None = None
+        # -------------------------------------------------
+        # Editor
+        # -------------------------------------------------
+
+        self.serializer: SceneSerializer | None = None
+        self.editor: SceneEditor | None = None
 
     # =====================================================
     # Initialization
     # =====================================================
 
-    def initialize(self):
+    def initialize(
+        self,
+        scene_path=None
+    ):
 
         engine_assert(
             not self._initialized,
@@ -261,13 +274,78 @@ class Application:
         # -------------------------------------------------
 
         self._load_resources()
-        self._create_scene()
+
+        self.serializer = SceneSerializer(
+            self.resources
+        )
+
+        self.editor = SceneEditor(
+            self.scene,
+            self.resources,
+            self.render_system,
+            self.window,
+            self.serializer,
+            populate_demo_scene=self._populate_demo_scene,
+            load_model=MeshFactory.load_model
+        )
+
+        self._load_initial_scene(
+            scene_path
+        )
+
+        # Resolve world matrices before the first frame, so
+        # the editor has valid data even if update() is
+        # skipped.
+        self.transform_system.update(
+            self.scene
+        )
 
         self._initialized = True
 
         Logger.info(
             "[Application] Initialization complete."
         )
+
+    # =====================================================
+    # Initial Scene
+    # =====================================================
+
+    DEFAULT_SCENE_PATH = Path("assets/scenes/demo.scene.json")
+
+    def _load_initial_scene(
+        self,
+        scene_path
+    ):
+        """
+        --scene PATH if given, else the default scene file if
+        it exists, else the built-in demo. A scene file that
+        fails to load falls back to the demo (the error is
+        logged and shown in the editor status bar).
+        """
+
+        path = (
+            Path(scene_path)
+            if scene_path is not None
+            else self.DEFAULT_SCENE_PATH
+        )
+
+        if path.is_file() and self.editor.load_initial(path):
+            return
+
+        if scene_path is not None and not path.is_file():
+
+            Logger.error(
+                "[Application] Scene file not found: %s",
+                path
+            )
+
+        self.scene.clear()
+
+        self._populate_demo_scene(
+            self.scene
+        )
+
+        self.editor.new_scene_loaded()
 
     # =====================================================
     # Resource Loading
@@ -420,15 +498,19 @@ class Application:
             MeshFactory.create_sphere
         )
 
+        # Model meshes are keyed by file path: scene files
+        # reference them by key, and the serializer can load
+        # any model path on demand.
+
         handles["torus"] = resources.meshes.load(
-            "torus",
+            "assets/models/torus.obj",
             lambda: MeshFactory.load_model(
                 "assets/models/torus.obj"
             )
         )
 
         handles["pyramid"] = resources.meshes.load(
-            "pyramid",
+            "assets/models/pyramid.gltf",
             lambda: MeshFactory.load_model(
                 "assets/models/pyramid.gltf"
             )
@@ -476,11 +558,18 @@ class Application:
 
         return entity
 
-    def _create_scene(self):
+    def _populate_demo_scene(
+        self,
+        scene: Scene
+    ):
+        """
+        Fill `scene` with the built-in demo content (used for
+        File > New Demo Scene and when no scene file exists).
+        """
 
         engine_assert(
-            self.scene is not None,
-            "Application has no Scene."
+            scene is self.scene,
+            "The demo builder fills the application's scene."
         )
 
         handles = self.handles
@@ -489,7 +578,7 @@ class Application:
         # Camera
         # -------------------------------------------------
 
-        self.camera_entity = self._create_entity(
+        self._create_entity(
             "Camera",
             Transform(
                 position=(0.0, 1.2, 4.5),
@@ -806,6 +895,11 @@ class Application:
         # Application Input
         # -------------------------------------------------
 
+        # Esc no longer quits: in the editor it clears the
+        # selection, and a stray keypress must not throw
+        # away unsaved work. Close the window or use
+        # File > Exit.
+
         ui_wants_keyboard = (
             self.imgui_layer.wants_keyboard
             and not self._looking
@@ -813,17 +907,12 @@ class Application:
 
         if not ui_wants_keyboard:
 
-            if Input.is_key_pressed(Key.ESCAPE):
-
-                self.window.set_should_close(
-                    True
-                )
-
             if Input.is_key_pressed(Key.F1):
 
-                self.debug_panel.visible = (
-                    not self.debug_panel.visible
-                )
+                visible = not self.debug_panel.visible
+
+                self.debug_panel.visible = visible
+                self.editor.visible = visible
 
             if Input.is_key_pressed(Key.F5):
 
@@ -850,8 +939,14 @@ class Application:
         # -------------------------------------------------
         # Fixed-Step Simulation
         # -------------------------------------------------
+        #
+        # Only while the editor is in Play mode; in Edit
+        # mode the scene holds still.
 
-        self._fixed_accumulator += dt
+        if self.editor.playing:
+            self._fixed_accumulator += dt
+        else:
+            self._fixed_accumulator = 0.0
 
         steps = 0
 
@@ -882,11 +977,15 @@ class Application:
 
         with profiler.scope("Camera"):
 
+            # Editor-style flying: WASD/QE only while the
+            # right mouse button is held, so the same keys
+            # can switch gizmo modes the rest of the time.
+
             self.camera_controller_system.update(
                 self.scene,
                 dt,
                 look_enabled=self._looking,
-                move_enabled=not ui_wants_keyboard
+                move_enabled=self._looking
             )
 
         # -------------------------------------------------
@@ -945,7 +1044,12 @@ class Application:
         self.render_system.render(
             self.scene,
             width,
-            height
+            height,
+            selected=(
+                self.editor.selected
+                if self.editor.visible
+                else None
+            )
         )
 
         # -------------------------------------------------
@@ -960,9 +1064,12 @@ class Application:
 
                 self.imgui_layer.begin_frame()
 
+                self.editor.draw(
+                    looking=self._looking
+                )
+
                 self.debug_panel.draw(
                     DebugContext(
-                        scene=self.scene,
                         resources=self.resources,
                         settings=self.render_system.settings,
                         stats=self.renderer.stats,
@@ -1099,6 +1206,19 @@ class Application:
             "[Application] Window close requested."
         )
 
+        # With unsaved changes, keep the window open and ask
+        # first; the editor closes it after Save / Discard.
+
+        if self.editor is not None and self.editor.dirty:
+
+            self.window.set_should_close(
+                False
+            )
+
+            self.editor.request_close(
+                lambda: self.window.set_should_close(True)
+            )
+
         return True
 
     def on_window_resize(
@@ -1208,6 +1328,9 @@ class Application:
 
         self.debug_panel = None
 
+        self.editor = None
+        self.serializer = None
+
         # =================================================
         # Scene
         # =================================================
@@ -1217,8 +1340,6 @@ class Application:
             self.scene.shutdown()
 
             self.scene = None
-
-        self.camera_entity = None
 
         # =================================================
         # Systems

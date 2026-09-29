@@ -219,6 +219,19 @@ class MeshData:
 
         return self.vertices[:, 11:15]
 
+    @property
+    def bounds(
+        self
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """Local-space axis-aligned bounds (min, max)."""
+
+        positions = self.positions
+
+        return (
+            positions.min(axis=0),
+            positions.max(axis=0)
+        )
+
 
 # =========================================================
 # Normals

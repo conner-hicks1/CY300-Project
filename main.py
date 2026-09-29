@@ -18,6 +18,22 @@ def parse_arguments(argv=None):
     )
 
     parser.add_argument(
+        "--scene",
+        metavar="PATH",
+        help=(
+            "Scene file to open (default: "
+            "assets/scenes/demo.scene.json, or the built-in "
+            "demo if that is missing)."
+        )
+    )
+
+    parser.add_argument(
+        "--play",
+        action="store_true",
+        help="Start in Play mode (simulation running)."
+    )
+
+    parser.add_argument(
         "--exit-after",
         type=float,
         metavar="SECONDS",
@@ -94,7 +110,12 @@ def main():
         # Initialize
         # -------------------------------------------------
 
-        application.initialize()
+        application.initialize(
+            scene_path=arguments.scene
+        )
+
+        if arguments.play:
+            application.editor.play()
 
         if arguments.no_vsync:
 

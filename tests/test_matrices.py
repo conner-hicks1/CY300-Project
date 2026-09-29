@@ -85,3 +85,51 @@ def test_normal_matrix_keeps_direction_for_mirroring():
     normal = normal_matrix(model) @ np.array([1.0, 0.0, 0.0])
 
     assert normal[0] < 0.0
+
+
+@pytest.mark.parametrize(
+    ("position", "rotation", "scale"),
+    [
+        ((0, 0, 0), (0, 0, 0), (1, 1, 1)),
+        ((1, -2, 3), (10, 20, 30), (2, 0.5, 3)),
+        ((0, 1, 0), (-45, 170, -60), (1, 1, 1)),
+        ((5, 5, 5), (0, 90, 0), (1, 2, 1)),
+        ((0, 0, 0), (30, 0, 0), (0.25, 4, 1)),
+    ],
+)
+def test_decompose_round_trips_through_transform(position, rotation, scale):
+
+    from math3d.matrices import decompose_trs
+    from math3d.transform import Transform
+
+    original = Transform(position=position, rotation=rotation, scale=scale)
+
+    p, r, s = decompose_trs(original.matrix)
+
+    rebuilt = Transform(position=p, rotation=r, scale=s)
+
+    # Euler angles are not unique; the matrices must match.
+    assert np.allclose(rebuilt.matrix, original.matrix, atol=1e-4)
+    assert np.allclose(s, scale, atol=1e-5)
+
+
+def test_decompose_gimbal_lock():
+
+    from math3d.matrices import decompose_trs
+    from math3d.transform import Transform
+
+    original = Transform(rotation=(25, 90, 40))
+
+    p, r, s = decompose_trs(original.matrix)
+
+    assert np.allclose(Transform(rotation=r).matrix, original.matrix, atol=1e-4)
+
+
+def test_decompose_mirror_uses_negative_x_scale():
+
+    from math3d.matrices import decompose_trs
+
+    p, r, s = decompose_trs(np.diag([1.0, 1.0, -1.0, 1.0]))
+
+    assert s[0] < 0.0
+    assert np.prod(s) < 0.0
