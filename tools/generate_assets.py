@@ -9,6 +9,7 @@ changing it):
     assets/textures/tiles_albedo.png     sRGB color
     assets/textures/tiles_normal.png     tangent-space normal map (OpenGL, +Y up)
     assets/textures/tiles_orm.png        R occlusion, G roughness, B metallic (glTF packing)
+    assets/textures/uv_checker.png       sRGB color test pattern (cube)
     assets/models/torus.obj              OBJ with v/vt/vn
     assets/models/pyramid.gltf           glTF 2.0, embedded buffer, node transform
 
@@ -159,6 +160,66 @@ def generate_tiles(
             (occlusion, np.clip(roughness, 0.05, 1.0), metallic),
             axis=-1
         )
+    )
+
+
+# =========================================================
+# UV Checker
+# =========================================================
+
+def generate_uv_checker(
+    size: int = 512,
+    cells: int = 8
+):
+    """
+    Colorful checkerboard: hue sweeps along U, brightness
+    rises along V, so texture orientation is obvious on any
+    face. A light grid separates the cells, and one corner
+    cell is marked to show where UV (0, 0) is.
+    """
+
+    coords = (np.arange(size) + 0.5) / size
+
+    u = coords[None, :].repeat(size, 0)
+
+    # Image rows run top-down; textures are flipped on load,
+    # so v = 1 - row.
+    v = 1.0 - coords[:, None].repeat(size, 1)
+
+    cell_u = np.floor(u * cells)
+    cell_v = np.floor(v * cells)
+
+    checker = (cell_u + cell_v) % 2 == 0
+
+    hue = (cell_u + 0.5) / cells
+
+    # HSV -> RGB (saturation 0.6)
+    k = (np.stack((5.0, 3.0, 1.0)) [:, None, None] + hue[None] * 6.0) % 6.0
+
+    rgb = 1.0 - 0.6 * np.clip(np.minimum(k, 4.0 - k), 0.0, 1.0)
+
+    value = np.where(checker, 0.9, 0.55) * (0.55 + 0.45 * (cell_v + 0.5) / cells)
+
+    image = np.moveaxis(rgb, 0, -1) * value[..., None]
+
+    # Grid lines.
+    line = 0.03
+
+    fu = (u * cells) % 1.0
+    fv = (v * cells) % 1.0
+
+    on_line = (fu < line) | (fu > 1 - line) | (fv < line) | (fv > 1 - line)
+
+    image[on_line] = 0.93
+
+    # Origin marker: dark triangle in the (0, 0) cell.
+    origin = (cell_u == 0) & (cell_v == 0) & (fu + fv < 0.6)
+
+    image[origin] = 0.08
+
+    _save_rgb(
+        TEXTURES / "uv_checker.png",
+        image
     )
 
 
@@ -448,6 +509,7 @@ def generate_pyramid():
 def main() -> int:
 
     generate_tiles()
+    generate_uv_checker()
     generate_torus()
     generate_pyramid()
 

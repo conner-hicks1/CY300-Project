@@ -385,10 +385,10 @@ class Application:
         #
         # Color maps are sRGB; data maps are linear.
 
-        handles["steve"] = resources.textures.load(
-            "steve",
+        handles["uv_checker"] = resources.textures.load(
+            "uv_checker",
             lambda: Texture2D(
-                "assets/textures/steve_gilland.jpg",
+                "assets/textures/uv_checker.png",
                 srgb=True
             )
         )
@@ -432,7 +432,7 @@ class Application:
 
             material = Material(lit)
 
-            material.set_texture("uBaseColorMap", handles["steve"])
+            material.set_texture("uBaseColorMap", handles["uv_checker"])
             material.set_float("uMetallic", 0.0)
             material.set_float("uRoughness", 0.55)
 
