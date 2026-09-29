@@ -14,6 +14,14 @@ import numpy as np
 MAX_POINT_LIGHTS = 8
 MAX_SPOT_LIGHTS = 4
 
+# Directional light shadow cascades (RenderSettings.cascade_count
+# picks how many are used, up to this).
+MAX_CASCADES = 4
+
+# Mip levels of the prefiltered specular environment map;
+# level i holds roughness i / (levels - 1).
+PREFILTER_MIP_LEVELS = 5
+
 
 # =========================================================
 # Directional Light
@@ -68,17 +76,22 @@ class SpotLight:
     inner_cutoff: float = 0.966
     outer_cutoff: float = 0.906
 
+    # Outer half-angle in degrees (sizes the shadow frustum).
+    outer_angle: float = 25.0
+
+    casts_shadows: bool = False
+
 
 # =========================================================
 # Light Environment
 # =========================================================
 #
-# Every light affecting a frame.
+# Every light affecting a frame. (Ambient light now comes
+# from the sky via image-based lighting; see
+# graphics/environment.py.)
 
 @dataclass(slots=True)
 class LightEnvironment:
-
-    ambient: float = 0.0
 
     directional: DirectionalLight | None = None
 

@@ -2,6 +2,7 @@
 
 #include "include/blocks.glsl"
 #include "include/lighting.glsl"
+#include "include/shadows.glsl"
 
 
 // =========================================================
@@ -19,47 +20,58 @@ in vec2 vTexCoord;
 // Fragment Outputs
 // =========================================================
 //
-// Linear HDR radiance. Tone mapping and gamma correction
-// happen in post.frag.glsl.
+// Linear HDR radiance. Bloom, tone mapping and gamma
+// correction happen in later passes.
 
 out vec4 FragColor;
 
 
 // =========================================================
-// Material
+// Material (metallic-roughness, as in glTF 2.0)
 // =========================================================
 //
-// Samplers without a material texture get engine
-// defaults (Renderer.set_default_texture): white albedo,
-// flat normal map, full-strength specular map.
+// Factors multiply the maps. Samplers without a material
+// texture get engine defaults (Renderer.set_default_texture):
+// white for color/data maps, a flat normal map.
 
-uniform sampler2D uTexture;       // albedo, sRGB
-uniform sampler2D uNormalMap;     // tangent-space, linear
-uniform sampler2D uSpecularMap;   // R = specular mask, linear
+uniform sampler2D uBaseColorMap;           // sRGB
+uniform sampler2D uMetallicRoughnessMap;   // linear: G roughness, B metallic
+uniform sampler2D uNormalMap;              // linear, tangent space
+uniform sampler2D uOcclusionMap;           // linear: R occlusion
+uniform sampler2D uEmissiveMap;            // sRGB
 
 uniform vec3 uBaseColor;
-uniform float uSpecularStrength;
-uniform float uShininess;
+uniform float uMetallic;
+uniform float uRoughness;
 uniform float uNormalStrength;
+uniform float uOcclusionStrength;
+uniform vec3 uEmissive;                    // HDR: color * strength
 
-uniform sampler2D uShadowMap;
+
+// =========================================================
+// Image-Based Lighting (baked from the sky)
+// =========================================================
+
+uniform samplerCube uIrradianceMap;        // diffuse
+uniform samplerCube uPrefilterMap;         // specular, mip = roughness
+uniform sampler2D uBrdfLut;                // (scale, bias) for F0
 
 
 // =========================================================
 // Surface Normal
 // =========================================================
 
-vec3 surfaceNormal()
+vec3 surfaceNormal(
+    vec3 geometricNormal
+)
 {
-    vec3 N = normalize(vNormal);
-
     // Re-orthogonalize after interpolation.
     vec3 T = normalize(
         vTangent.xyz
-        - N * dot(N, vTangent.xyz)
+        - geometricNormal * dot(geometricNormal, vTangent.xyz)
     );
 
-    vec3 B = cross(N, T) * vTangent.w;
+    vec3 B = cross(geometricNormal, T) * vTangent.w;
 
     vec3 mapped =
         texture(uNormalMap, vTexCoord).xyz
@@ -68,7 +80,7 @@ vec3 surfaceNormal()
     mapped.xy *= uNormalStrength;
 
     return normalize(
-        mat3(T, B, N) * mapped
+        mat3(T, B, geometricNormal) * mapped
     );
 }
 
@@ -79,19 +91,48 @@ vec3 surfaceNormal()
 
 void main()
 {
-    vec3 albedo =
-        texture(uTexture, vTexCoord).rgb
+    // -----------------------------------------------------
+    // Material
+    // -----------------------------------------------------
+
+    vec3 baseColor =
+        texture(uBaseColorMap, vTexCoord).rgb
         * vColor
         * uBaseColor;
 
-    float specularStrength =
-        uSpecularStrength
-        * texture(uSpecularMap, vTexCoord).r;
+    vec4 metallicRoughness = texture(uMetallicRoughnessMap, vTexCoord);
 
-    vec3 N = surfaceNormal();
-    vec3 V = normalize(uViewPosition.xyz - vWorldPosition);
+    // Very low roughness makes GGX highlights sub-pixel
+    // and aliased; clamp to a small minimum.
+    float roughness = clamp(uRoughness * metallicRoughness.g, 0.04, 1.0);
+    float metallic = clamp(uMetallic * metallicRoughness.b, 0.0, 1.0);
 
-    vec3 color = uLightParams.x * albedo;
+    float occlusion = mix(
+        1.0,
+        texture(uOcclusionMap, vTexCoord).r,
+        uOcclusionStrength
+    );
+
+    vec3 emissive =
+        texture(uEmissiveMap, vTexCoord).rgb
+        * uEmissive;
+
+    vec3 geometricNormal = normalize(vNormal);
+
+    Surface surface;
+    surface.N = surfaceNormal(geometricNormal);
+    surface.V = normalize(uViewPosition.xyz - vWorldPosition);
+    surface.baseColor = baseColor;
+    surface.metallic = metallic;
+    surface.roughness = roughness;
+
+    // Dielectrics reflect ~4% at normal incidence; metals
+    // reflect their base color.
+    surface.F0 = mix(vec3(0.04), baseColor, metallic);
+
+    float viewDepth = -(uView * vec4(vWorldPosition, 1.0)).z;
+
+    vec3 color = vec3(0.0);
 
     // -----------------------------------------------------
     // Directional
@@ -105,20 +146,15 @@ void main()
             uDirectionalColor.rgb
             * uDirectionalColor.a;
 
-        // Bias uses the geometric normal: the normal map
-        // must not move where the shadow map says occluders
-        // are.
+        // Geometric normal for the shadow lookup: the
+        // normal map must not move where occluders are.
         float shadow = directionalShadow(
-            uShadowMap,
             vWorldPosition,
-            normalize(vNormal),
-            L
+            geometricNormal,
+            viewDepth
         );
 
-        color += shadow * blinnPhong(
-            N, V, L, radiance, albedo,
-            specularStrength, uShininess
-        );
+        color += shadow * shadeDirect(surface, L, radiance);
     }
 
     // -----------------------------------------------------
@@ -133,17 +169,12 @@ void main()
 
         float distance = length(toLight);
 
-        vec3 L = toLight / distance;
-
         vec3 radiance =
             uPointColorIntensity[i].rgb
             * uPointColorIntensity[i].a
             * attenuate(distance, uPointPositionRange[i].w);
 
-        color += blinnPhong(
-            N, V, L, radiance, albedo,
-            specularStrength, uShininess
-        );
+        color += shadeDirect(surface, toLight / distance, radiance);
     }
 
     // -----------------------------------------------------
@@ -161,7 +192,7 @@ void main()
         vec3 L = toLight / distance;
 
         float innerCutoff = uSpotDirectionInner[i].w;
-        float outerCutoff = uSpotOuter[i].x;
+        float outerCutoff = uSpotParams[i].x;
 
         // Angle between the cone axis and this fragment.
         float theta = dot(
@@ -176,16 +207,68 @@ void main()
             1.0
         );
 
+        if (cone <= 0.0)
+        {
+            continue;
+        }
+
         vec3 radiance =
             uSpotColorIntensity[i].rgb
             * uSpotColorIntensity[i].a
             * attenuate(distance, uSpotPositionRange[i].w)
             * cone;
 
-        color += blinnPhong(
-            N, V, L, radiance, albedo,
-            specularStrength, uShininess
+        float shadow = spotShadow(
+            i,
+            vWorldPosition,
+            geometricNormal,
+            distance
         );
+
+        color += shadow * shadeDirect(surface, L, radiance);
+    }
+
+    // -----------------------------------------------------
+    // Ambient: Image-Based Lighting
+    // -----------------------------------------------------
+    //
+    // Split-sum approximation (Karis 2013): diffuse from
+    // the irradiance map; specular from the prefiltered
+    // map at the reflection direction, scaled by the BRDF
+    // lookup table.
+
+    vec3 N = surface.N;
+    vec3 V = surface.V;
+
+    float NdotV = max(dot(N, V), 1e-4);
+
+    vec3 F = fresnelSchlickRoughness(NdotV, surface.F0, roughness);
+
+    vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+
+    vec3 irradiance = texture(uIrradianceMap, N).rgb;
+
+    vec3 diffuse = irradiance * baseColor;
+
+    vec3 R = reflect(-V, N);
+
+    vec3 prefiltered = textureLod(
+        uPrefilterMap,
+        R,
+        roughness * float(PREFILTER_MIP_LEVELS - 1)
+    ).rgb;
+
+    vec2 brdf = texture(uBrdfLut, vec2(NdotV, roughness)).rg;
+
+    vec3 specular = prefiltered * (F * brdf.x + brdf.y);
+
+    color += (kD * diffuse + specular) * occlusion * uLightParams.x;
+
+    color += emissive;
+
+    if (uLightParams.w > 0.5)
+    {
+        color *= cascadeDebugColor(viewDepth);
     }
 
     FragColor = vec4(color, 1.0);

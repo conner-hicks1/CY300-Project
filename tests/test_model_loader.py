@@ -135,3 +135,61 @@ def test_gltf_uv_flip():
     apex = np.isclose(data.positions[:, 1], 0.8)
 
     assert np.allclose(data.uvs[apex], (0.5, 1.0))
+
+
+# =========================================================
+# glTF Materials
+# =========================================================
+
+def test_pyramid_gltf_material_description():
+
+    from graphics.model_loader import load_gltf_material
+
+    material = load_gltf_material(MODELS / "pyramid.gltf")
+
+    assert material.name == "Terracotta"
+    assert material.base_color == pytest.approx((0.8, 0.36, 0.18))
+    assert material.metallic == 0.0
+    assert material.roughness == pytest.approx(0.55)
+    assert material.textures == {}
+
+
+def test_obj_has_no_gltf_material():
+
+    from graphics.model_loader import load_gltf_material
+
+    assert load_gltf_material(MODELS / "torus.obj") is None
+
+
+def test_gltf_material_textures_file_and_embedded(tmp_path):
+
+    import base64
+
+    from graphics.model_loader import load_gltf_material
+
+    source = json.loads((MODELS / "pyramid.gltf").read_text())
+
+    png = base64.b64decode(
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="
+    )
+
+    (tmp_path / "albedo.png").write_bytes(png)
+
+    source["images"] = [
+        {"uri": "albedo.png"},
+        {"uri": "data:image/png;base64," + base64.b64encode(png).decode()},
+    ]
+    source["textures"] = [{"source": 0}, {"source": 1}]
+    source["materials"][0]["pbrMetallicRoughness"]["baseColorTexture"] = {"index": 0}
+    source["materials"][0]["normalTexture"] = {"index": 1, "scale": 0.5}
+    source["materials"][0]["emissiveFactor"] = [1.0, 0.5, 0.0]
+
+    path = tmp_path / "textured.gltf"
+    path.write_text(json.dumps(source))
+
+    material = load_gltf_material(path)
+
+    assert material.textures["base_color"].path == tmp_path / "albedo.png"
+    assert material.textures["normal"].data == png
+    assert material.normal_scale == 0.5
+    assert material.emissive == pytest.approx((1.0, 0.5, 0.0))

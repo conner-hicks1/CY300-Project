@@ -34,6 +34,21 @@
       ]
     }
   ],
+  "materials": [
+    {
+      "name": "Terracotta",
+      "pbrMetallicRoughness": {
+        "baseColorFactor": [
+          0.8,
+          0.36,
+          0.18,
+          1.0
+        ],
+        "metallicFactor": 0.0,
+        "roughnessFactor": 0.55
+      }
+    }
+  ],
   "meshes": [
     {
       "name": "Pyramid",
@@ -45,6 +60,7 @@
             "TEXCOORD_0": 2
           },
           "indices": 3,
+          "material": 0,
           "mode": 4
         }
       ]

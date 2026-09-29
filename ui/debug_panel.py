@@ -10,6 +10,7 @@ from core.profiler import Profiler
 from core.timer import Timer
 from core.window import Window
 
+from graphics.lighting import MAX_CASCADES
 from graphics.render_settings import (
     RenderSettings,
     Tonemapper
@@ -20,6 +21,7 @@ from graphics.renderer import (
 )
 
 from resources.resources import Resources
+from ui.window_utils import keep_window_on_screen
 
 
 # =========================================================
@@ -112,6 +114,8 @@ class DebugPanel:
         )
 
         imgui.begin("Profiler")
+
+        keep_window_on_screen()
 
         profiler = context.profiler
 
@@ -377,6 +381,8 @@ class DebugPanel:
 
         imgui.begin("Engine")
 
+        keep_window_on_screen()
+
         timer = context.timer
         stats = context.stats
         settings = context.settings
@@ -409,13 +415,7 @@ class DebugPanel:
             imgui.TreeNodeFlags_.default_open
         ):
 
-            _, settings.exposure = imgui.slider_float(
-                "Exposure",
-                settings.exposure,
-                0.05,
-                8.0,
-                "%.2f"
-            )
+            _slider(settings, "exposure", "Exposure", 0.05, 8.0, logarithmic=True)
 
             names = [
                 tonemapper.name.title()
@@ -431,85 +431,72 @@ class DebugPanel:
             if changed:
                 settings.tonemapper = Tonemapper(index)
 
-            _, settings.gamma = imgui.slider_float(
-                "Gamma",
-                settings.gamma,
-                1.0,
-                3.0,
-                "%.2f"
-            )
+            _slider(settings, "gamma", "Gamma", 1.0, 3.0)
 
-            changed, color = imgui.color_edit3(
-                "Background",
-                list(settings.clear_color)
-            )
+            _checkbox(settings, "fxaa_enabled", "FXAA anti-aliasing")
 
-            if changed:
-                settings.clear_color = tuple(color)
+        # -------------------------------------------------
+        # Bloom
+        # -------------------------------------------------
+
+        if imgui.collapsing_header("Bloom"):
+
+            _checkbox(settings, "bloom_enabled", "Enabled##bloom")
+            _slider(settings, "bloom_intensity", "Intensity##bloom", 0.0, 0.3, "%.3f")
+            _slider(settings, "bloom_radius", "Radius##bloom", 0.001, 0.02, "%.4f")
+
+        # -------------------------------------------------
+        # Sky & IBL
+        # -------------------------------------------------
+
+        if imgui.collapsing_header("Sky & IBL"):
+
+            _checkbox(settings, "show_sky", "Show sky")
+
+            if not settings.show_sky:
+                _color(settings, "clear_color", "Background")
+
+            _color(settings, "sky_zenith_color", "Zenith")
+            _color(settings, "sky_horizon_color", "Horizon")
+            _color(settings, "ground_color", "Ground")
+            _slider(settings, "sky_intensity", "Sky intensity", 0.0, 4.0)
+            _slider(settings, "sun_size", "Sun size (deg)", 0.1, 5.0)
+            _slider(settings, "ibl_intensity", "Ambient (IBL)", 0.0, 3.0)
+
+            imgui.text_disabled(
+                "The sun follows the directional light.\n"
+                "Lighting re-bakes when the sky changes."
+            )
 
         # -------------------------------------------------
         # Shadows
         # -------------------------------------------------
 
-        if imgui.collapsing_header(
-            "Shadows",
-            imgui.TreeNodeFlags_.default_open
-        ):
+        if imgui.collapsing_header("Shadows"):
 
-            _, settings.shadows_enabled = imgui.checkbox(
-                "Enabled",
-                settings.shadows_enabled
-            )
+            _checkbox(settings, "shadows_enabled", "Enabled##shadows")
 
-            sizes = [512, 1024, 2048, 4096]
+            _slider(settings, "shadow_distance", "Distance", 2.0, 150.0, "%.1f", logarithmic=True)
 
-            current = (
-                sizes.index(settings.shadow_map_size)
-                if settings.shadow_map_size in sizes
-                else 2
-            )
-
-            changed, index = imgui.combo(
-                "Map size",
-                current,
-                [str(size) for size in sizes]
+            changed, count = imgui.slider_int(
+                "Cascades",
+                int(settings.cascade_count),
+                1,
+                MAX_CASCADES
             )
 
             if changed:
-                settings.shadow_map_size = sizes[index]
+                settings.cascade_count = count
 
-            _, settings.shadow_extent = imgui.slider_float(
-                "Extent",
-                settings.shadow_extent,
-                1.0,
-                50.0,
-                "%.1f"
-            )
+            _slider(settings, "cascade_split_lambda", "Split lambda", 0.0, 1.0)
 
-            changed, center = imgui.drag_float3(
-                "Center",
-                list(settings.shadow_center),
-                0.05
-            )
+            _size_combo(settings, "shadow_map_size", "Cascade size")
+            _size_combo(settings, "spot_shadow_map_size", "Spot map size")
 
-            if changed:
-                settings.shadow_center = tuple(center)
+            _slider(settings, "shadow_normal_offset", "Normal offset", 0.0, 5.0)
+            _slider(settings, "shadow_depth_bias", "Depth bias", 0.0, 0.005, "%.5f")
 
-            _, settings.shadow_bias_min = imgui.slider_float(
-                "Bias min",
-                settings.shadow_bias_min,
-                0.0,
-                0.01,
-                "%.5f"
-            )
-
-            _, settings.shadow_bias_max = imgui.slider_float(
-                "Bias max",
-                settings.shadow_bias_max,
-                0.0,
-                0.05,
-                "%.4f"
-            )
+            _checkbox(settings, "visualize_cascades", "Visualize cascades")
 
         # -------------------------------------------------
         # Debug
@@ -591,27 +578,46 @@ class DebugPanel:
                     material.set_vec3("uBaseColor", color)
 
                 changed, value = imgui.slider_float(
-                    "Specular",
-                    material.get_value("uSpecularStrength", defaults["uSpecularStrength"]),
+                    "Metallic",
+                    material.get_value("uMetallic", defaults["uMetallic"]),
                     0.0,
-                    2.0,
+                    1.0,
                     "%.2f"
                 )
 
                 if changed:
-                    material.set_float("uSpecularStrength", value)
+                    material.set_float("uMetallic", value)
 
                 changed, value = imgui.slider_float(
-                    "Shininess",
-                    material.get_value("uShininess", defaults["uShininess"]),
+                    "Roughness",
+                    material.get_value("uRoughness", defaults["uRoughness"]),
+                    0.0,
                     1.0,
-                    512.0,
-                    "%.0f",
-                    imgui.SliderFlags_.logarithmic
+                    "%.2f"
                 )
 
                 if changed:
-                    material.set_float("uShininess", value)
+                    material.set_float("uRoughness", value)
+
+                changed, color = imgui.color_edit3(
+                    "Emissive",
+                    list(material.get_value("uEmissive", defaults["uEmissive"])),
+                    imgui.ColorEditFlags_.hdr.value | imgui.ColorEditFlags_.float.value
+                )
+
+                if changed:
+                    material.set_vec3("uEmissive", color)
+
+                changed, value = imgui.slider_float(
+                    "Occlusion",
+                    material.get_value("uOcclusionStrength", defaults["uOcclusionStrength"]),
+                    0.0,
+                    1.0,
+                    "%.2f"
+                )
+
+                if changed:
+                    material.set_float("uOcclusionStrength", value)
 
                 changed, value = imgui.slider_float(
                     "Normal strength",
@@ -653,3 +659,87 @@ class DebugPanel:
 
             imgui.pop_id()
 
+
+# =========================================================
+# Settings Widgets
+# =========================================================
+
+def _slider(
+    settings,
+    field: str,
+    label: str,
+    minimum: float,
+    maximum: float,
+    fmt: str = "%.2f",
+    logarithmic: bool = False
+):
+
+    changed, value = imgui.slider_float(
+        label,
+        float(getattr(settings, field)),
+        minimum,
+        maximum,
+        fmt,
+        imgui.SliderFlags_.logarithmic.value if logarithmic else 0
+    )
+
+    if changed:
+        setattr(settings, field, value)
+
+
+def _checkbox(
+    settings,
+    field: str,
+    label: str
+):
+
+    changed, value = imgui.checkbox(
+        label,
+        bool(getattr(settings, field))
+    )
+
+    if changed:
+        setattr(settings, field, value)
+
+
+def _color(
+    settings,
+    field: str,
+    label: str
+):
+
+    changed, value = imgui.color_edit3(
+        label,
+        list(getattr(settings, field)),
+        imgui.ColorEditFlags_.hdr.value | imgui.ColorEditFlags_.float.value
+    )
+
+    if changed:
+        setattr(settings, field, tuple(value))
+
+
+_MAP_SIZES = [512, 1024, 2048, 4096]
+
+
+def _size_combo(
+    settings,
+    field: str,
+    label: str
+):
+
+    current = int(getattr(settings, field))
+
+    index = (
+        _MAP_SIZES.index(current)
+        if current in _MAP_SIZES
+        else 2
+    )
+
+    changed, index = imgui.combo(
+        label,
+        index,
+        [str(size) for size in _MAP_SIZES]
+    )
+
+    if changed:
+        setattr(settings, field, _MAP_SIZES[index])

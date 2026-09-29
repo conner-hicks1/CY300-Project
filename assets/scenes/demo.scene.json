@@ -69,8 +69,7 @@
             0.96,
             0.9
           ],
-          "intensity": 1.2,
-          "ambient": 0.05,
+          "intensity": 5.0,
           "casts_shadows": true
         }
       }
@@ -139,7 +138,7 @@
             0.55,
             0.25
           ],
-          "intensity": 5.0,
+          "intensity": 15.0,
           "range": 6.0
         }
       }
@@ -173,10 +172,11 @@
             0.5,
             1.0
           ],
-          "intensity": 10.0,
+          "intensity": 30.0,
           "range": 8.0,
           "inner_angle": 18.0,
-          "outer_angle": 28.0
+          "outer_angle": 28.0,
+          "casts_shadows": true
         }
       }
     },
@@ -284,6 +284,36 @@
       "id": 8,
       "components": {
         "Name": {
+          "name": "Glow Orb"
+        },
+        "Transform": {
+          "position": [
+            -0.4,
+            -0.3,
+            1.5
+          ],
+          "rotation": [
+            0.0,
+            0.0,
+            0.0
+          ],
+          "scale": [
+            0.3,
+            0.3,
+            0.3
+          ]
+        },
+        "MeshRenderer": {
+          "mesh": "sphere",
+          "material": "glow",
+          "casts_shadows": false
+        }
+      }
+    },
+    {
+      "id": 9,
+      "components": {
+        "Name": {
           "name": "Sphere"
         },
         "Transform": {
@@ -311,7 +341,7 @@
       }
     },
     {
-      "id": 9,
+      "id": 10,
       "components": {
         "Name": {
           "name": "Torus (OBJ)"
@@ -348,7 +378,7 @@
       }
     },
     {
-      "id": 10,
+      "id": 11,
       "components": {
         "Name": {
           "name": "Pyramid (glTF)"
@@ -372,32 +402,54 @@
         },
         "MeshRenderer": {
           "mesh": "assets/models/pyramid.gltf",
-          "material": "cube",
+          "material": "assets/models/pyramid.gltf#material",
           "casts_shadows": true
         }
       }
     }
   ],
   "render_settings": {
+    "exposure": 0.75,
+    "tonemapper": "ACES",
+    "gamma": 2.2,
+    "fxaa_enabled": true,
+    "bloom_enabled": true,
+    "bloom_intensity": 0.04,
+    "bloom_radius": 0.005,
+    "show_sky": true,
     "clear_color": [
       0.01,
       0.01,
       0.015
     ],
-    "exposure": 1.0,
-    "tonemapper": "ACES",
-    "gamma": 2.2,
-    "shadows_enabled": true,
-    "shadow_map_size": 2048,
-    "shadow_extent": 8.0,
-    "shadow_center": [
-      0.0,
-      0.0,
-      0.0
+    "sky_zenith_color": [
+      0.05,
+      0.12,
+      0.36
     ],
-    "shadow_bias_min": 0.0005,
-    "shadow_bias_max": 0.005,
+    "sky_horizon_color": [
+      0.24,
+      0.32,
+      0.44
+    ],
+    "ground_color": [
+      0.09,
+      0.08,
+      0.07
+    ],
+    "sky_intensity": 1.0,
+    "sun_size": 0.8,
+    "ibl_intensity": 1.0,
+    "shadows_enabled": true,
+    "shadow_distance": 30.0,
+    "cascade_count": 4,
+    "cascade_split_lambda": 0.75,
+    "shadow_map_size": 2048,
+    "spot_shadow_map_size": 1024,
+    "shadow_normal_offset": 1.5,
+    "shadow_depth_bias": 0.0005,
     "show_light_gizmos": true,
-    "gizmo_scale": 0.12
+    "gizmo_scale": 0.12,
+    "visualize_cascades": false
   }
 }

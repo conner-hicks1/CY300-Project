@@ -8,7 +8,7 @@ changing it):
 
     assets/textures/tiles_albedo.png     sRGB color
     assets/textures/tiles_normal.png     tangent-space normal map (OpenGL, +Y up)
-    assets/textures/tiles_specular.png   R = specular mask
+    assets/textures/tiles_orm.png        R occlusion, G roughness, B metallic (glTF packing)
     assets/models/torus.obj              OBJ with v/vt/vn
     assets/models/pyramid.gltf           glTF 2.0, embedded buffer, node transform
 
@@ -134,18 +134,31 @@ def generate_tiles(
     )
 
     # -----------------------------------------------------
-    # Specular Mask
+    # Occlusion / Roughness / Metallic
     # -----------------------------------------------------
+    #
+    # glTF packs these into one texture: R occlusion,
+    # G roughness, B metallic. Glazed tiles are smooth, the
+    # grout is rough and sits in a groove (occluded), and
+    # nothing is metal.
 
-    specular = np.where(
+    roughness = np.where(
         in_grout,
-        0.05,
-        0.9
+        0.9,
+        0.4 + noise * 4.0
     )
 
+    # Darken toward the groove: the bevel ramps back up.
+    occlusion = 0.55 + 0.45 * np.clip(height, 0.0, 1.0)
+
+    metallic = np.zeros_like(height)
+
     _save_rgb(
-        TEXTURES / "tiles_specular.png",
-        np.repeat(specular[..., None], 3, axis=-1)
+        TEXTURES / "tiles_orm.png",
+        np.stack(
+            (occlusion, np.clip(roughness, 0.05, 1.0), metallic),
+            axis=-1
+        )
     )
 
 
@@ -364,6 +377,16 @@ def generate_pyramid():
                 "scale": [1.0, 1.0, 1.0],
             },
         ],
+        "materials": [
+            {
+                "name": "Terracotta",
+                "pbrMetallicRoughness": {
+                    "baseColorFactor": [0.8, 0.36, 0.18, 1.0],
+                    "metallicFactor": 0.0,
+                    "roughnessFactor": 0.55,
+                },
+            }
+        ],
         "meshes": [
             {
                 "name": "Pyramid",
@@ -375,6 +398,7 @@ def generate_pyramid():
                             "TEXCOORD_0": 2,
                         },
                         "indices": 3,
+                        "material": 0,
                         "mode": 4,
                     }
                 ],

@@ -322,3 +322,77 @@ def test_file_ids_match_serialized_ids(resources, serializer):
     entry = next(e for e in data["entities"] if e["id"] == ids[camera.index])
 
     assert entry["components"]["Name"]["name"] == "Camera"
+
+
+# =========================================================
+# Compatibility / Model Materials
+# =========================================================
+
+def test_obsolete_component_field_is_ignored(resources, serializer):
+
+    scene = Scene("s")
+    sun = scene.create_entity()
+    scene.add_component(sun, TransformComponent())
+    scene.add_component(sun, DirectionalLightComponent(intensity=4.0))
+
+    data = serializer.serialize(scene)
+    data["entities"][0]["components"]["DirectionalLight"]["ambient"] = 0.1   # pre-IBL files
+
+    loaded = Scene("x")
+    serializer.deserialize(data, loaded)
+
+    light = loaded.get_component(loaded.entities()[0], DirectionalLightComponent)
+
+    assert light.intensity == 4.0
+
+
+def test_unknown_render_settings_are_skipped(resources, serializer):
+
+    data = serializer.serialize(Scene("s"), RenderSettings())
+    data["render_settings"]["shadow_extent"] = 8.0          # removed setting
+    data["render_settings"]["exposure"] = 0.5
+
+    settings = RenderSettings()
+    serializer.deserialize(data, Scene("x"), settings)
+
+    assert settings.exposure == 0.5
+
+
+def test_model_material_loads_on_demand(resources, tmp_path):
+
+    from scene.scene_serializer import model_material_key
+
+    model = tmp_path / "thing.gltf"
+    model.write_text("{}")
+
+    requested = []
+
+    def load_material(key):
+        requested.append(key)
+        return Placeholder()
+
+    serializer = SceneSerializer(resources, load_model=lambda p: Placeholder(), load_material=load_material)
+
+    data = serializer.serialize(build_scene(resources))
+    key = model_material_key(str(model))
+    data["entities"][0]["components"]["MeshRenderer"]["material"] = key
+
+    scene = Scene("x")
+    serializer.deserialize(data, scene)
+
+    assert requested == [key]
+    assert resources.materials.contains(key)
+
+
+def test_model_material_without_loader_is_an_error(resources, serializer, tmp_path):
+
+    from scene.scene_serializer import model_material_key
+
+    model = tmp_path / "thing.gltf"
+    model.write_text("{}")
+
+    data = serializer.serialize(build_scene(resources))
+    data["entities"][0]["components"]["MeshRenderer"]["material"] = model_material_key(str(model))
+
+    with pytest.raises(SceneFormatError, match="unknown material"):
+        serializer.deserialize(data, Scene("x"))

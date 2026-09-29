@@ -80,6 +80,17 @@ SCENE_FORMAT_VERSION = 1
 
 MODEL_EXTENSIONS = (".obj", ".gltf", ".glb")
 
+# Materials imported from a model file are keyed
+# "<model path>#material".
+MODEL_MATERIAL_SUFFIX = "material"
+
+
+def model_material_key(
+    model_path: str
+) -> str:
+
+    return f"{model_path}#{MODEL_MATERIAL_SUFFIX}"
+
 
 class SceneFormatError(ResourceError):
     """A scene file is malformed or references missing resources."""
@@ -104,6 +115,10 @@ class _DecodeContext:
     resources: Resources
 
     load_model: Callable[[str], object]
+
+    # material key -> Material for model materials
+    # ("<model path>#material"); None if unsupported.
+    load_material: Callable[[str], object] | None = None
 
     # Where in the file we are, for error messages.
     location: str = ""
@@ -156,7 +171,8 @@ def _dataclass_codec(
     name: str,
     component_type: type,
     create_default: Callable[[Resources], object] | None = None,
-    removable: bool = True
+    removable: bool = True,
+    removed_fields: frozenset[str] = frozenset()
 ) -> ComponentCodec:
     """
     Codec for plain dataclass components whose fields are
@@ -164,6 +180,9 @@ def _dataclass_codec(
     Values are validated/coerced against each field's
     default, so a file cannot put a string where a float
     belongs.
+
+    removed_fields: fields older versions wrote; they are
+    ignored (with a warning) so old scene files still load.
     """
 
     component_fields = {
@@ -186,7 +205,18 @@ def _dataclass_codec(
         context: _DecodeContext
     ):
 
-        unknown = set(data) - set(component_fields)
+        obsolete = set(data) & removed_fields
+
+        if obsolete:
+
+            Logger.warning(
+                "[SceneSerializer] %s: ignoring obsolete %s field(s): %s",
+                context.location,
+                name,
+                ", ".join(sorted(obsolete))
+            )
+
+        unknown = set(data) - set(component_fields) - removed_fields
 
         if unknown:
 
@@ -420,6 +450,9 @@ def _decode_mesh_renderer(
     )
 
     if material is None:
+        material = _load_model_material(material_key, context)
+
+    if material is None:
 
         available = ", ".join(
             key
@@ -442,6 +475,31 @@ def _decode_mesh_renderer(
         mesh=mesh,
         material=material,
         casts_shadows=casts_shadows
+    )
+
+
+def _load_model_material(
+    key: str,
+    context: _DecodeContext
+):
+    """
+    Materials imported with a model are keyed
+    "<model path>#material"; load one on demand.
+    """
+
+    model_path, separator, suffix = key.partition("#")
+
+    if (
+        not separator
+        or suffix != MODEL_MATERIAL_SUFFIX
+        or context.load_material is None
+        or not Path(model_path).is_file()
+    ):
+        return None
+
+    return context.resources.materials.load(
+        key,
+        lambda: context.load_material(key)
     )
 
 
@@ -570,7 +628,10 @@ COMPONENT_CODECS: tuple[ComponentCodec, ...] = (
     _dataclass_codec(
         "DirectionalLight",
         DirectionalLightComponent,
-        create_default=lambda _: DirectionalLightComponent()
+        create_default=lambda _: DirectionalLightComponent(),
+
+        # Replaced by image-based lighting.
+        removed_fields=frozenset({"ambient"})
     ),
 
     _dataclass_codec(
@@ -612,12 +673,17 @@ class SceneSerializer:
     def __init__(
         self,
         resources: Resources,
-        load_model: Callable[[str], object] | None = None
+        load_model: Callable[[str], object] | None = None,
+        load_material: Callable[[str], object] | None = None
     ):
         """
         load_model: path -> Mesh, used for model-file mesh
             keys that are not loaded yet. Defaults to
             MeshFactory.load_model (needs a GL context).
+
+        load_material: "<model path>#material" -> Material,
+            for model materials not loaded yet. Without it,
+            such keys must already be loaded.
         """
 
         if load_model is None:
@@ -628,6 +694,7 @@ class SceneSerializer:
 
         self._resources = resources
         self._load_model = load_model
+        self._load_material = load_material
 
     # =====================================================
     # Encode
@@ -929,6 +996,7 @@ class SceneSerializer:
             context = _DecodeContext(
                 resources=self._resources,
                 load_model=self._load_model,
+                load_material=self._load_material,
                 location=f"entities[{position}]"
             )
 
@@ -1256,17 +1324,25 @@ def decode_render_settings(
         for field in fields(RenderSettings)
     }
 
+    # Settings come and go between engine versions and are
+    # never essential to a scene: unknown ones (e.g. from
+    # an older engine) are skipped, not fatal.
+
     unknown = set(data) - known
 
     if unknown:
 
-        raise context.error(
-            f"unknown field(s): {', '.join(sorted(unknown))}"
+        Logger.warning(
+            "[SceneSerializer] Ignoring unknown render setting(s): %s",
+            ", ".join(sorted(unknown))
         )
 
     values = {}
 
     for key, value in data.items():
+
+        if key in unknown:
+            continue
 
         if key == "tonemapper":
 

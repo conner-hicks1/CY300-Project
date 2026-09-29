@@ -2,6 +2,7 @@ import base64
 import json
 import struct
 
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -808,3 +809,197 @@ def _node_matrix(
     matrix[:3, 3] = (tx, ty, tz)
 
     return matrix
+
+
+# =========================================================
+# glTF Materials
+# =========================================================
+#
+# Only the first material used by the model is imported
+# (the geometry is merged into one mesh, so one material
+# covers it). Factors and textures follow the glTF 2.0
+# metallic-roughness model, which the engine's lit shader
+# implements directly.
+
+@dataclass(slots=True)
+class ImageSource:
+
+    # Exactly one of these is set.
+    path: Path | None = None
+    data: bytes | None = None
+
+    # Stable identifier for resource keys.
+    label: str = ""
+
+
+@dataclass(slots=True)
+class MaterialDescription:
+
+    name: str
+
+    base_color: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    metallic: float = 1.0
+    roughness: float = 1.0
+    emissive: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    normal_scale: float = 1.0
+    occlusion_strength: float = 1.0
+
+    # "base_color", "metallic_roughness", "normal",
+    # "occlusion", "emissive" -> image
+    textures: dict[str, ImageSource] = field(
+        default_factory=dict
+    )
+
+
+def load_gltf_material(
+    path
+) -> MaterialDescription | None:
+    """
+    The first material the model's geometry uses, or None
+    (no materials, or not a glTF file).
+    """
+
+    path = Path(
+        path
+    )
+
+    if path.suffix.lower() not in (".gltf", ".glb"):
+        return None
+
+    document, glb_binary = _read_gltf_document(
+        path
+    )
+
+    materials = document.get(
+        "materials",
+        []
+    )
+
+    material_index = None
+
+    for mesh_index, _ in _mesh_instances(document):
+
+        for primitive in document["meshes"][mesh_index].get("primitives", []):
+
+            if "material" in primitive:
+
+                material_index = primitive["material"]
+
+                break
+
+        if material_index is not None:
+            break
+
+    if material_index is None or material_index >= len(materials):
+        return None
+
+    material = materials[material_index]
+
+    pbr = material.get(
+        "pbrMetallicRoughness",
+        {}
+    )
+
+    base_color = pbr.get(
+        "baseColorFactor",
+        [1.0, 1.0, 1.0, 1.0]
+    )
+
+    description = MaterialDescription(
+        name=material.get("name", f"material{material_index}"),
+        base_color=tuple(float(c) for c in base_color[:3]),
+        metallic=float(pbr.get("metallicFactor", 1.0)),
+        roughness=float(pbr.get("roughnessFactor", 1.0)),
+        emissive=tuple(
+            float(c) * float(
+                material.get("extensions", {})
+                .get("KHR_materials_emissive_strength", {})
+                .get("emissiveStrength", 1.0)
+            )
+            for c in material.get("emissiveFactor", [0.0, 0.0, 0.0])
+        ),
+        normal_scale=float(material.get("normalTexture", {}).get("scale", 1.0)),
+        occlusion_strength=float(material.get("occlusionTexture", {}).get("strength", 1.0))
+    )
+
+    buffers = None
+
+    for slot, info in (
+        ("base_color", pbr.get("baseColorTexture")),
+        ("metallic_roughness", pbr.get("metallicRoughnessTexture")),
+        ("normal", material.get("normalTexture")),
+        ("occlusion", material.get("occlusionTexture")),
+        ("emissive", material.get("emissiveTexture")),
+    ):
+
+        if info is None:
+            continue
+
+        if buffers is None:
+
+            buffers = [
+                _load_buffer(path, buffer, glb_binary)
+                for buffer in document.get("buffers", [])
+            ]
+
+        description.textures[slot] = _image_source(
+            path,
+            document,
+            buffers,
+            info["index"]
+        )
+
+    return description
+
+
+def _image_source(
+    path: Path,
+    document: dict,
+    buffers: list[bytes],
+    texture_index: int
+) -> ImageSource:
+
+    texture = document["textures"][texture_index]
+
+    image_index = texture["source"]
+
+    image = document["images"][image_index]
+
+    label = f"image{image_index}"
+
+    uri = image.get("uri")
+
+    if uri is not None:
+
+        if uri.startswith("data:"):
+
+            _, encoded = uri.split(",", 1)
+
+            return ImageSource(
+                data=base64.b64decode(encoded),
+                label=label
+            )
+
+        image_path = path.parent / uri
+
+        if not image_path.is_file():
+
+            raise ResourceError(
+                f"{path.name}: image file not found: {image_path}"
+            )
+
+        return ImageSource(
+            path=image_path,
+            label=label
+        )
+
+    view = document["bufferViews"][image["bufferView"]]
+
+    start = view.get("byteOffset", 0)
+
+    return ImageSource(
+        data=bytes(
+            buffers[view["buffer"]][start:start + view["byteLength"]]
+        ),
+        label=label
+    )

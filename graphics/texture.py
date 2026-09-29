@@ -1,3 +1,5 @@
+import io
+
 from pathlib import Path
 
 from PIL import Image
@@ -191,6 +193,39 @@ class Texture2D:
         )
 
         return texture
+
+    @classmethod
+    def from_encoded(
+        cls,
+        encoded: bytes,
+        *,
+        srgb: bool,
+        label: str = "<encoded>",
+        flip_vertical: bool = True
+    ) -> "Texture2D":
+        """
+        Decode a PNG/JPEG held in memory (e.g. an image
+        embedded in a .glb file).
+        """
+
+        with Image.open(io.BytesIO(encoded)) as image:
+
+            if flip_vertical:
+
+                image = image.transpose(
+                    Image.Transpose.FLIP_TOP_BOTTOM
+                )
+
+            image = image.convert("RGBA")
+
+            return cls.from_pixels(
+                image.width,
+                image.height,
+                image.tobytes(),
+                srgb=srgb,
+                generate_mipmaps=True,
+                label=label
+            )
 
     @classmethod
     def solid_color(

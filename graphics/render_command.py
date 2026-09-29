@@ -111,11 +111,14 @@ class RenderCommand:
     @staticmethod
     def bind_texture(
         texture_id: int,
-        slot: int
+        slot: int,
+        target: int = GL_TEXTURE_2D
     ):
         """
         Bind a raw GL texture (e.g. a framebuffer
-        attachment) to a texture unit.
+        attachment) to a texture unit. `target` is
+        GL_TEXTURE_2D, GL_TEXTURE_CUBE_MAP or
+        GL_TEXTURE_2D_ARRAY.
         """
 
         RenderState.set_active_texture_slot(
@@ -123,7 +126,7 @@ class RenderCommand:
         )
 
         glBindTexture(
-            GL_TEXTURE_2D,
+            target,
             texture_id
         )
 

@@ -114,6 +114,23 @@ def test_get_rejects_invalid_input_with_engine_error():
         registry.get(entity, Position)
 
 
+def test_clear_then_create_reuses_slots_in_order():
+
+    registry = Registry()
+
+    first = [registry.create() for _ in range(5)]
+
+    registry.clear()
+
+    second = [registry.create() for _ in range(5)]
+
+    # Same order as the first time (deterministic saves)...
+    assert [e.index for e in second] == [0, 1, 2, 3, 4]
+
+    # ...but old handles are still recognised as stale.
+    assert not any(registry.is_alive(e) for e in first)
+
+
 def test_stale_entity_is_rejected_after_slot_reuse():
 
     registry = Registry()

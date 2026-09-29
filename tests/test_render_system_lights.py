@@ -48,20 +48,24 @@ def test_gathers_all_light_types():
 
     scene = Scene("test")
 
-    add(scene, DirectionalLightComponent(ambient=0.1), Transform(rotation=(-45.0, 30.0, 0.0)))
+    add(scene, DirectionalLightComponent(), Transform(rotation=(-45.0, 30.0, 0.0)))
     add(scene, PointLightComponent(intensity=4.0, range=6.0), Transform(position=(1.5, 0.5, 1.0)))
-    add(scene, SpotLightComponent(), Transform(position=(-2.0, 2.0, -1.0), rotation=(-90.0, 0.0, 0.0)))
+    add(scene, SpotLightComponent(outer_angle=30.0, casts_shadows=False), Transform(position=(-2.0, 2.0, -1.0), rotation=(-90.0, 0.0, 0.0)))
 
     lighting = build(scene)
 
-    assert lighting.ambient == pytest.approx(0.1)
     assert np.allclose(lighting.directional.direction, (-0.3535534, -0.7071068, -0.6123725), atol=1e-6)
     assert np.allclose(lighting.point_lights[0].position, (1.5, 0.5, 1.0))
     assert np.allclose(lighting.spot_lights[0].direction, (0.0, -1.0, 0.0), atol=1e-6)
     assert lighting.spot_lights[0].inner_cutoff == pytest.approx(np.cos(np.radians(15.0)))
 
+    # Shadow inputs carried through for the shadow pass.
+    assert lighting.spot_lights[0].outer_angle == pytest.approx(30.0)
+    assert lighting.spot_lights[0].casts_shadows is False
+    assert lighting.directional.casts_shadows is True
 
-def test_no_directional_means_no_ambient():
+
+def test_no_directional_light():
 
     scene = Scene("test")
 
@@ -70,7 +74,6 @@ def test_no_directional_means_no_ambient():
     lighting = build(scene)
 
     assert lighting.directional is None
-    assert lighting.ambient == 0.0
 
 
 def test_light_positions_use_hierarchy():
@@ -127,23 +130,5 @@ def test_excess_point_lights_and_bad_range_are_tolerated():
     assert all(light.range > 0.0 for light in lighting.point_lights)
 
 
-def test_light_space_matrix_keeps_extent_in_clip_space():
-
-    direction = np.array([-0.35, -0.7, -0.61])
-    direction /= np.linalg.norm(direction)
-
-    matrix = RenderSystem.light_space_matrix(direction, (0.0, 0.0, 0.0), 8.0)
-
-    # Points inside the shadow area land inside NDC.
-    for point in [(0, 0, 0), (7, 0, 7), (-7, 0, -7), (0, 2, 0)]:
-
-        clip = matrix @ np.array([*point, 1.0])
-
-        assert np.all(np.abs(clip[:3] / clip[3]) <= 1.0)
-
-
-def test_light_space_matrix_handles_straight_down_light():
-
-    matrix = RenderSystem.light_space_matrix((0.0, -1.0, 0.0), (0.0, 0.0, 0.0), 5.0)
-
-    assert np.all(np.isfinite(matrix))
+# Shadow matrices (cascades, spot lights) are tested in
+# tests/test_shadows.py.

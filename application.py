@@ -36,6 +36,7 @@ from ecs.entity import Entity
 from graphics.gpu_timer import GpuTimer
 from graphics.material import Material
 from graphics.mesh_factory import MeshFactory
+from graphics.model_loader import load_gltf_material
 from graphics.render_command import RenderCommand
 from graphics.renderer import Renderer
 from graphics.shader import Shader
@@ -53,7 +54,10 @@ from systems.rotator_system import RotatorSystem
 from systems.transform_system import TransformSystem
 
 from scene.scene import Scene
-from scene.scene_serializer import SceneSerializer
+from scene.scene_serializer import (
+    SceneSerializer,
+    model_material_key
+)
 
 from editor.scene_editor import SceneEditor
 
@@ -276,7 +280,8 @@ class Application:
         self._load_resources()
 
         self.serializer = SceneSerializer(
-            self.resources
+            self.resources,
+            load_material=self._create_model_material
         )
 
         self.editor = SceneEditor(
@@ -286,7 +291,8 @@ class Application:
             self.window,
             self.serializer,
             populate_demo_scene=self._populate_demo_scene,
-            load_model=MeshFactory.load_model
+            load_model=MeshFactory.load_model,
+            load_model_material=self._load_model_material_handle
         )
 
         self._load_initial_scene(
@@ -403,10 +409,11 @@ class Application:
             )
         )
 
-        handles["tiles_specular"] = resources.textures.load(
-            "tiles_specular",
+        # Occlusion (R), roughness (G), metallic (B).
+        handles["tiles_orm"] = resources.textures.load(
+            "tiles_orm",
             lambda: Texture2D(
-                "assets/textures/tiles_specular.png",
+                "assets/textures/tiles_orm.png",
                 srgb=False
             )
         )
@@ -415,15 +422,19 @@ class Application:
         # Materials
         # -------------------------------------------------
 
+        # Metallic-roughness PBR (see assets/shaders/lit.frag.glsl).
+        # Former Blinn-Phong shininess s maps to roughness
+        # ~ sqrt(2 / (s + 2)): 32 -> 0.24, 128 -> 0.12.
+
         lit = handles["lit"]
 
         def cube_material():
 
             material = Material(lit)
 
-            material.set_texture("uTexture", handles["steve"])
-            material.set_float("uSpecularStrength", 0.4)
-            material.set_float("uShininess", 32.0)
+            material.set_texture("uBaseColorMap", handles["steve"])
+            material.set_float("uMetallic", 0.0)
+            material.set_float("uRoughness", 0.55)
 
             return material
 
@@ -431,24 +442,30 @@ class Application:
 
             material = Material(lit)
 
-            material.set_texture("uTexture", handles["tiles_albedo"])
+            material.set_texture("uBaseColorMap", handles["tiles_albedo"])
             material.set_texture("uNormalMap", handles["tiles_normal"])
-            material.set_texture("uSpecularMap", handles["tiles_specular"])
-            material.set_float("uSpecularStrength", 0.8)
-            material.set_float("uShininess", 64.0)
+
+            # One texture carries occlusion, roughness and
+            # metallic; the factors let the map decide.
+            material.set_texture("uMetallicRoughnessMap", handles["tiles_orm"])
+            material.set_texture("uOcclusionMap", handles["tiles_orm"])
+            material.set_float("uMetallic", 1.0)
+            material.set_float("uRoughness", 1.0)
+
             material.set_vec2("uUVScale", (3.0, 3.0))
 
             return material
 
-        def glossy_material(color):
+        def pbr_material(color, metallic, roughness, emissive=(0.0, 0.0, 0.0)):
 
             def create():
 
                 material = Material(lit)
 
                 material.set_vec3("uBaseColor", color)
-                material.set_float("uSpecularStrength", 1.0)
-                material.set_float("uShininess", 128.0)
+                material.set_float("uMetallic", metallic)
+                material.set_float("uRoughness", roughness)
+                material.set_vec3("uEmissive", emissive)
 
                 return material
 
@@ -464,19 +481,31 @@ class Application:
             floor_material
         )
 
+        # Keys kept from the Blinn-Phong era so existing
+        # scene files still resolve.
+
         handles["red_material"] = resources.materials.load(
             "glossy_red",
-            glossy_material((0.8, 0.1, 0.08))
+            pbr_material((0.8, 0.08, 0.06), metallic=0.0, roughness=0.25)
         )
 
+        # Real gold: a metal whose base color is its
+        # reflectance.
         handles["gold_material"] = resources.materials.load(
             "glossy_gold",
-            glossy_material((0.9, 0.65, 0.2))
+            pbr_material((1.0, 0.77, 0.34), metallic=1.0, roughness=0.22)
         )
 
         handles["teal_material"] = resources.materials.load(
             "glossy_teal",
-            glossy_material((0.1, 0.6, 0.55))
+            pbr_material((0.1, 0.6, 0.55), metallic=0.0, roughness=0.4)
+        )
+
+        # Emissive: glows (and blooms) without lighting
+        # anything else.
+        handles["glow_material"] = resources.materials.load(
+            "glow",
+            pbr_material((0.05, 0.05, 0.05), metallic=0.0, roughness=0.5, emissive=(0.6, 3.5, 4.0))
         )
 
         # -------------------------------------------------
@@ -514,6 +543,107 @@ class Application:
             lambda: MeshFactory.load_model(
                 "assets/models/pyramid.gltf"
             )
+        )
+
+        # The pyramid's own glTF material.
+        pyramid_material_key = model_material_key(
+            "assets/models/pyramid.gltf"
+        )
+
+        handles["pyramid_material"] = resources.materials.load(
+            pyramid_material_key,
+            lambda: self._create_model_material(pyramid_material_key)
+        )
+
+    # =====================================================
+    # Model Materials
+    # =====================================================
+
+    # glTF texture slot -> (sampler, is color data)
+    _MODEL_TEXTURE_SLOTS = {
+        "base_color": ("uBaseColorMap", True),
+        "metallic_roughness": ("uMetallicRoughnessMap", False),
+        "normal": ("uNormalMap", False),
+        "occlusion": ("uOcclusionMap", False),
+        "emissive": ("uEmissiveMap", True),
+    }
+
+    def _create_model_material(
+        self,
+        key: str
+    ) -> Material:
+        """
+        Build the Material for "<model path>#material" from
+        the model file (glTF materials; other formats get a
+        neutral default).
+        """
+
+        model_path, _, _ = key.partition("#")
+
+        description = load_gltf_material(
+            model_path
+        )
+
+        material = Material(
+            self.handles["lit"]
+        )
+
+        if description is None:
+
+            material.set_float("uRoughness", 0.6)
+
+            return material
+
+        material.set_vec3("uBaseColor", description.base_color)
+        material.set_float("uMetallic", description.metallic)
+        material.set_float("uRoughness", description.roughness)
+        material.set_vec3("uEmissive", description.emissive)
+        material.set_float("uNormalStrength", description.normal_scale)
+        material.set_float("uOcclusionStrength", description.occlusion_strength)
+
+        for slot, source in description.textures.items():
+
+            sampler, srgb = self._MODEL_TEXTURE_SLOTS[slot]
+
+            texture_key = f"{model_path}#{source.label}:{'srgb' if srgb else 'linear'}"
+
+            def load(source=source, srgb=srgb, texture_key=texture_key):
+
+                if source.path is not None:
+                    return Texture2D(source.path, srgb=srgb)
+
+                return Texture2D.from_encoded(
+                    source.data,
+                    srgb=srgb,
+                    label=texture_key
+                )
+
+            material.set_texture(
+                sampler,
+                self.resources.textures.load(texture_key, load)
+            )
+
+        Logger.info(
+            "[Application] Imported material '%s' from %s.",
+            description.name,
+            model_path
+        )
+
+        return material
+
+    def _load_model_material_handle(
+        self,
+        model_path: str
+    ):
+        """Handle of a model's material (loading it once)."""
+
+        key = model_material_key(
+            model_path
+        )
+
+        return self.resources.materials.load(
+            key,
+            lambda: self._create_model_material(key)
         )
 
     # =====================================================
@@ -609,8 +739,7 @@ class Application:
             ),
             DirectionalLightComponent(
                 color=(1.0, 0.96, 0.9),
-                intensity=1.2,
-                ambient=0.05
+                intensity=5.0
             )
         )
 
@@ -635,7 +764,7 @@ class Application:
             ),
             PointLightComponent(
                 color=(1.0, 0.55, 0.25),
-                intensity=5.0,
+                intensity=15.0,
                 range=6.0
             ),
             parent=pivot
@@ -652,7 +781,7 @@ class Application:
             ),
             SpotLightComponent(
                 color=(0.3, 0.5, 1.0),
-                intensity=10.0,
+                intensity=30.0,
                 range=8.0,
                 inner_angle=18.0,
                 outer_angle=28.0
@@ -709,6 +838,21 @@ class Application:
             parent=cube
         )
 
+        # Emissive: shows off bloom.
+
+        self._create_entity(
+            "Glow Orb",
+            Transform(
+                position=(-0.4, -0.3, 1.5),
+                scale=(0.3, 0.3, 0.3)
+            ),
+            MeshRendererComponent(
+                mesh=handles["sphere"],
+                material=handles["glow_material"],
+                casts_shadows=False
+            )
+        )
+
         self._create_entity(
             "Sphere",
             Transform(
@@ -742,7 +886,7 @@ class Application:
             ),
             MeshRendererComponent(
                 mesh=handles["pyramid"],
-                material=handles["cube_material"]
+                material=handles["pyramid_material"]
             )
         )
 

@@ -1,3 +1,5 @@
+import heapq
+
 from typing import (
     TypeVar,
     cast
@@ -40,6 +42,13 @@ class Registry:
             _EntitySlot
         ] = []
 
+        # Min-heap: the lowest free slot is reused first, so
+        # entities created after clear() (e.g. loading a
+        # scene) get indices 0, 1, 2, ... in creation order
+        # and saving the same scene twice gives the same
+        # file. Generations still bump on reuse, so stale
+        # handles stay invalid.
+
         self._free_indices: list[
             int
         ] = []
@@ -67,8 +76,8 @@ class Registry:
 
         if self._free_indices:
 
-            index = (
-                self._free_indices.pop()
+            index = heapq.heappop(
+                self._free_indices
             )
 
             slot = self._entities[
@@ -184,7 +193,8 @@ class Registry:
 
         slot.generation += 1
 
-        self._free_indices.append(
+        heapq.heappush(
+            self._free_indices,
             entity.index
         )
 

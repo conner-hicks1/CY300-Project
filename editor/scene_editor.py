@@ -100,8 +100,15 @@ class SceneEditor:
         window: Window,
         serializer: SceneSerializer,
         populate_demo_scene: Callable[[Scene], None],
-        load_model: Callable[[str], object]
+        load_model: Callable[[str], object],
+        load_model_material: Callable[[str], object] | None = None
     ):
+        """
+        load_model_material: model path -> Material handle
+            for the model's own material (glTF), used when
+            importing models. None = always use a default
+            material.
+        """
 
         self.scene = scene
         self.resources = resources
@@ -111,6 +118,7 @@ class SceneEditor:
 
         self._populate_demo_scene = populate_demo_scene
         self._load_model = load_model
+        self._load_model_material = load_model_material
 
         self.visible = True
 
@@ -1090,9 +1098,27 @@ class SceneEditor:
 
                 return
 
+            # The model's own material if it has one (glTF),
+            # else the default.
+
+            material = None
+
+            if self._load_model_material is not None:
+
+                try:
+                    material = self._load_model_material(key)
+
+                except Exception:
+
+                    Logger.exception(
+                        "[Editor] Could not import the material of %s; "
+                        "using the default.",
+                        key
+                    )
+
             renderer = MeshRendererComponent(
                 mesh=mesh,
-                material=_default_material(self.resources)
+                material=material or _default_material(self.resources)
             )
 
             self.create_entity(

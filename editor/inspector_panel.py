@@ -15,6 +15,7 @@ from ecs.components import (
     TransformComponent
 )
 from ecs.entity import Entity
+from ui.window_utils import keep_window_on_screen
 
 from scene.scene_serializer import (
     COMPONENT_CODECS,
@@ -54,6 +55,8 @@ def draw_inspector_panel(
     )
 
     imgui.begin("Inspector")
+
+    keep_window_on_screen()
 
     entity = editor.selected
 
@@ -513,11 +516,14 @@ def _edit_directional_light(
 ):
 
     inspector.color(component)
-    inspector.slider(component, "intensity", "Intensity", 0.0, 10.0)
-    inspector.slider(component, "ambient", "Ambient", 0.0, 1.0, "%.3f")
+    inspector.slider(component, "intensity", "Intensity", 0.0, 20.0)
     inspector.checkbox(component, "casts_shadows", "Casts shadows")
 
-    imgui.text_disabled("Direction = the entity's forward (-Z).")
+    imgui.text_disabled(
+        "Direction = the entity's forward (-Z).\n"
+        "Also places the sun in the sky; ambient light\n"
+        "comes from the sky (Engine > Sky & IBL)."
+    )
 
 
 def _edit_point_light(
@@ -526,8 +532,10 @@ def _edit_point_light(
 ):
 
     inspector.color(component)
-    inspector.slider(component, "intensity", "Intensity", 0.0, 50.0)
+    inspector.slider(component, "intensity", "Intensity", 0.0, 200.0, logarithmic=True)
     inspector.slider(component, "range", "Range", 0.1, 50.0)
+
+    imgui.text_disabled("Point lights do not cast shadows.")
 
 
 def _edit_spot_light(
@@ -536,8 +544,9 @@ def _edit_spot_light(
 ):
 
     inspector.color(component)
-    inspector.slider(component, "intensity", "Intensity", 0.0, 50.0)
+    inspector.slider(component, "intensity", "Intensity", 0.0, 200.0, logarithmic=True)
     inspector.slider(component, "range", "Range", 0.1, 50.0)
+    inspector.checkbox(component, "casts_shadows", "Casts shadows")
     inspector.slider(component, "outer_angle", "Outer angle", 0.0, 89.0, "%.1f")
 
     # Inner can never exceed outer.

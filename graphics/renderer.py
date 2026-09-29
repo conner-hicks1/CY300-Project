@@ -15,7 +15,7 @@ from graphics.texture import Texture2D
 from graphics.uniform_blocks import (
     CAMERA_BLOCK,
     LIGHTS_BLOCK,
-    ShadowParameters,
+    LightingFrame,
     pack_camera_block,
     pack_lights_block
 )
@@ -49,11 +49,17 @@ class Renderer:
     # Texture Units
     # =====================================================
     #
-    # Material textures use units 0 .. SHADOW_MAP_SLOT - 1.
-    # The shadow map stays bound on its own unit for the
-    # whole frame.
+    # Material textures use units 0 .. FRAME_TEXTURE_SLOT - 1.
+    # Per-frame engine textures (shadow maps, IBL maps) sit
+    # on the units from FRAME_TEXTURE_SLOT up and stay bound
+    # for the whole frame (see set_frame_textures()).
+    #
+    # Every sampler a shader uses is pointed at a unit that
+    # holds a texture of the matching type; samplers left at
+    # unit 0 could otherwise alias a different texture type,
+    # which OpenGL reports as an invalid operation.
 
-    SHADOW_MAP_SLOT = 7
+    FRAME_TEXTURE_SLOT = 7
 
     # =====================================================
     # Material Defaults
@@ -67,10 +73,12 @@ class Renderer:
 
     DEFAULT_MATERIAL_VALUES: dict[str, MaterialValue] = {
         "uBaseColor": (1.0, 1.0, 1.0),
-        "uSpecularStrength": 0.5,
-        "uShininess": 32.0,
-        "uUVScale": (1.0, 1.0),
+        "uMetallic": 0.0,
+        "uRoughness": 0.5,
         "uNormalStrength": 1.0,
+        "uOcclusionStrength": 1.0,
+        "uEmissive": (0.0, 0.0, 0.0),
+        "uUVScale": (1.0, 1.0),
     }
 
     # =====================================================
@@ -102,7 +110,10 @@ class Renderer:
 
         self._default_textures: dict[str, Texture2D] = {}
 
-        self._shadow_map_texture_id = 0
+        # sampler name -> (unit, texture id, GL target) for
+        # the current frame's engine textures.
+
+        self._frame_textures: dict[str, tuple[int, int, int]] = {}
 
         self._in_scene = False
 
@@ -150,7 +161,7 @@ class Renderer:
         self,
         camera: Camera,
         lighting: LightEnvironment,
-        shadows: ShadowParameters | None = None
+        frame: LightingFrame | None = None
     ):
         """
         Upload per-frame data (camera + lights) once.
@@ -184,50 +195,65 @@ class Renderer:
         self._lights_buffer.set_data(
             pack_lights_block(
                 lighting,
-                shadows
+                frame
             )
         )
-
-        self._shadow_map_texture_id = 0
 
         self.stats.reset()
 
         self._in_scene = True
 
-    def set_shadow_map(
+    def set_frame_textures(
         self,
-        texture_id: int
+        textures: dict[str, tuple[int, int]]
     ):
         """
-        Bind the shadow map for the rest of the frame.
-        Call after the shadow pass has finished writing it.
+        Bind per-frame engine textures (sampler name ->
+        (texture id, GL target)) for the rest of the frame.
+        Call after the passes that write them (shadows,
+        IBL) have finished. Lit draws point these samplers
+        at the right units automatically.
         """
 
         self._assert_in_scene()
 
-        self._shadow_map_texture_id = texture_id
+        self._frame_textures = {}
 
-        RenderCommand.bind_texture(
-            texture_id,
-            self.SHADOW_MAP_SLOT
-        )
+        for offset, (name, (texture_id, target)) in enumerate(
+            textures.items()
+        ):
+
+            unit = self.FRAME_TEXTURE_SLOT + offset
+
+            RenderCommand.bind_texture(
+                texture_id,
+                unit,
+                target
+            )
+
+            self._frame_textures[name] = (
+                unit,
+                texture_id,
+                target
+            )
 
     def end_scene(self):
 
         self._assert_in_scene()
 
-        # Unbind the shadow map so it is never bound for
-        # sampling while next frame's shadow pass renders
-        # into it.
+        # Unbind frame textures so a shadow map is never
+        # bound for sampling while next frame's shadow pass
+        # renders into it.
 
-        if self._shadow_map_texture_id:
+        for unit, _, target in self._frame_textures.values():
 
             RenderCommand.bind_texture(
                 0,
-                self.SHADOW_MAP_SLOT
+                unit,
+                target
             )
 
-            self._shadow_map_texture_id = 0
+        self._frame_textures = {}
 
         self._in_scene = False
 
@@ -286,12 +312,14 @@ class Renderer:
                 normal_matrix(model_matrix)
             )
 
-        if shader.has_uniform("uShadowMap"):
+        for name, (unit, _, _) in self._frame_textures.items():
 
-            shader.set_int(
-                "uShadowMap",
-                self.SHADOW_MAP_SLOT
-            )
+            if shader.has_uniform(name):
+
+                shader.set_int(
+                    name,
+                    unit
+                )
 
         # -------------------------------------------------
         # Material
@@ -563,10 +591,10 @@ class Renderer:
             )
 
         engine_assert(
-            len(textures) <= self.SHADOW_MAP_SLOT,
+            len(textures) <= self.FRAME_TEXTURE_SLOT,
             (
                 f"Material uses {len(textures)} textures; at "
-                f"most {self.SHADOW_MAP_SLOT} are available."
+                f"most {self.FRAME_TEXTURE_SLOT} are available."
             )
         )
 

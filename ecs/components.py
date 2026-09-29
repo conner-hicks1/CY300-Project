@@ -153,12 +153,14 @@ class CameraComponent:
 # =========================================================
 #
 # Direction comes from the owning entity's world forward.
+# It also places the sun in the sky. (Ambient light comes
+# from the sky through image-based lighting; see
+# RenderSettings.ibl_intensity.)
 
 @dataclass(slots=True)
 class DirectionalLightComponent:
     color: tuple[float, float, float] = (1.0, 1.0, 1.0)
-    intensity: float = 1.0
-    ambient: float = 0.1
+    intensity: float = 5.0
     casts_shadows: bool = True
 
 
@@ -195,6 +197,7 @@ class SpotLightComponent:
     range: float = 10.0
     inner_angle: float = 15.0
     outer_angle: float = 25.0
+    casts_shadows: bool = True
 
 
 # =========================================================

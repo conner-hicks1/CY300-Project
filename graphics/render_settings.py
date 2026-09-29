@@ -26,7 +26,7 @@ class Tonemapper(IntEnum):
 # =========================================================
 #
 # Runtime-tweakable renderer options (edited live by the
-# debug UI).
+# debug UI, saved with scenes). Colors are linear.
 
 @dataclass(slots=True)
 class RenderSettings:
@@ -35,35 +35,75 @@ class RenderSettings:
     # Output
     # -----------------------------------------------------
 
-    # Linear-space background color.
-    clear_color: tuple[float, float, float] = (0.01, 0.01, 0.015)
-
-    exposure: float = 1.0
+    # Tuned for a sun of intensity ~5 plus sky light.
+    exposure: float = 0.75
     tonemapper: Tonemapper = Tonemapper.ACES
     gamma: float = 2.2
 
+    # Fast approximate anti-aliasing on the final image.
+    fxaa_enabled: bool = True
+
     # -----------------------------------------------------
-    # Shadows (directional light)
+    # Bloom
+    # -----------------------------------------------------
+    #
+    # Energy-conserving: the image is blended toward its
+    # blurred version by `bloom_intensity`, so there is no
+    # brightness threshold; very bright (HDR) areas simply
+    # dominate the blur.
+
+    bloom_enabled: bool = True
+    bloom_intensity: float = 0.04
+
+    # Upsample filter radius in UV units (larger = wider).
+    bloom_radius: float = 0.005
+
+    # -----------------------------------------------------
+    # Sky / Image-Based Lighting
+    # -----------------------------------------------------
+
+    # When off, the background is `clear_color` (the sky
+    # still lights the scene through IBL).
+    show_sky: bool = True
+    clear_color: tuple[float, float, float] = (0.01, 0.01, 0.015)
+
+    sky_zenith_color: tuple[float, float, float] = (0.05, 0.12, 0.36)
+    sky_horizon_color: tuple[float, float, float] = (0.24, 0.32, 0.44)
+    ground_color: tuple[float, float, float] = (0.09, 0.08, 0.07)
+    sky_intensity: float = 1.0
+
+    # Apparent radius of the sun disc, in degrees.
+    sun_size: float = 0.8
+
+    # Scales ambient light and reflections from the sky.
+    ibl_intensity: float = 1.0
+
+    # -----------------------------------------------------
+    # Shadows
     # -----------------------------------------------------
 
     shadows_enabled: bool = True
 
+    # Directional light: cascaded shadow maps covering the
+    # view out to `shadow_distance`, split between
+    # `cascade_count` maps. Lambda blends logarithmic (1.0,
+    # more detail close up) and uniform (0.0) splits.
+
+    shadow_distance: float = 30.0
+    cascade_count: int = 4
+    cascade_split_lambda: float = 0.75
+
+    # Resolution of each cascade / each spot shadow map.
     shadow_map_size: int = 2048
+    spot_shadow_map_size: int = 1024
 
-    # The shadow map covers a square of
-    # 2 * shadow_extent world units around shadow_center.
-    # Smaller = sharper shadows over a smaller area.
+    # Receiver offset along the surface normal, in shadow
+    # texels. Too low = acne, too high = shadows detach
+    # from their casters.
+    shadow_normal_offset: float = 1.5
 
-    shadow_extent: float = 8.0
-    shadow_center: tuple[float, float, float] = (0.0, 0.0, 0.0)
-
-    # Slope-scaled depth bias: bias_max at grazing angles,
-    # bias_min facing the light. Too low = shadow acne,
-    # too high = shadows detach from casters
-    # ("peter-panning").
-
-    shadow_bias_min: float = 0.0005
-    shadow_bias_max: float = 0.005
+    # Small constant depth bias (in NDC depth).
+    shadow_depth_bias: float = 0.0005
 
     # -----------------------------------------------------
     # Debug
@@ -71,3 +111,6 @@ class RenderSettings:
 
     show_light_gizmos: bool = True
     gizmo_scale: float = 0.12
+
+    # Tints the scene by shadow cascade.
+    visualize_cascades: bool = False

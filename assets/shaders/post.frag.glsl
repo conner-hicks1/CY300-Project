@@ -2,17 +2,23 @@
 
 
 // =========================================================
-// Post-Processing: Exposure -> Tone Map -> Gamma
+// Post-Processing: Bloom -> Exposure -> Tone Map -> Gamma
 // =========================================================
 //
 // Input is the linear HDR scene. Output is display-ready
-// sRGB-ish (gamma-encoded) color.
+// (gamma-encoded) color, written either straight to the
+// window or to an LDR buffer for FXAA.
 
 in vec2 vTexCoord;
 
 out vec4 FragColor;
 
 uniform sampler2D uHdrBuffer;
+
+// Blurred HDR from the bloom chain (half resolution).
+uniform sampler2D uBloomTexture;
+uniform bool uBloomEnabled;
+uniform float uBloomIntensity;
 
 uniform float uExposure;
 uniform float uGamma;
@@ -38,9 +44,20 @@ vec3 acesFilmic(vec3 x)
 
 void main()
 {
-    vec3 hdr =
-        texture(uHdrBuffer, vTexCoord).rgb
-        * uExposure;
+    vec3 hdr = texture(uHdrBuffer, vTexCoord).rgb;
+
+    // Energy-conserving: blend toward the blurred image
+    // rather than adding to it.
+    if (uBloomEnabled)
+    {
+        hdr = mix(
+            hdr,
+            texture(uBloomTexture, vTexCoord).rgb,
+            uBloomIntensity
+        );
+    }
+
+    hdr *= uExposure;
 
     vec3 mapped;
 

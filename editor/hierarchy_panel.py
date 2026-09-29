@@ -11,6 +11,7 @@ from ecs.components import (
     SpotLightComponent
 )
 from ecs.entity import Entity
+from ui.window_utils import keep_window_on_screen
 
 if TYPE_CHECKING:
     from editor.scene_editor import SceneEditor
@@ -55,6 +56,8 @@ def draw_hierarchy_panel(
     )
 
     imgui.begin("Hierarchy")
+
+    keep_window_on_screen()
 
     scene = editor.scene
 
