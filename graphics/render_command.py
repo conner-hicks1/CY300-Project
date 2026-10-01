@@ -6,6 +6,7 @@ from OpenGL.GL import (
     GL_UNSIGNED_INT,
     glBindTexture,
     glClear,
+    glClearDepth,
     glClearColor,
     glDrawArrays,
     glDrawElements,
@@ -43,8 +44,13 @@ class RenderCommand:
     @staticmethod
     def clear(
         color: bool = True,
-        depth: bool = True
+        depth: bool = True,
+        depth_value: float = 0.0
     ):
+        """
+        depth_value: 0.0 for reversed-Z passes (the scene),
+        1.0 for conventional depth (shadow maps).
+        """
 
         mask = 0
 
@@ -52,7 +58,10 @@ class RenderCommand:
             mask |= GL_COLOR_BUFFER_BIT
 
         if depth:
+
             mask |= GL_DEPTH_BUFFER_BIT
+
+            glClearDepth(depth_value)
 
         engine_assert(
             mask != 0,

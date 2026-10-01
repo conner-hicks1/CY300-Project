@@ -117,6 +117,8 @@ class Renderer:
 
         self._in_scene = False
 
+        self._origin = np.zeros(3)
+
         self.stats = RenderStats()
 
     # =====================================================
@@ -184,24 +186,60 @@ class Renderer:
             "Renderer.begin_scene() requires a LightEnvironment."
         )
 
+        # Camera-relative rendering: the GPU sees the world
+        # shifted so the camera sits at the origin. The
+        # shift happens here in float64; only then are
+        # values narrowed to float32.
+        self._origin = np.array(
+            camera.position,
+            dtype=np.float64
+        )
+
         self._camera_buffer.set_data(
             pack_camera_block(
-                camera.view_matrix,
+                camera.view_rotation_matrix,
                 camera.projection_matrix,
-                camera.position
+                (0.0, 0.0, 0.0)
             )
         )
 
         self._lights_buffer.set_data(
             pack_lights_block(
                 lighting,
-                frame
+                frame,
+                origin=self._origin
             )
         )
 
         self.stats.reset()
 
         self._in_scene = True
+
+    @property
+    def origin(
+        self
+    ) -> np.ndarray:
+        """World position of this frame's render origin (the camera)."""
+
+        return self._origin
+
+    def to_render_space(
+        self,
+        model_matrix
+    ) -> np.ndarray:
+        """
+        World model matrix (float64) -> camera-relative
+        float32 matrix for the GPU.
+        """
+
+        relative = np.array(
+            model_matrix,
+            dtype=np.float64
+        )
+
+        relative[:3, 3] -= self._origin
+
+        return relative.astype(np.float32)
 
     def set_frame_textures(
         self,
@@ -302,7 +340,7 @@ class Renderer:
 
         shader.set_mat4(
             "uModel",
-            model_matrix
+            self.to_render_space(model_matrix)
         )
 
         if shader.has_uniform("uNormalMatrix"):
@@ -363,7 +401,7 @@ class Renderer:
 
         shader.set_mat4(
             "uModel",
-            model_matrix
+            self.to_render_space(model_matrix)
         )
 
         self._submit(
@@ -388,7 +426,7 @@ class Renderer:
 
         shader.set_mat4(
             "uModel",
-            model_matrix
+            self.to_render_space(model_matrix)
         )
 
         shader.set_vec3(

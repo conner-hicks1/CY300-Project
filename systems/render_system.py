@@ -1,10 +1,10 @@
 import numpy as np
 
 from OpenGL.GL import (
-    GL_LEQUAL,
+    GL_GEQUAL,
+    GL_GREATER,
     GL_LESS,
-    GL_TEXTURE_2D_ARRAY,
-    glDepthFunc
+    GL_TEXTURE_2D_ARRAY
 )
 
 from core.assertions import engine_assert
@@ -51,7 +51,8 @@ from graphics.shader import Shader
 from graphics.shadow_map import ShadowMapArray
 from graphics.shadows import (
     compute_cascades,
-    spot_shadow
+    spot_shadow,
+    to_render_space
 )
 from graphics.texture import Texture2D
 from graphics.uniform_blocks import LightingFrame
@@ -563,6 +564,20 @@ class RenderSystem:
             for spot in lighting.spot_lights
         ]
 
+        # Shadow matrices are fitted in world space (float64)
+        # and then moved into the camera-relative render
+        # space the GPU works in.
+
+        origin = camera.position
+
+        for cascade in frame.cascades:
+            cascade.matrix = to_render_space(cascade.matrix, origin)
+
+        for shadow in frame.spot_shadows:
+
+            if shadow is not None:
+                shadow.matrix = to_render_space(shadow.matrix, origin)
+
         return frame
 
     # =====================================================
@@ -623,6 +638,11 @@ class RenderSystem:
 
         RenderState.set_cull_front_faces(True)
 
+        # Shadow maps use conventional depth (0 near, 1 far;
+        # cleared to 1 in clear_layer), unlike the
+        # reversed-Z scene.
+        RenderState.set_depth_func(GL_LESS)
+
         for shadow_map, layer, matrix in passes:
 
             shadow_map.clear_layer(layer)
@@ -641,6 +661,8 @@ class RenderSystem:
                 )
 
         RenderState.set_cull_front_faces(False)
+
+        RenderState.set_depth_func(GL_GREATER)
 
     # =====================================================
     # Scene Pass
@@ -708,10 +730,11 @@ class RenderSystem:
 
         sky.apply(shader)
 
-        # Drawn at depth 1.0: fills only pixels no geometry
-        # covered (the depth buffer was cleared to 1.0).
+        # Drawn at depth 0 (the far plane under reversed-Z):
+        # fills only pixels no geometry covered, since the
+        # depth buffer was cleared to 0.
 
-        glDepthFunc(GL_LEQUAL)
+        RenderState.set_depth_func(GL_GEQUAL)
 
         RenderState.set_face_culling(False)
 
@@ -719,7 +742,7 @@ class RenderSystem:
 
         RenderState.set_face_culling(True)
 
-        glDepthFunc(GL_LESS)
+        RenderState.set_depth_func(GL_GREATER)
 
     # =====================================================
     # Light Gizmos
@@ -750,8 +773,11 @@ class RenderSystem:
 
             model = np.diag(
                 [scale, scale, scale, 1.0]
-            ).astype(np.float32)
+            )
 
+            # float64: a world position at planet scale does
+            # not fit float32 (the renderer narrows after
+            # making it camera-relative).
             model[:3, 3] = position
 
             # Bright enough (> 1) to read as a glowing
@@ -823,8 +849,11 @@ class RenderSystem:
 
             model = np.diag(
                 [scale, scale, scale, 1.0]
-            ).astype(np.float32)
+            )
 
+            # float64: a world position at planet scale does
+            # not fit float32 (the renderer narrows after
+            # making it camera-relative).
             model[:3, 3] = transform.world_position
 
         RenderState.set_wireframe(True)

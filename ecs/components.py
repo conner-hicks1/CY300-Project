@@ -34,7 +34,7 @@ def _identity() -> np.ndarray:
 
     return np.identity(
         4,
-        dtype=np.float32
+        dtype=np.float64
     )
 
 
@@ -60,7 +60,7 @@ class TransformComponent:
 
         return np.array(
             self.world_matrix[:3, 3],
-            dtype=np.float32
+            dtype=np.float64
         )
 
     @property
@@ -88,7 +88,7 @@ class TransformComponent:
 
         world = (
             self.world_matrix[:3, :3]
-            @ np.asarray(local, dtype=np.float32)
+            @ np.asarray(local, dtype=np.float64)
         )
 
         length = float(
@@ -102,14 +102,14 @@ class TransformComponent:
 
             return np.asarray(
                 local,
-                dtype=np.float32
+                dtype=np.float64
             )
 
         return (
             world
             / length
         ).astype(
-            np.float32
+            np.float64
         )
 
 

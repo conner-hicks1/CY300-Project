@@ -27,7 +27,7 @@ from ecs.entity import Entity
 
 from graphics.lighting import MAX_POINT_LIGHTS, MAX_SPOT_LIGHTS
 
-from math3d.matrices import decompose_trs
+from math3d.matrices import decompose_trs_quaternion
 from math3d.transform import Transform
 
 from resources.resources import Resources
@@ -596,12 +596,12 @@ class SceneEditor:
             # Zero-scaled parent: keep the local transform.
             local = transform_component.transform.matrix
 
-        position, rotation, scale = decompose_trs(local)
+        position, orientation, scale = decompose_trs_quaternion(local)
 
         transform = transform_component.transform
 
         transform.position = position
-        transform.rotation = rotation
+        transform.orientation = orientation
         transform.scale = scale
 
         if current is not None:
@@ -1500,12 +1500,25 @@ class SceneEditor:
         if transform_component is None:
             return False
 
-        view = gizmo.Matrix16(_column_major(camera.view_matrix))
-        projection = gizmo.Matrix16(_column_major(camera.projection_matrix))
+        # Camera-relative, like the renderer: ImGuizmo works
+        # in float32, which cannot hold planet-scale world
+        # positions. It also expects a conventional
+        # projection, not the reversed-Z one.
 
-        world = transform_component.world_matrix
+        origin = np.asarray(camera.position, dtype=np.float64)
 
-        matrix = gizmo.Matrix16(_column_major(world))
+        view = gizmo.Matrix16(_column_major(camera.view_rotation_matrix))
+        projection = gizmo.Matrix16(_column_major(camera.conventional_projection_matrix))
+
+        world = np.array(
+            transform_component.world_matrix,
+            dtype=np.float64
+        )
+
+        relative = world.copy()
+        relative[:3, 3] -= origin
+
+        matrix = gizmo.Matrix16(_column_major(relative))
 
         operation_name = self.gizmo_operation
 
@@ -1514,10 +1527,13 @@ class SceneEditor:
         # Ctrl temporarily inverts the snap setting.
         snapping = self.snap_enabled != imgui.get_io().key_ctrl
 
-        if snapping:
+        # Move snaps to the world grid below (ImGuizmo would
+        # snap in camera-relative space, i.e. to a grid that
+        # moves with the camera).
+
+        if snapping and operation_name != "Move":
 
             step = {
-                "Move": self.snap_translate,
                 "Rotate": self.snap_rotate,
                 "Scale": self.snap_scale,
             }[operation_name]
@@ -1540,6 +1556,14 @@ class SceneEditor:
                 matrix.values,
                 dtype=np.float64
             ).reshape(4, 4).T
+
+            new_world[:3, 3] += origin
+
+            if snapping and operation_name == "Move":
+
+                step = self.snap_translate
+
+                new_world[:3, 3] = np.round(new_world[:3, 3] / step) * step
 
             self._apply_world_matrix(
                 entity,
@@ -1575,7 +1599,7 @@ class SceneEditor:
         except np.linalg.LinAlgError:
             return
 
-        position, rotation, scale = decompose_trs(local)
+        position, orientation, scale = decompose_trs_quaternion(local)
 
         transform = scene.get_component(
             entity,
@@ -1583,14 +1607,13 @@ class SceneEditor:
         ).transform
 
         # Only write the channel being edited, so e.g.
-        # moving never perturbs rotation through Euler
-        # round-off.
+        # moving never perturbs rotation through round-off.
 
         if operation_name == "Move":
             transform.position = position
 
         elif operation_name == "Rotate":
-            transform.rotation = rotation
+            transform.orientation = orientation
 
         elif operation_name == "Scale":
             transform.scale = scale
@@ -1603,7 +1626,7 @@ class SceneEditor:
             TransformComponent
         ).world_matrix = (
             parent_world @ transform.matrix
-        ).astype(np.float32)
+        )
 
     # =====================================================
     # Picking

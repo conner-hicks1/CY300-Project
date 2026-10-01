@@ -6,9 +6,11 @@ from core.assertions import engine_assert
 
 from math3d.camera import Camera
 from math3d.matrices import (
+    DEPTH_ZERO_TO_ONE,
     look_at,
     orthographic,
-    perspective
+    perspective,
+    translation
 )
 
 
@@ -223,6 +225,31 @@ def compute_cascades(
         slice_near = split_far
 
     return cascades
+
+
+# =========================================================
+# Render Space
+# =========================================================
+
+def to_render_space(
+    matrix,
+    origin
+) -> np.ndarray:
+    """
+    World -> shadow clip matrix  ->  camera-relative ->
+    shadow clip with [0, 1] depth.
+
+    Geometry reaches the GPU relative to the render origin
+    (camera), so the shadow matrix must undo that shift; and
+    with clip control GL_ZERO_TO_ONE, OpenGL-style [-1, 1]
+    depth must be remapped. Done in float64, then narrowed.
+    """
+
+    return (
+        DEPTH_ZERO_TO_ONE
+        @ np.asarray(matrix, dtype=np.float64)
+        @ translation(origin)
+    ).astype(np.float32)
 
 
 # =========================================================

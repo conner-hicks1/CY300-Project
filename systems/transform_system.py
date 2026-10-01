@@ -100,7 +100,7 @@ class TransformSystem:
 
             world = np.array(
                 local,
-                dtype=np.float32
+                dtype=np.float64
             )
 
         else:
@@ -134,7 +134,7 @@ class TransformSystem:
                 parent_world
                 @ local
             ).astype(
-                np.float32
+                np.float64
             )
 
         visiting.discard(

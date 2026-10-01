@@ -102,7 +102,21 @@ def test_screen_center_ray_points_forward():
     ray = screen_ray(640, 360, 1280, 720, view, projection)
 
     assert np.allclose(ray.direction, (0.0, 0.0, -1.0), atol=1e-6)
-    assert ray.origin[2] == pytest.approx(4.9, abs=1e-4)
+
+    # Rays start at the camera.
+    assert np.allclose(ray.origin, (0.0, 0.0, 5.0))
+
+
+def test_screen_ray_with_reversed_infinite_projection():
+
+    from math3d.matrices import perspective_reversed_infinite
+
+    view = look_at((1.0, 2.0, 5.0), (1.0, 2.0, 0.0), (0.0, 1.0, 0.0))
+
+    ray = screen_ray(640, 360, 1280, 720, view, perspective_reversed_infinite(60.0, 16 / 9, 0.1))
+
+    assert np.allclose(ray.origin, (1.0, 2.0, 5.0))
+    assert np.allclose(ray.direction, (0.0, 0.0, -1.0), atol=1e-9)
 
 
 def test_screen_ray_corner_goes_up_left():

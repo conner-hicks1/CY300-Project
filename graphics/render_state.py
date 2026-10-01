@@ -7,7 +7,9 @@ from OpenGL.GL import (
     GL_FILL,
     GL_FRONT,
     GL_FRONT_AND_BACK,
-    GL_LESS,
+    GL_GREATER,
+    GL_LOWER_LEFT,
+    GL_ZERO_TO_ONE,
     GL_LINE,
     GL_ONE_MINUS_SRC_ALPHA,
     GL_POLYGON_OFFSET_LINE,
@@ -16,6 +18,7 @@ from OpenGL.GL import (
     glActiveTexture,
     glBlendFunc,
     glCullFace,
+    glClipControl,
     glDepthFunc,
     glDisable,
     glEnable,
@@ -41,6 +44,7 @@ class RenderState:
     _face_culling_enabled: bool | None = None
     _cull_front_faces: bool | None = None
     _wireframe: bool | None = None
+    _depth_func: int | None = None
 
     _active_texture_slot: int | None = None
 
@@ -79,8 +83,18 @@ class RenderState:
             True
         )
 
-        glDepthFunc(
-            GL_LESS
+        # Reversed-Z: clip depth maps to [0, 1] directly
+        # (no [-1, 1] -> [0, 1] remap that wastes float
+        # precision), near = 1, far = 0, test with GREATER.
+        # See math3d.matrices.perspective_reversed_infinite.
+
+        glClipControl(
+            GL_LOWER_LEFT,
+            GL_ZERO_TO_ONE
+        )
+
+        cls.set_depth_func(
+            GL_GREATER
         )
 
         # -------------------------------------------------
@@ -234,6 +248,25 @@ class RenderState:
 
         cls._cull_front_faces = cull_front
 
+    @classmethod
+    def set_depth_func(
+        cls,
+        func: int
+    ):
+        """
+        GL_GREATER for the reversed-Z scene, GL_LESS for
+        conventional shadow maps, GL_GEQUAL for the sky.
+        """
+
+        if cls._depth_func == func:
+            return
+
+        glDepthFunc(
+            func
+        )
+
+        cls._depth_func = func
+
     # =====================================================
     # Wireframe
     # =====================================================
@@ -314,6 +347,7 @@ class RenderState:
         cls._face_culling_enabled = None
         cls._cull_front_faces = None
         cls._wireframe = None
+        cls._depth_func = None
 
         cls._active_texture_slot = None
 

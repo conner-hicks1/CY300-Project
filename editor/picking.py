@@ -59,16 +59,25 @@ def screen_ray(
         @ np.asarray(view, dtype=np.float64)
     )
 
-    near = inverse @ np.array([ndc_x, ndc_y, -1.0, 1.0])
-    far = inverse @ np.array([ndc_x, ndc_y, 1.0, 1.0])
+    # The ray starts at the camera and passes through the
+    # pixel's point at NDC depth 1.0, which is finite for
+    # both conventional projections (the far plane) and the
+    # engine's reversed-Z infinite projection (the near
+    # plane; its far plane is at infinity and cannot be
+    # inverted).
 
-    near = near[:3] / near[3]
-    far = far[:3] / far[3]
+    point = inverse @ np.array([ndc_x, ndc_y, 1.0, 1.0])
 
-    direction = far - near
+    point = point[:3] / point[3]
+
+    camera_position = np.linalg.inv(
+        np.asarray(view, dtype=np.float64)
+    )[:3, 3]
+
+    direction = point - camera_position
 
     return Ray(
-        origin=near,
+        origin=camera_position,
         direction=direction / np.linalg.norm(direction)
     )
 

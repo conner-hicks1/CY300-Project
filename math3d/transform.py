@@ -2,6 +2,7 @@ import numpy as np
 
 from core.assertions import engine_assert
 
+from math3d import quaternion
 from math3d.matrices import normal_matrix as compute_normal_matrix
 
 
@@ -11,14 +12,29 @@ class Transform:
     # Construction
     # =====================================================
     #
-    # position / rotation / scale are exposed as read-only
-    # arrays. Change them through the setters or the
-    # translate() / rotate() helpers so cached matrices
-    # are invalidated:
+    # Position, orientation and scale of an object.
+    #
+    # Precision: everything is float64. At planet scale a
+    # float32 position only resolves about half a metre, so
+    # world positions stay in double precision and the
+    # renderer subtracts the camera position before
+    # converting to float32 (camera-relative rendering).
+    #
+    # Orientation is a unit quaternion (`orientation`,
+    # x y z w). `rotation` presents it as Euler angles in
+    # degrees (X, Y, Z; applied X first) for the inspector
+    # and scene files. The Euler angles last *set* are kept
+    # verbatim, so a typed (0, 190, 0) does not come back as
+    # the equivalent (180, -10, 180).
+    #
+    # Components are exposed as read-only arrays. Change
+    # them through the setters or helpers so the cached
+    # matrices stay valid:
     #
     #     transform.position = (1.0, 2.0, 3.0)
     #     transform.translate(delta)
     #     transform.rotate((0.0, 30.0 * dt, 0.0))
+    #     transform.orientation = quaternion.look_rotation(f, up)
     #
     # In-place writes such as `transform.position[0] = 1`
     # raise ValueError instead of silently desyncing the
@@ -28,20 +44,32 @@ class Transform:
         self,
         position=(0.0, 0.0, 0.0),
         rotation=(0.0, 0.0, 0.0),
-        scale=(1.0, 1.0, 1.0)
+        scale=(1.0, 1.0, 1.0),
+        orientation=None
     ):
+        """
+        orientation: quaternion (x, y, z, w); overrides
+            `rotation` when given.
+        """
 
         self._position = self._as_vec3(
             position,
             "position"
         )
 
-        self._rotation = self._wrap_angles(
-            self._as_vec3(
-                rotation,
-                "rotation"
+        if orientation is not None:
+
+            self._orientation = self._as_quaternion(orientation)
+            self._euler = None
+
+        else:
+
+            euler = self._wrap_angles(
+                self._as_vec3(rotation, "rotation")
             )
-        )
+
+            self._orientation = quaternion.from_euler(euler)
+            self._euler = euler
 
         self._scale = self._as_vec3(
             scale,
@@ -49,14 +77,14 @@ class Transform:
         )
 
         # Incremented on every change. Lets other systems
-        # (e.g. hierarchy) detect changes cheaply.
+        # detect changes cheaply.
 
         self._version = 0
 
         self._invalidate()
 
     # =====================================================
-    # Components
+    # Position
     # =====================================================
 
     @property
@@ -81,17 +109,52 @@ class Transform:
 
         self._invalidate()
 
+    # =====================================================
+    # Orientation
+    # =====================================================
+
+    @property
+    def orientation(
+        self
+    ) -> np.ndarray:
+        """Unit quaternion (x, y, z, w)."""
+
+        return self._read_only(
+            self._orientation
+        )
+
+    @orientation.setter
+    def orientation(
+        self,
+        value
+    ):
+
+        self._orientation = self._as_quaternion(
+            value
+        )
+
+        # Euler view is recomputed on demand.
+        self._euler = None
+
+        self._invalidate()
+
     @property
     def rotation(
         self
     ) -> np.ndarray:
         """
-        Euler angles in degrees (X, Y, Z), each wrapped to
-        [-180, 180) so they never grow without bound.
+        Orientation as Euler angles in degrees (X, Y, Z),
+        each in [-180, 180).
         """
 
+        if self._euler is None:
+
+            self._euler = self._wrap_angles(
+                quaternion.to_euler(self._orientation)
+            )
+
         return self._read_only(
-            self._rotation
+            self._euler
         )
 
     @rotation.setter
@@ -100,14 +163,21 @@ class Transform:
         value
     ):
 
-        self._rotation = self._wrap_angles(
+        euler = self._wrap_angles(
             self._as_vec3(
                 value,
                 "rotation"
             )
         )
 
+        self._orientation = quaternion.from_euler(euler)
+        self._euler = euler
+
         self._invalidate()
+
+    # =====================================================
+    # Scale
+    # =====================================================
 
     @property
     def scale(
@@ -156,36 +226,61 @@ class Transform:
         self,
         delta_degrees
     ):
+        """Add to the Euler angles (spin about local X/Y/Z)."""
 
         self.rotation = (
-            self._rotation
+            self.rotation
             + self._as_vec3(delta_degrees, "rotation delta")
         )
 
+    def rotate_about_axis(
+        self,
+        axis,
+        degrees: float,
+        world_space: bool = True
+    ):
+        """
+        Rotate by `degrees` about `axis`, given in world
+        space (default) or in this transform's local space.
+        """
+
+        delta = quaternion.from_axis_angle(
+            axis,
+            degrees
+        )
+
+        self.orientation = (
+            quaternion.multiply(delta, self._orientation)
+            if world_space
+            else quaternion.multiply(self._orientation, delta)
+        )
+
     # =====================================================
-    # Model Matrix
+    # Matrices
     # =====================================================
 
     @property
     def matrix(
         self
     ) -> np.ndarray:
+        """Local -> parent, float64 (T @ R @ S)."""
 
         if self._matrix is None:
 
-            self._matrix = (
-                self._translation_matrix()
-                @ self.rotation_matrix
-                @ self._scale_matrix()
+            matrix = np.identity(4)
+
+            matrix[:3, :3] = (
+                self.rotation_matrix[:3, :3]
+                * self._scale
             )
 
-            self._matrix.flags.writeable = False
+            matrix[:3, 3] = self._position
+
+            matrix.flags.writeable = False
+
+            self._matrix = matrix
 
         return self._matrix
-
-    # =====================================================
-    # Normal Matrix
-    # =====================================================
 
     @property
     def normal_matrix(
@@ -207,98 +302,23 @@ class Transform:
 
         return self._normal_matrix
 
-    # =====================================================
-    # Rotation Matrix
-    # =====================================================
-
     @property
     def rotation_matrix(
         self
     ) -> np.ndarray:
+        """4x4 rotation-only matrix."""
 
-        if self._rotation_matrix is not None:
-            return self._rotation_matrix
+        if self._rotation_matrix is None:
 
-        x = np.radians(
-            float(self._rotation[0])
-        )
+            matrix = np.identity(4)
 
-        y = np.radians(
-            float(self._rotation[1])
-        )
+            matrix[:3, :3] = quaternion.to_matrix3(
+                self._orientation
+            )
 
-        z = np.radians(
-            float(self._rotation[2])
-        )
+            matrix.flags.writeable = False
 
-        # -------------------------------------------------
-        # X Rotation
-        # -------------------------------------------------
-
-        cos_x = np.cos(x)
-        sin_x = np.sin(x)
-
-        rx = np.array(
-            [
-                [1.0, 0.0, 0.0, 0.0],
-                [0.0, cos_x, -sin_x, 0.0],
-                [0.0, sin_x, cos_x, 0.0],
-                [0.0, 0.0, 0.0, 1.0]
-            ],
-            dtype=np.float32
-        )
-
-        # -------------------------------------------------
-        # Y Rotation
-        # -------------------------------------------------
-
-        cos_y = np.cos(y)
-        sin_y = np.sin(y)
-
-        ry = np.array(
-            [
-                [cos_y, 0.0, sin_y, 0.0],
-                [0.0, 1.0, 0.0, 0.0],
-                [-sin_y, 0.0, cos_y, 0.0],
-                [0.0, 0.0, 0.0, 1.0]
-            ],
-            dtype=np.float32
-        )
-
-        # -------------------------------------------------
-        # Z Rotation
-        # -------------------------------------------------
-
-        cos_z = np.cos(z)
-        sin_z = np.sin(z)
-
-        rz = np.array(
-            [
-                [cos_z, -sin_z, 0.0, 0.0],
-                [sin_z, cos_z, 0.0, 0.0],
-                [0.0, 0.0, 1.0, 0.0],
-                [0.0, 0.0, 0.0, 1.0]
-            ],
-            dtype=np.float32
-        )
-
-        # -------------------------------------------------
-        # Rotation Order
-        # -------------------------------------------------
-        #
-        # With column vectors:
-        #
-        #     R = Rz @ Ry @ Rx
-        #
-        # means X is applied first, then Y, then Z.
-
-        self._rotation_matrix = (
-            rz
-            @ ry
-            @ rx
-        )
-
-        self._rotation_matrix.flags.writeable = False
+            self._rotation_matrix = matrix
 
         return self._rotation_matrix
 
@@ -313,9 +333,7 @@ class Transform:
 
         # OpenGL convention: local forward = -Z
 
-        return self._direction(
-            (0.0, 0.0, -1.0)
-        )
+        return -self.rotation_matrix[:3, 2].copy()
 
     @property
     def right(
@@ -324,9 +342,7 @@ class Transform:
 
         # Local right = +X
 
-        return self._direction(
-            (1.0, 0.0, 0.0)
-        )
+        return self.rotation_matrix[:3, 0].copy()
 
     @property
     def up(
@@ -335,77 +351,7 @@ class Transform:
 
         # Local up = +Y
 
-        return self._direction(
-            (0.0, 1.0, 0.0)
-        )
-
-    def _direction(
-        self,
-        local
-    ) -> np.ndarray:
-
-        world = (
-            self.rotation_matrix[:3, :3]
-            @ np.asarray(local, dtype=np.float32)
-        )
-
-        length = np.linalg.norm(
-            world
-        )
-
-        engine_assert(
-            length > 0.0,
-            "Transform direction vector cannot have zero length."
-        )
-
-        return (
-            world
-            / length
-        ).astype(
-            np.float32
-        )
-
-    # =====================================================
-    # Translation / Scale Matrices
-    # =====================================================
-
-    def _translation_matrix(
-        self
-    ) -> np.ndarray:
-
-        x, y, z = (
-            float(v)
-            for v in self._position
-        )
-
-        return np.array(
-            [
-                [1.0, 0.0, 0.0, x],
-                [0.0, 1.0, 0.0, y],
-                [0.0, 0.0, 1.0, z],
-                [0.0, 0.0, 0.0, 1.0]
-            ],
-            dtype=np.float32
-        )
-
-    def _scale_matrix(
-        self
-    ) -> np.ndarray:
-
-        x, y, z = (
-            float(v)
-            for v in self._scale
-        )
-
-        return np.array(
-            [
-                [x, 0.0, 0.0, 0.0],
-                [0.0, y, 0.0, 0.0],
-                [0.0, 0.0, z, 0.0],
-                [0.0, 0.0, 0.0, 1.0]
-            ],
-            dtype=np.float32
-        )
+        return self.rotation_matrix[:3, 1].copy()
 
     # =====================================================
     # Helpers
@@ -427,7 +373,7 @@ class Transform:
 
         array = np.array(
             value,
-            dtype=np.float32
+            dtype=np.float64
         )
 
         engine_assert(
@@ -443,19 +389,34 @@ class Transform:
         return array
 
     @staticmethod
+    def _as_quaternion(
+        value
+    ) -> np.ndarray:
+
+        array = np.array(
+            value,
+            dtype=np.float64
+        )
+
+        engine_assert(
+            array.shape == (4,)
+            and bool(np.all(np.isfinite(array))),
+            "Transform orientation must be four finite values (x, y, z, w)."
+        )
+
+        return quaternion.normalize(array)
+
+    @staticmethod
     def _wrap_angles(
         angles: np.ndarray
     ) -> np.ndarray:
 
-        # Wrap to [-180, 180). Keeps float32 precision
-        # stable for objects that rotate forever, and
-        # leaves pitch-clamped camera angles untouched.
+        # Wrap to [-180, 180) so angles never grow without
+        # bound for objects that spin forever.
 
         return (
-            (angles + 180.0) % 360.0
+            (np.asarray(angles, dtype=np.float64) + 180.0) % 360.0
             - 180.0
-        ).astype(
-            np.float32
         )
 
     @staticmethod
@@ -478,7 +439,7 @@ class Transform:
         return (
             f"Transform("
             f"position={self._position.tolist()}, "
-            f"rotation={self._rotation.tolist()}, "
+            f"rotation={self.rotation.tolist()}, "
             f"scale={self._scale.tolist()}"
             f")"
         )

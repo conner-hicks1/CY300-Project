@@ -31,8 +31,42 @@ def test_camera_uses_shared_helpers():
 
     camera = Camera(position=(0.0, 1.0, 5.0), target=(0.0, 0.0, 0.0), fov=60.0, aspect_ratio=1.5)
 
+    from math3d.matrices import perspective_reversed_infinite
+
     assert np.allclose(camera.view_matrix, look_at((0.0, 1.0, 5.0), (0.0, 0.0, 0.0), (0.0, 1.0, 0.0)))
-    assert np.allclose(camera.projection_matrix, perspective(60.0, 1.5, 0.1, 100.0))
+    assert np.allclose(camera.projection_matrix, perspective_reversed_infinite(60.0, 1.5, 0.1))
+    assert np.allclose(camera.conventional_projection_matrix, perspective(60.0, 1.5, 0.1, 100.0))
+
+    # The GPU view keeps the rotation but drops the translation.
+    rotation_only = camera.view_rotation_matrix
+    assert np.allclose(rotation_only[:3, :3], camera.view_matrix[:3, :3])
+    assert np.allclose(rotation_only[:3, 3], 0.0)
+
+
+def test_reversed_infinite_projection_depths():
+
+    from math3d.matrices import perspective_reversed_infinite
+
+    projection = perspective_reversed_infinite(60.0, 1.0, 0.1)
+
+    def depth(distance):
+        clip = projection @ np.array([0.0, 0.0, -distance, 1.0])
+        return clip[2] / clip[3]
+
+    assert depth(0.1) == pytest.approx(1.0)             # near plane
+    assert depth(1e7) == pytest.approx(1e-8)            # 10,000 km: still > 0
+    assert depth(1.0) > depth(10.0) > depth(1e6) > 0.0  # monotonic, reversed
+
+
+def test_depth_remap_to_zero_one():
+
+    from math3d.matrices import DEPTH_ZERO_TO_ONE
+
+    near = DEPTH_ZERO_TO_ONE @ np.array([0.0, 0.0, -1.0, 1.0])
+    far = DEPTH_ZERO_TO_ONE @ np.array([0.0, 0.0, 1.0, 1.0])
+
+    assert near[2] / near[3] == pytest.approx(0.0)
+    assert far[2] / far[3] == pytest.approx(1.0)
 
 
 def test_perspective_maps_near_and_far_planes_to_ndc():

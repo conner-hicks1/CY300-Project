@@ -17,6 +17,19 @@ uniform sampler2DArrayShadow uCascadeShadowMaps;
 uniform sampler2DArrayShadow uSpotShadowMaps;
 
 
+// Shadow clip position -> (texture uv, depth). Shadow
+// matrices already map depth to [0, 1] (clip control is
+// GL_ZERO_TO_ONE; see graphics/shadows.py to_render_space).
+vec3 shadowCoordinates(
+    vec4 clip
+)
+{
+    vec3 ndc = clip.xyz / clip.w;
+
+    return vec3(ndc.xy * 0.5 + 0.5, ndc.z);
+}
+
+
 float shadowPCF(
     sampler2DArrayShadow shadowMap,
     vec3 projected,
@@ -91,7 +104,7 @@ float directionalShadow(
         uCascadeMatrices[cascade]
         * vec4(offsetPosition, 1.0);
 
-    vec3 projected = clip.xyz / clip.w * 0.5 + 0.5;
+    vec3 projected = shadowCoordinates(clip);
 
     if (projected.z > 1.0)
     {
@@ -143,7 +156,7 @@ float spotShadow(
         return 1.0;
     }
 
-    vec3 projected = clip.xyz / clip.w * 0.5 + 0.5;
+    vec3 projected = shadowCoordinates(clip);
 
     return shadowPCF(
         uSpotShadowMaps,

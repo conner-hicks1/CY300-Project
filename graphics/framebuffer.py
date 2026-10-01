@@ -7,7 +7,7 @@ from OpenGL.GL import (
     GL_CLAMP_TO_BORDER,
     GL_CLAMP_TO_EDGE,
     GL_COLOR_ATTACHMENT0,
-    GL_DEPTH24_STENCIL8,
+    GL_DEPTH32F_STENCIL8,
     GL_DEPTH_ATTACHMENT,
     GL_DEPTH_COMPONENT,
     GL_DEPTH_COMPONENT24,
@@ -286,7 +286,7 @@ class Framebuffer:
 
                 glRenderbufferStorage(
                     GL_RENDERBUFFER,
-                    GL_DEPTH24_STENCIL8,
+                    GL_DEPTH32F_STENCIL8,
                     width,
                     height
                 )

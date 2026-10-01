@@ -25,6 +25,7 @@ from OpenGL.GL import (
     glBindTexture,
     glCheckFramebufferStatus,
     glClear,
+    glClearDepth,
     glDeleteFramebuffers,
     glDeleteTextures,
     glDrawBuffer,
@@ -197,6 +198,9 @@ class ShadowMapArray:
     ):
 
         self.bind_layer(layer)
+
+        # Conventional depth (see RenderSystem._render_shadows).
+        glClearDepth(1.0)
 
         glClear(GL_DEPTH_BUFFER_BIT)
 

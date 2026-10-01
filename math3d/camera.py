@@ -4,15 +4,29 @@ from core.assertions import engine_assert
 
 from math3d.matrices import (
     look_at,
-    perspective
+    perspective,
+    perspective_reversed_infinite
 )
 
 
 class Camera:
 
     # =====================================================
-    # Construction
+    # Camera
     # =====================================================
+    #
+    # Position and target are float64 world coordinates.
+    #
+    # The GPU never sees world-space view matrices: the
+    # renderer draws camera-relative (world position minus
+    # camera position, in float64, then converted to
+    # float32), so it uses `view_rotation_matrix` with the
+    # camera at the origin. `view_matrix` (full world view)
+    # is for CPU work such as picking and shadow fitting.
+    #
+    # Projection is reversed-Z with an infinite far plane;
+    # `far` only limits what is drawn or shadowed by choice
+    # (e.g. the shadow distance), not depth precision.
 
     def __init__(
         self,
@@ -27,17 +41,17 @@ class Camera:
 
         self.position = np.array(
             position,
-            dtype=np.float32
+            dtype=np.float64
         )
 
         self.target = np.array(
             target,
-            dtype=np.float32
+            dtype=np.float64
         )
 
         self.up = np.array(
             up,
-            dtype=np.float32
+            dtype=np.float64
         )
 
         self.fov = float(fov)
@@ -74,24 +88,54 @@ class Camera:
         )
 
     # =====================================================
-    # View Matrix
+    # View Matrices
     # =====================================================
 
     @property
-    def view_matrix(self):
+    def view_matrix(self) -> np.ndarray:
+        """World -> view (float64). CPU use only."""
 
         return look_at(
             self.position,
             self.target,
             self.up
-        )
+        ).astype(np.float64)
+
+    @property
+    def view_rotation_matrix(self) -> np.ndarray:
+        """
+        Camera-relative -> view: the view matrix with the
+        camera at the origin. What the GPU gets.
+        """
+
+        view = self.view_matrix
+
+        view[:3, 3] = 0.0
+
+        return view
 
     # =====================================================
-    # Projection Matrix
+    # Projection Matrices
     # =====================================================
 
     @property
-    def projection_matrix(self):
+    def projection_matrix(self) -> np.ndarray:
+        """Reversed-Z, infinite far plane (rendering)."""
+
+        self._validate_projection()
+
+        return perspective_reversed_infinite(
+            self.fov,
+            self.aspect_ratio,
+            self.near
+        )
+
+    @property
+    def conventional_projection_matrix(self) -> np.ndarray:
+        """
+        Standard OpenGL perspective using near/far, for
+        tools that assume it (ImGuizmo).
+        """
 
         self._validate_projection()
 
@@ -100,4 +144,4 @@ class Camera:
             self.aspect_ratio,
             self.near,
             self.far
-        )
+        ).astype(np.float64)

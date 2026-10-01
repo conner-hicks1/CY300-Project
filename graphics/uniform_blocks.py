@@ -178,10 +178,22 @@ class LightingFrame:
 
 def pack_lights_block(
     lighting: LightEnvironment,
-    frame: LightingFrame | None = None
+    frame: LightingFrame | None = None,
+    origin=(0.0, 0.0, 0.0)
 ) -> bytes:
+    """
+    origin: render origin (camera position). Light positions
+    are stored relative to it, matching camera-relative
+    rendering. Shadow matrices in `frame` must already be in
+    render space (graphics.shadows.to_render_space).
+    """
 
     frame = frame or LightingFrame()
+
+    origin = np.asarray(
+        origin,
+        dtype=np.float64
+    )
 
     data = np.zeros(
         _LIGHTS_FLOATS,
@@ -266,7 +278,7 @@ def pack_lights_block(
         _write_vec4(
             data,
             _OFFSET_POINT_POSITION + index * _VEC4,
-            point.position,
+            np.asarray(point.position, dtype=np.float64) - origin,
             point.range
         )
 
@@ -288,7 +300,7 @@ def pack_lights_block(
         _write_vec4(
             data,
             _OFFSET_SPOT_POSITION + index * _VEC4,
-            spot.position,
+            np.asarray(spot.position, dtype=np.float64) - origin,
             spot.range
         )
 

@@ -222,6 +222,78 @@ def perspective(
     )
 
 
+def perspective_reversed_infinite(
+    fov_degrees: float,
+    aspect_ratio: float,
+    near: float
+) -> np.ndarray:
+    """
+    Reversed-Z perspective with an infinite far plane, for
+    clip control GL_ZERO_TO_ONE (see RenderState):
+
+        depth = near / -z_view
+
+    so the near plane maps to 1 and infinity to 0. Float
+    depth keeps nearly uniform relative precision this way,
+    from centimetres to planetary distances. Clear depth to
+    0 and test with GL_GREATER.
+    """
+
+    engine_assert(
+        0.0 < fov_degrees < 180.0,
+        "Perspective FOV must be between 0 and 180 degrees."
+    )
+
+    engine_assert(
+        aspect_ratio > 0.0,
+        "Perspective aspect ratio must be positive."
+    )
+
+    engine_assert(
+        near > 0.0,
+        "Perspective near plane must be positive."
+    )
+
+    f = 1.0 / np.tan(
+        np.radians(fov_degrees) / 2.0
+    )
+
+    return np.array(
+        [
+            [f / aspect_ratio, 0.0, 0.0, 0.0],
+            [0.0, f, 0.0, 0.0],
+            [0.0, 0.0, 0.0, near],
+            [0.0, 0.0, -1.0, 0.0]
+        ],
+        dtype=np.float64
+    )
+
+
+# Maps OpenGL's [-1, 1] clip depth to [0, 1]: needed for
+# conventional projections (shadow maps) once clip control
+# is GL_ZERO_TO_ONE.
+
+DEPTH_ZERO_TO_ONE = np.array(
+    [
+        [1.0, 0.0, 0.0, 0.0],
+        [0.0, 1.0, 0.0, 0.0],
+        [0.0, 0.0, 0.5, 0.5],
+        [0.0, 0.0, 0.0, 1.0]
+    ]
+)
+
+
+def translation(
+    offset
+) -> np.ndarray:
+
+    matrix = np.identity(4)
+
+    matrix[:3, 3] = np.asarray(offset, dtype=np.float64)
+
+    return matrix
+
+
 def orthographic(
     left: float,
     right: float,
@@ -338,7 +410,42 @@ def decompose_trs(
     negative X scale. Shear, which T/R/S cannot express
     (e.g. a rotated child under a non-uniformly scaled
     parent), is discarded.
+
+    See decompose_trs_quaternion() to avoid Euler angles.
     """
+
+    position, rotation_matrix, scale = _split_trs(
+        matrix
+    )
+
+    return (
+        position,
+        euler_from_rotation_matrix(rotation_matrix),
+        scale
+    )
+
+
+def decompose_trs_quaternion(
+    matrix
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """(position, quaternion (x, y, z, w), scale)."""
+
+    from math3d.quaternion import from_matrix3
+
+    position, rotation_matrix, scale = _split_trs(
+        matrix
+    )
+
+    return (
+        position,
+        from_matrix3(rotation_matrix),
+        scale
+    )
+
+
+def _split_trs(
+    matrix
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
 
     m = np.asarray(
         matrix,
@@ -366,13 +473,34 @@ def decompose_trs(
         1.0
     )
 
-    r = columns / safe_scale
+    rotation = columns / safe_scale
 
-    # R = Rz(z) @ Ry(y) @ Rx(x):
-    #
-    #   r[2,0] = -sin(y)
-    #   r[2,1] =  cos(y) sin(x),  r[2,2] = cos(y) cos(x)
-    #   r[1,0] =  cos(y) sin(z),  r[0,0] = cos(y) cos(z)
+    # Re-orthonormalize (shear / round-off) so the result
+    # is a proper rotation.
+    u, _, vt = np.linalg.svd(rotation)
+
+    rotation = u @ vt
+
+    if np.linalg.det(rotation) < 0.0:
+        u[:, -1] = -u[:, -1]
+        rotation = u @ vt
+
+    return position, rotation, scale
+
+
+def euler_from_rotation_matrix(
+    r
+) -> np.ndarray:
+    """
+    Rotation matrix -> Euler degrees (X, Y, Z) for
+    R = Rz(z) @ Ry(y) @ Rx(x):
+
+        r[2,0] = -sin(y)
+        r[2,1] =  cos(y) sin(x),  r[2,2] = cos(y) cos(x)
+        r[1,0] =  cos(y) sin(z),  r[0,0] = cos(y) cos(z)
+    """
+
+    r = np.asarray(r, dtype=np.float64)
 
     sin_y = float(
         np.clip(-r[2, 0], -1.0, 1.0)
@@ -395,12 +523,6 @@ def decompose_trs(
         x = 0.0
         z = np.arctan2(-r[0, 1], r[1, 1])
 
-    rotation = np.degrees(
+    return np.degrees(
         [x, y, z]
-    )
-
-    return (
-        position.astype(np.float32),
-        rotation.astype(np.float32),
-        scale.astype(np.float32)
     )
