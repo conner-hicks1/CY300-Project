@@ -1,4 +1,8 @@
+import math
+
 from pathlib import Path
+
+import numpy as np
 
 from core.assertions import engine_assert
 from core.cprofile_capture import CProfileCapture
@@ -25,11 +29,8 @@ from ecs.components import (
     CameraControllerComponent,
     DirectionalLightComponent,
     HierarchyComponent,
-    MeshRendererComponent,
     NameComponent,
-    PointLightComponent,
-    RotatorComponent,
-    SpotLightComponent,
+    PlanetComponent,
     TransformComponent
 )
 from ecs.entity import Entity
@@ -43,13 +44,18 @@ from graphics.renderer import Renderer
 from graphics.shader import Shader
 from graphics.texture import Texture2D
 
+from math3d import quaternion
 from math3d.transform import Transform
+
+from planet.spawn import find_spawn
+from planet.terrain import Terrain, TerrainSettings
 
 from resources.resources import Resources
 
 from systems.camera_controller_system import (
     CameraControllerSystem
 )
+from systems.planet_system import PlanetSystem
 from systems.render_system import RenderSystem
 from systems.rotator_system import RotatorSystem
 from systems.transform_system import TransformSystem
@@ -139,6 +145,8 @@ class Application:
         # Background work (mesh generation, loading);
         # results are handed back in update().
         self.jobs: JobSystem | None = None
+
+        self.planet_system: PlanetSystem | None = None
 
         # -------------------------------------------------
         # UI
@@ -289,6 +297,12 @@ class Application:
 
         self._load_resources()
 
+        self.planet_system = PlanetSystem(
+            self.resources,
+            self.jobs,
+            self.handles["planet_material"]
+        )
+
         self.serializer = SceneSerializer(
             self.resources,
             load_material=self._create_model_material
@@ -326,7 +340,7 @@ class Application:
     # Initial Scene
     # =====================================================
 
-    DEFAULT_SCENE_PATH = Path("assets/scenes/demo.scene.json")
+    DEFAULT_SCENE_PATH = Path("assets/scenes/planet.scene.json")
 
     def _load_initial_scene(
         self,
@@ -537,32 +551,12 @@ class Application:
             MeshFactory.create_sphere
         )
 
-        # Model meshes are keyed by file path: scene files
-        # reference them by key, and the serializer can load
-        # any model path on demand.
+        # Planet terrain: colors come per vertex
+        # (planet/terrain.py); the material sets the rest.
 
-        handles["torus"] = resources.meshes.load(
-            "assets/models/torus.obj",
-            lambda: MeshFactory.load_model(
-                "assets/models/torus.obj"
-            )
-        )
-
-        handles["pyramid"] = resources.meshes.load(
-            "assets/models/pyramid.gltf",
-            lambda: MeshFactory.load_model(
-                "assets/models/pyramid.gltf"
-            )
-        )
-
-        # The pyramid's own glTF material.
-        pyramid_material_key = model_material_key(
-            "assets/models/pyramid.gltf"
-        )
-
-        handles["pyramid_material"] = resources.materials.load(
-            pyramid_material_key,
-            lambda: self._create_model_material(pyramid_material_key)
+        handles["planet_material"] = resources.materials.load(
+            PlanetSystem.MATERIAL_KEY,
+            pbr_material((1.0, 1.0, 1.0), metallic=0.0, roughness=0.9)
         )
 
     # =====================================================
@@ -703,8 +697,16 @@ class Application:
         scene: Scene
     ):
         """
-        Fill `scene` with the built-in demo content (used for
-        File > New Demo Scene and when no scene file exists).
+        Fill `scene` with the built-in demo (used for
+        File > New Demo Scene and when no scene file
+        exists): an Earth-sized procedural planet, a sun,
+        and a camera standing on the surface.
+
+        The planet is turned so a scenic spot (lowland with
+        mountains in view; planet/spawn.py) is on top, and
+        placed so that spot sits at the world origin. The
+        sky and editor grid assume +Y is up, which holds
+        there.
         """
 
         engine_assert(
@@ -712,7 +714,45 @@ class Application:
             "The demo builder fills the application's scene."
         )
 
-        handles = self.handles
+        planet = PlanetComponent()
+
+        terrain = Terrain(
+            TerrainSettings(
+                seed=planet.seed,
+                radius=planet.radius,
+                continent_frequency=planet.continent_frequency,
+                continent_height=planet.continent_height,
+                land_bias=planet.land_bias,
+                mountain_frequency=planet.mountain_frequency,
+                mountain_height=planet.mountain_height,
+                detail_height=planet.detail_height
+            )
+        )
+
+        spawn = find_spawn(terrain)
+
+        up = np.array([0.0, 1.0, 0.0])
+
+        # Rotation taking the spawn direction to +Y.
+        axis = np.cross(spawn.direction, up)
+
+        axis_length = float(np.linalg.norm(axis))
+
+        angle = math.degrees(
+            math.atan2(axis_length, float(np.dot(spawn.direction, up)))
+        )
+
+        orientation = (
+            quaternion.from_axis_angle(axis / axis_length, angle)
+            if axis_length > 1e-9
+            else quaternion.identity()
+        )
+
+        ground = planet.radius + max(spawn.elevation, 0.0)
+
+        center = (0.0, -ground, 0.0)
+
+        view = quaternion.rotate_vector(orientation, spawn.view_direction)
 
         # -------------------------------------------------
         # Camera
@@ -721,31 +761,37 @@ class Application:
         self._create_entity(
             "Camera",
             Transform(
-                position=(0.0, 1.2, 4.5),
-                rotation=(-12.0, 0.0, 0.0)
+                position=(0.0, 1200.0, 0.0),
+                orientation=quaternion.multiply(
+                    quaternion.look_rotation(view, up),
+                    quaternion.from_euler((-6.0, 0.0, 0.0))
+                )
             ),
             CameraComponent(
-                fov=50.0,
-                near=0.1,
-                far=100.0,
+                fov=60.0,
+                near=0.5,
+                far=2000.0,
                 primary=True
             ),
             CameraControllerComponent(
-                movement_speed=3.0,
-                mouse_sensitivity=0.1
+                movement_speed=30.0,
+                mouse_sensitivity=0.1,
+                planet_mode=True,
+                planet_center=center,
+                planet_radius=ground,
+                altitude_speed=1.5,
+                min_altitude=2.0
             )
         )
 
         # -------------------------------------------------
-        # Lights
+        # Sun
         # -------------------------------------------------
-
-        # Pitched down 50 degrees, yawed 30 degrees.
 
         self._create_entity(
             "Sun",
             Transform(
-                rotation=(-50.0, 30.0, 0.0)
+                rotation=(-35.0, 150.0, 0.0)
             ),
             DirectionalLightComponent(
                 color=(1.0, 0.96, 0.9),
@@ -753,151 +799,17 @@ class Application:
             )
         )
 
-        # A point light orbits the scene: it is a child of
-        # a spinning pivot, so its world position comes
-        # from the transform hierarchy.
-
-        pivot = self._create_entity(
-            "Orbit Pivot",
-            Transform(
-                position=(0.0, 0.6, 0.0)
-            ),
-            RotatorComponent(
-                degrees_per_second=(0.0, 40.0, 0.0)
-            )
-        )
-
-        self._create_entity(
-            "Orbiting Point Light",
-            Transform(
-                position=(2.2, 0.0, 0.0)
-            ),
-            PointLightComponent(
-                color=(1.0, 0.55, 0.25),
-                intensity=15.0,
-                range=6.0
-            ),
-            parent=pivot
-        )
-
-        # Blue cone pointing straight down onto the floor.
-        # Pitch -90 turns forward (-Z) into -Y.
-
-        self._create_entity(
-            "Spot Light",
-            Transform(
-                position=(-2.2, 2.5, -1.5),
-                rotation=(-90.0, 0.0, 0.0)
-            ),
-            SpotLightComponent(
-                color=(0.3, 0.5, 1.0),
-                intensity=30.0,
-                range=8.0,
-                inner_angle=18.0,
-                outer_angle=28.0
-            )
-        )
-
         # -------------------------------------------------
-        # Floor
+        # Planet
         # -------------------------------------------------
 
         self._create_entity(
-            "Floor",
+            "Planet",
             Transform(
-                position=(0.0, -0.5, 0.0),
-                scale=(12.0, 1.0, 12.0)
+                position=center,
+                orientation=orientation
             ),
-            MeshRendererComponent(
-                mesh=handles["plane"],
-                material=handles["floor_material"],
-                casts_shadows=False
-            )
-        )
-
-        # -------------------------------------------------
-        # Objects
-        # -------------------------------------------------
-
-        cube = self._create_entity(
-            "Cube",
-            Transform(
-                position=(0.0, 0.25, 0.0)
-            ),
-            MeshRendererComponent(
-                mesh=handles["cube"],
-                material=handles["cube_material"]
-            ),
-            RotatorComponent(
-                degrees_per_second=(0.0, 30.0, 0.0)
-            )
-        )
-
-        # Child of the cube: rides along as it spins.
-
-        self._create_entity(
-            "Moon",
-            Transform(
-                position=(0.0, 0.85, 0.0),
-                scale=(0.35, 0.35, 0.35)
-            ),
-            MeshRendererComponent(
-                mesh=handles["sphere"],
-                material=handles["gold_material"]
-            ),
-            parent=cube
-        )
-
-        # Emissive: shows off bloom.
-
-        self._create_entity(
-            "Glow Orb",
-            Transform(
-                position=(-0.4, -0.3, 1.5),
-                scale=(0.3, 0.3, 0.3)
-            ),
-            MeshRendererComponent(
-                mesh=handles["sphere"],
-                material=handles["glow_material"],
-                casts_shadows=False
-            )
-        )
-
-        self._create_entity(
-            "Sphere",
-            Transform(
-                position=(1.6, 0.0, -0.8)
-            ),
-            MeshRendererComponent(
-                mesh=handles["sphere"],
-                material=handles["red_material"]
-            )
-        )
-
-        self._create_entity(
-            "Torus (OBJ)",
-            Transform(
-                position=(-1.6, 0.0, 0.6),
-                rotation=(60.0, 0.0, 0.0)
-            ),
-            MeshRendererComponent(
-                mesh=handles["torus"],
-                material=handles["teal_material"]
-            ),
-            RotatorComponent(
-                degrees_per_second=(0.0, 0.0, 45.0)
-            )
-        )
-
-        self._create_entity(
-            "Pyramid (glTF)",
-            Transform(
-                position=(1.4, -0.5, 1.4)
-            ),
-            MeshRendererComponent(
-                mesh=handles["pyramid"],
-                material=handles["pyramid_material"]
-            )
+            planet
         )
 
     # =====================================================
@@ -1034,6 +946,14 @@ class Application:
     # Update
     # =====================================================
 
+    def set_ui_visible(
+        self,
+        visible: bool
+    ):
+
+        self.debug_panel.visible = visible
+        self.editor.visible = visible
+
     def update(self):
 
         engine_assert(
@@ -1063,10 +983,9 @@ class Application:
 
             if Input.is_key_pressed(Key.F1):
 
-                visible = not self.debug_panel.visible
-
-                self.debug_panel.visible = visible
-                self.editor.visible = visible
+                self.set_ui_visible(
+                    not self.debug_panel.visible
+                )
 
             if Input.is_key_pressed(Key.F5):
 
@@ -1144,6 +1063,12 @@ class Application:
 
         with profiler.scope("Camera"):
 
+            # Planet-mode cameras fly relative to the
+            # ground under them.
+            self.planet_system.update_camera_ground(
+                self.scene
+            )
+
             # Editor-style flying: WASD/QE only while the
             # right mouse button is held, so the same keys
             # can switch gizmo modes the rest of the time.
@@ -1165,6 +1090,17 @@ class Application:
 
             self.transform_system.update(
                 self.scene
+            )
+
+        # -------------------------------------------------
+        # Planet Streaming
+        # -------------------------------------------------
+
+        with profiler.scope("Planet"):
+
+            self.planet_system.update(
+                self.scene,
+                self.render_system.camera_position(self.scene)
             )
 
     def fixed_update(
@@ -1212,6 +1148,7 @@ class Application:
             self.scene,
             width,
             height,
+            extra_items=self.planet_system.draw_items,
             selected=(
                 self.editor.selected
                 if self.editor.visible
@@ -1247,7 +1184,8 @@ class Application:
                         profiler=profiler,
                         cprofile_capture=self.cprofile_capture,
                         window=self.window,
-                        jobs=self.jobs
+                        jobs=self.jobs,
+                        planet_stats=self.planet_system.stats
                     )
                 )
 
@@ -1512,6 +1450,13 @@ class Application:
         # =================================================
         # Systems
         # =================================================
+
+        # Chunk meshes live in the renderer's geometry pool.
+        if self.planet_system is not None:
+
+            self.planet_system.shutdown()
+
+            self.planet_system = None
 
         if self.render_system is not None:
 

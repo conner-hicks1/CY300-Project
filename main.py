@@ -22,8 +22,8 @@ def parse_arguments(argv=None):
         metavar="PATH",
         help=(
             "Scene file to open (default: "
-            "assets/scenes/demo.scene.json, or the built-in "
-            "demo if that is missing)."
+            "assets/scenes/planet.scene.json, or the built-in "
+            "planet demo if that is missing)."
         )
     )
 
@@ -44,6 +44,12 @@ def parse_arguments(argv=None):
         "--screenshot",
         metavar="PATH",
         help="With --exit-after, save the final frame to PATH."
+    )
+
+    parser.add_argument(
+        "--hide-ui",
+        action="store_true",
+        help="Start with the editor and debug UI hidden (F1 toggles)."
     )
 
     parser.add_argument(
@@ -132,6 +138,9 @@ def main():
         # -------------------------------------------------
         # Run
         # -------------------------------------------------
+
+        if arguments.hide_ui:
+            application.set_ui_visible(False)
 
         application.run(
             exit_after=arguments.exit_after,

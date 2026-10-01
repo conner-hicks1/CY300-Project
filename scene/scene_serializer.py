@@ -15,6 +15,7 @@ from ecs.components import (
     HierarchyComponent,
     MeshRendererComponent,
     NameComponent,
+    PlanetComponent,
     PointLightComponent,
     RotatorComponent,
     SpotLightComponent,
@@ -623,6 +624,12 @@ COMPONENT_CODECS: tuple[ComponentCodec, ...] = (
         "CameraController",
         CameraControllerComponent,
         create_default=lambda _: CameraControllerComponent()
+    ),
+
+    _dataclass_codec(
+        "Planet",
+        PlanetComponent,
+        create_default=lambda _: PlanetComponent()
     ),
 
     _dataclass_codec(

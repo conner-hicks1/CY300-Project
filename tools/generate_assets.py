@@ -10,8 +10,8 @@ changing it):
     assets/textures/tiles_normal.png     tangent-space normal map (OpenGL, +Y up)
     assets/textures/tiles_orm.png        R occlusion, G roughness, B metallic (glTF packing)
     assets/textures/uv_checker.png       sRGB color test pattern (cube)
-    assets/models/torus.obj              OBJ with v/vt/vn
-    assets/models/pyramid.gltf           glTF 2.0, embedded buffer, node transform
+    tests/fixtures/models/torus.obj      OBJ with v/vt/vn
+    tests/fixtures/models/pyramid.gltf   glTF 2.0, embedded buffer, node transform
 
 Deterministic: the same script always produces the same
 files.
@@ -31,7 +31,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parent.parent
 
 TEXTURES = ROOT / "assets" / "textures"
-MODELS = ROOT / "assets" / "models"
+MODELS = ROOT / "tests" / "fixtures" / "models"
 
 
 # =========================================================

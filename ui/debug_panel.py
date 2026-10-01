@@ -23,6 +23,7 @@ from graphics.renderer import (
 
 from resources.resources import Resources
 from ui.window_utils import keep_window_on_screen
+from systems.planet_system import PlanetStats
 
 
 # =========================================================
@@ -48,6 +49,7 @@ class DebugContext:
     cprofile_capture: CProfileCapture
     window: Window
     jobs: JobSystem
+    planet_stats: PlanetStats
 
 
 class DebugPanel:
@@ -407,6 +409,17 @@ class DebugPanel:
             f"Jobs pending: {context.jobs.pending}  "
             f"({context.jobs.workers} workers)"
         )
+
+        planet = context.planet_stats
+
+        if planet.planets:
+
+            imgui.text(
+                f"Planet chunks: {planet.chunks_drawn} drawn, "
+                f"{planet.chunks_loaded} loaded, "
+                f"{planet.chunks_building} building, "
+                f"{planet.chunks_queued} queued"
+            )
 
         imgui.text_disabled(
             "Hold RMB + WASD/QE: fly  |  Click: select\n"

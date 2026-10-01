@@ -275,10 +275,14 @@ class RenderSystem:
         scene: Scene,
         width: int,
         height: int,
-        selected: Entity | None = None
+        selected: Entity | None = None,
+        extra_items: list[DrawItem] | None = None
     ):
         """
         selected: entity to outline (editor selection).
+        extra_items: draws that are not entities (planet
+            terrain chunks), rendered and shadowed like
+            scene meshes.
         """
 
         engine_assert(
@@ -355,6 +359,7 @@ class RenderSystem:
 
             prepared = self._renderer.prepare_draws(
                 self._collect_draw_items(registry)
+                + (extra_items or [])
             )
 
         # Render-space camera clip matrix, for culling.
@@ -952,6 +957,17 @@ class RenderSystem:
     # =====================================================
     # Primary Camera
     # =====================================================
+
+    def camera_position(
+        self,
+        scene: Scene
+    ) -> np.ndarray:
+        """World position of the camera that renders the scene."""
+
+        return np.asarray(
+            self._build_primary_camera(scene.registry, 1.0).position,
+            dtype=np.float64
+        )
 
     def _build_primary_camera(
         self,

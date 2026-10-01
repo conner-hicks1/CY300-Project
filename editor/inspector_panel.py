@@ -9,6 +9,7 @@ from ecs.components import (
     HierarchyComponent,
     MeshRendererComponent,
     NameComponent,
+    PlanetComponent,
     PointLightComponent,
     RotatorComponent,
     SpotLightComponent,
@@ -515,7 +516,57 @@ def _edit_camera_controller(
         inspector.slider(component, "altitude_speed", "Altitude speed", 0.0, 5.0, "%.2f")
         inspector.slider(component, "min_altitude", "Min altitude", 0.0, 1000.0, "%.1f", logarithmic=True)
 
+        imgui.text_disabled(
+            "With a planet in the scene, center and radius\n"
+            "follow the nearest planet and the ground below."
+        )
+
     imgui.text_disabled("Hold the right mouse button to fly.")
+
+
+def _edit_planet(
+    inspector: _Inspector,
+    component: PlanetComponent
+):
+
+    changed, seed = imgui.input_int("Seed", component.seed)
+
+    if changed:
+        component.seed = seed
+
+    inspector.discrete(changed, "Seed")
+
+    inspector.slider(component, "radius", "Radius (m)", 1_000.0, 10_000_000.0, "%.0f", logarithmic=True)
+
+    imgui.separator_text("Terrain")
+
+    inspector.slider(component, "continent_frequency", "Continent freq.", 0.2, 6.0)
+    inspector.slider(component, "continent_height", "Continent height", 0.0, 10_000.0, "%.0f")
+    inspector.slider(component, "land_bias", "Land bias", -0.5, 0.5, "%.3f")
+    inspector.slider(component, "mountain_frequency", "Mountain freq.", 5.0, 1000.0, "%.0f", logarithmic=True)
+    inspector.slider(component, "mountain_height", "Mountain height", 0.0, 20_000.0, "%.0f")
+    inspector.slider(component, "detail_height", "Detail height", 0.0, 2_000.0, "%.0f")
+
+    imgui.separator_text("Level of detail")
+
+    for field, label, low, high in (
+        ("resolution", "Chunk vertices", 5, 65),
+        ("max_depth", "Max depth", 0, 20),
+    ):
+
+        changed, value = imgui.slider_int(label, getattr(component, field), low, high)
+
+        if changed:
+            setattr(component, field, value)
+
+        inspector.continuous(label)
+
+    inspector.slider(component, "split_factor", "Split distance", 0.5, 4.0)
+
+    imgui.text_disabled(
+        "Terrain changes rebuild the planet.\n"
+        "Chunk counts: Engine window."
+    )
 
 
 def _edit_directional_light(
@@ -580,6 +631,7 @@ _COMPONENT_EDITORS = {
     MeshRendererComponent: _edit_mesh_renderer,
     CameraComponent: _edit_camera,
     CameraControllerComponent: _edit_camera_controller,
+    PlanetComponent: _edit_planet,
     DirectionalLightComponent: _edit_directional_light,
     PointLightComponent: _edit_point_light,
     SpotLightComponent: _edit_spot_light,

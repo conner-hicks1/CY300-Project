@@ -1,13 +1,24 @@
 # CY300 OpenGL Engine
 
-A small 3D engine and scene editor written in Python on top of OpenGL 3.3,
+A small 3D engine and scene editor written in Python on top of OpenGL 4.5,
 built as a CY300 course project. It renders with physically based materials,
-cascaded shadows and image-based lighting from a procedural sky, and comes with
-an ImGui editor for building and saving scenes.
+cascaded shadows and image-based lighting from a procedural sky, streams an
+Earth-sized procedural planet, and comes with an ImGui editor for building and
+saving scenes.
 
-![Demo scene rendered by the engine](docs/images/scene.png)
+![The procedural planet, seen from the surface](docs/images/scene.png)
 
 ## Features
+
+**Procedural planet**
+
+- Earth-sized cube-sphere planet with continents, oceans, ridged mountain
+  ranges, hills, snow lines and polar ice, from seeded 3D gradient noise
+- Quadtree level of detail per cube face with horizon culling; chunks are built
+  on worker threads and streamed in coarse-to-fine without holes or cracks
+- Planet-aware camera: radial "up", altitude-scaled flying speed, stays above
+  the terrain
+- Terrain parameters editable live in the inspector (the planet rebuilds)
 
 **Rendering**
 
@@ -19,6 +30,10 @@ an ImGui editor for building and saving scenes.
 - Procedural sky; ambient light and reflections baked from it
   (split-sum image-based lighting: irradiance, prefiltered specular, BRDF LUT)
 - HDR pipeline: bloom, exposure, ACES / Reinhard tone mapping, gamma correction, FXAA
+- Batched drawing: one shared geometry buffer, one multi-draw-indirect call per
+  material, frustum culling of every object and shadow caster
+- Planet-scale precision: 64-bit world positions, camera-relative rendering and
+  a reversed-Z infinite depth buffer
 - OBJ and glTF / GLB model loading, including glTF materials and embedded textures
 - Shader `#include`s and hot reload (edit a `.glsl` file while the engine runs)
 
@@ -34,19 +49,22 @@ an ImGui editor for building and saving scenes.
 
 **Engine**
 
-- Entity-component-system with parent / child transforms
-- Fixed-timestep simulation, uniform buffers for per-frame data
-- 190+ unit tests for everything that does not need a GPU
+- Entity-component-system with parent / child transforms (quaternion rotations)
+- Background job system: worker threads, results handed back to the main thread
+  under a per-frame time budget
+- Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
+  output routed to the log
+- 280+ unit tests for everything that does not need a GPU
 
 ## Getting Started
 
 ### Requirements
 
-- A GPU and driver supporting **OpenGL 3.3**
+- A GPU and driver supporting **OpenGL 4.5** (any desktop GPU from the last
+  decade; developed on Intel Iris Xe)
 - **Python 3.14** (the version the project is developed and tested with)
-- Developed and tested on Windows. Linux with OpenGL 3.3 should work but is
-  untested; macOS would additionally need a forward-compatible context
-  (not requested yet).
+- Developed and tested on Windows. Linux should work but is untested; macOS is
+  not supported (Apple's OpenGL stops at 4.1).
 
 ### Install
 
@@ -66,12 +84,15 @@ py -3.14 -m pip install -r requirements.txt
 python main.py
 ```
 
-This opens the demo scene (`assets/scenes/demo.scene.json`).
+This opens `assets/scenes/planet.scene.json` if it exists, otherwise the
+built-in demo: a procedural planet with the camera above a mountain valley.
+The planet streams in over the first few seconds.
 
 | Option | Meaning |
 | --- | --- |
 | `--scene PATH` | Open a different scene file |
 | `--play` | Start with the simulation running |
+| `--hide-ui` | Start with the editor and debug UI hidden (**F1** toggles) |
 | `--no-vsync` | Uncapped frame rate (for measuring performance) |
 | `--cprofile N` | Record a Python profile of the first N frames into `logs/profiles/` |
 | `--exit-after S` | Quit after S seconds (smoke tests) |
@@ -81,7 +102,7 @@ This opens the demo scene (`assets/scenes/demo.scene.json`).
 
 | Input | Action |
 | --- | --- |
-| Hold right mouse button | Look around; **W A S D** move, **Q / E** down / up |
+| Hold right mouse button | Look around; **W A S D** move, **Q / E** down / up (on a planet: toward / away from the ground; speed grows with altitude) |
 | Left click | Select an object |
 | **Q / W / E / R** | Select / move / rotate / scale tool |
 | **F** | Focus the camera on the selection |
@@ -98,18 +119,19 @@ This opens the demo scene (`assets/scenes/demo.scene.json`).
 | Path | Contents |
 | --- | --- |
 | `main.py`, `application.py` | Entry point, main loop, demo content |
-| `core/` | Window, input, events, timer, logging, profiler |
+| `core/` | Window, input, events, timer, logging, profiler, job system |
 | `ecs/` | Entity registry and components |
-| `systems/` | Transform, camera controller, rotator and render systems |
+| `systems/` | Transform, camera controller, rotator, planet streaming and render systems |
+| `planet/` | Noise, cube-sphere mapping, terrain, chunk building, level of detail |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, bloom |
 | `editor/` | Scene editor panels, picking, undo history |
 | `scene/` | Scene container and scene file (de)serialization |
 | `resources/` | Handle-based resource managers |
 | `math3d/` | Transforms, camera, matrix helpers |
 | `ui/` | ImGui integration and engine / profiler panels |
-| `assets/` | Shaders, textures, models, scenes |
+| `assets/` | Shaders, textures, scenes |
 | `tools/` | Asset generator and micro-benchmarks |
-| `tests/` | pytest suite |
+| `tests/` | pytest suite (`tests/fixtures/` holds the OBJ / glTF test models) |
 
 ## Development
 
@@ -119,7 +141,7 @@ Run the tests (no GPU needed):
 python -m pytest
 ```
 
-Regenerate the procedural textures and models in `assets/`:
+Regenerate the procedural textures in `assets/` and the test models:
 
 ```bash
 python tools/generate_assets.py

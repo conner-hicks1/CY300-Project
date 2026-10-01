@@ -245,3 +245,33 @@ class CameraControllerComponent:
 
     # Closest the camera may get to the surface.
     min_altitude: float = 1.0
+
+
+# =========================================================
+# Planet
+# =========================================================
+#
+# A procedurally generated planet centered on the entity
+# (rotation applies; scale is ignored). PlanetSystem builds
+# and streams its terrain chunks. Changing any terrain
+# field rebuilds the planet.
+
+@dataclass(slots=True)
+class PlanetComponent:
+
+    # Terrain (see planet/terrain.py TerrainSettings).
+    seed: int = 1
+    radius: float = 6_371_000.0
+    continent_frequency: float = 1.2
+    continent_height: float = 2_500.0
+    land_bias: float = 0.05
+    mountain_frequency: float = 150.0
+    mountain_height: float = 5_000.0
+    detail_height: float = 300.0
+
+    # Level of detail: vertices per chunk edge, deepest
+    # quadtree level, and how close (in chunk edge lengths)
+    # the camera must be before a chunk splits.
+    resolution: int = 33
+    max_depth: int = 15
+    split_factor: float = 1.5

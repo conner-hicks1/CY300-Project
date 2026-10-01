@@ -12,7 +12,7 @@ from graphics.model_loader import load_model_data
 from tests.test_mesh_data import assert_counter_clockwise, assert_valid_tangents
 
 
-MODELS = Path(__file__).resolve().parent.parent / "assets" / "models"
+MODELS = Path(__file__).resolve().parent / "fixtures" / "models"
 
 
 # =========================================================
