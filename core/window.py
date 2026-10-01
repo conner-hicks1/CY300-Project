@@ -27,12 +27,16 @@ from core.events.mouse_event import (
     MouseScrolledEvent
 )
 from core.input import Input
+from graphics.gl_debug import install_debug_callback
 from core.key_codes import Key
 from core.logger import Logger
 from core.mouse_codes import MouseButton
 
 
 class Window:
+
+    # Required OpenGL core profile version.
+    GL_VERSION = (4, 5)
 
     # =====================================================
     # Construction
@@ -93,22 +97,39 @@ class Window:
         try:
 
             # ---------------------------------------------
-            # OpenGL 3.3 Core
+            # OpenGL 4.5 Core
             # ---------------------------------------------
+            #
+            # 4.5 provides glClipControl (reversed-Z depth),
+            # shader storage buffers and multi-draw indirect
+            # (batched rendering), and compute shaders for
+            # later simulation work.
 
             glfw.window_hint(
                 glfw.CONTEXT_VERSION_MAJOR,
-                3
+                self.GL_VERSION[0]
             )
 
             glfw.window_hint(
                 glfw.CONTEXT_VERSION_MINOR,
-                3
+                self.GL_VERSION[1]
             )
 
             glfw.window_hint(
                 glfw.OPENGL_PROFILE,
                 glfw.OPENGL_CORE_PROFILE
+            )
+
+            glfw.window_hint(
+                glfw.OPENGL_FORWARD_COMPAT,
+                True
+            )
+
+            # Lets the driver report errors and performance
+            # warnings through graphics/gl_debug.py.
+            glfw.window_hint(
+                glfw.OPENGL_DEBUG_CONTEXT,
+                True
             )
 
             # ---------------------------------------------
@@ -126,7 +147,10 @@ class Window:
             if handle is None:
 
                 raise RuntimeError(
-                    "Failed to create GLFW window."
+                    "Failed to create a window with an OpenGL "
+                    f"{self.GL_VERSION[0]}.{self.GL_VERSION[1]} core "
+                    "context. Update the graphics driver; the engine "
+                    "needs OpenGL 4.5."
                 )
 
             self.handle = handle
@@ -158,6 +182,8 @@ class Window:
             # ---------------------------------------------
 
             self._log_opengl_info()
+
+            install_debug_callback()
 
         except Exception:
 

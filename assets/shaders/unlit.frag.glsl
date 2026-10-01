@@ -1,4 +1,4 @@
-#version 330 core
+#version 450 core
 
 
 // Linear HDR color; values above 1 bloom into white after

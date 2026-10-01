@@ -1,4 +1,4 @@
-#version 330 core
+#version 450 core
 
 #include "include/lighting.glsl"
 #include "include/ibl_sampling.glsl"
