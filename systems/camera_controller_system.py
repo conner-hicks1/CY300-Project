@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 
 from core.assertions import engine_assert
@@ -10,7 +12,12 @@ from ecs.components import (
     TransformComponent
 )
 
+from math3d import quaternion
+
 from scene.scene import Scene
+
+
+WORLD_UP = np.array([0.0, 1.0, 0.0])
 
 
 class CameraControllerSystem:
@@ -18,6 +25,20 @@ class CameraControllerSystem:
     # =====================================================
     # Update
     # =====================================================
+    #
+    # Two modes, chosen per controller:
+    #
+    # Flat (default): yaw about world +Y, pitch clamped,
+    #     stored as Euler angles. Q/E move along world Y.
+    #
+    # Planet (planet_mode): "up" is the direction away from
+    #     planet_center at the camera's position. Yaw turns
+    #     about that up, pitch is measured from the local
+    #     horizon, and the orientation is rebuilt with
+    #     look_rotation every frame, so flying around a
+    #     sphere keeps the horizon level. Q/E move radially,
+    #     speed scales with altitude, and the camera cannot
+    #     go below planet_radius + min_altitude.
 
     def update(
         self,
@@ -78,6 +99,18 @@ class CameraControllerSystem:
             transform = (
                 transform_component.transform
             )
+
+            if controller.planet_mode:
+
+                self._update_planet(
+                    transform,
+                    controller,
+                    delta_time,
+                    look_enabled,
+                    move_enabled
+                )
+
+                continue
 
             # ---------------------------------------------
             # Rotation
@@ -189,83 +222,253 @@ class CameraControllerSystem:
         delta_time: float
     ):
 
-        movement = np.zeros(
-            3,
-            dtype=np.float32
+        # Q/E use world-space Y rather than transform.up,
+        # so they remain vertical even when the camera is
+        # pitched.
+
+        movement = _movement_input(
+            transform,
+            WORLD_UP
         )
 
-        # -------------------------------------------------
-        # Forward / Backward
-        # -------------------------------------------------
-
-        if Input.is_key_down(
-            Key.W
-        ):
-            movement += transform.forward
-
-        if Input.is_key_down(
-            Key.S
-        ):
-            movement -= transform.forward
-
-        # -------------------------------------------------
-        # Left / Right
-        # -------------------------------------------------
-
-        if Input.is_key_down(
-            Key.D
-        ):
-            movement += transform.right
-
-        if Input.is_key_down(
-            Key.A
-        ):
-            movement -= transform.right
-
-        # -------------------------------------------------
-        # Vertical
-        # -------------------------------------------------
-        #
-        # This uses world-space Y rather than transform.up.
-        #
-        # That means Q/E remain vertical even when the
-        # camera is pitched.
-
-        if Input.is_key_down(
-            Key.E
-        ):
-            movement += np.array(
-                [0.0, 1.0, 0.0],
-                dtype=np.float32
-            )
-
-        if Input.is_key_down(
-            Key.Q
-        ):
-            movement -= np.array(
-                [0.0, 1.0, 0.0],
-                dtype=np.float32
-            )
-
-        # -------------------------------------------------
-        # Normalize
-        # -------------------------------------------------
-
-        length = np.linalg.norm(
-            movement
-        )
-
-        if length <= 0.0:
+        if movement is None:
             return
-
-        movement /= length
-
-        # -------------------------------------------------
-        # Apply Movement
-        # -------------------------------------------------
 
         transform.translate(
             movement
             * controller.movement_speed
             * delta_time
         )
+
+    # =====================================================
+    # Planet Mode
+    # =====================================================
+
+    @staticmethod
+    def _update_planet(
+        transform,
+        controller: CameraControllerComponent,
+        delta_time: float,
+        look_enabled: bool,
+        move_enabled: bool
+    ):
+
+        yaw = 0.0
+        pitch = 0.0
+
+        if look_enabled:
+
+            mouse_x, mouse_y = Input.mouse_delta()
+
+            # Same signs as flat mode: mouse right turns
+            # right, mouse down looks down.
+            yaw = -mouse_x * controller.mouse_sensitivity
+            pitch = -mouse_y * controller.mouse_sensitivity
+
+        if move_enabled:
+
+            up = planet_up(
+                transform.position,
+                controller.planet_center
+            )
+
+            movement = _movement_input(
+                transform,
+                up
+            )
+
+            if movement is not None:
+
+                position = (
+                    transform.position
+                    + movement
+                    * planet_speed(controller, transform.position)
+                    * delta_time
+                )
+
+                transform.position = clamp_altitude(
+                    position,
+                    controller
+                )
+
+        # Always re-level: moving across the sphere changes
+        # "up" even without mouse input.
+
+        transform.orientation = planet_look(
+            transform.forward,
+            planet_up(
+                transform.position,
+                controller.planet_center
+            ),
+            yaw,
+            pitch,
+            controller.min_pitch,
+            controller.max_pitch
+        )
+
+
+# =========================================================
+# Helpers
+# =========================================================
+
+def _movement_input(
+    transform,
+    vertical: np.ndarray
+) -> np.ndarray | None:
+    """Unit WASD/QE direction, or None without input."""
+
+    movement = np.zeros(3)
+
+    if Input.is_key_down(Key.W):
+        movement += transform.forward
+
+    if Input.is_key_down(Key.S):
+        movement -= transform.forward
+
+    if Input.is_key_down(Key.D):
+        movement += transform.right
+
+    if Input.is_key_down(Key.A):
+        movement -= transform.right
+
+    if Input.is_key_down(Key.E):
+        movement += vertical
+
+    if Input.is_key_down(Key.Q):
+        movement -= vertical
+
+    length = float(np.linalg.norm(movement))
+
+    if length <= 0.0:
+        return None
+
+    return movement / length
+
+
+def planet_up(
+    position,
+    center
+) -> np.ndarray:
+    """Unit vector from `center` to `position` (+Y at the center)."""
+
+    offset = (
+        np.asarray(position, dtype=np.float64)
+        - np.asarray(center, dtype=np.float64)
+    )
+
+    length = float(np.linalg.norm(offset))
+
+    if length < 1e-9:
+        return WORLD_UP.copy()
+
+    return offset / length
+
+
+def planet_look(
+    forward,
+    up,
+    yaw_degrees: float,
+    pitch_degrees: float,
+    min_pitch: float,
+    max_pitch: float
+) -> np.ndarray:
+    """
+    Orientation after turning `forward` by `yaw_degrees`
+    about `up` and adding `pitch_degrees` of pitch
+    (measured from the horizon, clamped). No roll.
+    """
+
+    forward = np.asarray(forward, dtype=np.float64)
+    up = np.asarray(up, dtype=np.float64)
+
+    # Split forward into horizon direction + pitch angle.
+
+    sine = float(np.clip(np.dot(forward, up), -1.0, 1.0))
+
+    pitch = math.degrees(math.asin(sine))
+
+    horizontal = forward - sine * up
+
+    length = float(np.linalg.norm(horizontal))
+
+    if length < 1e-6:
+
+        # Looking straight along up: any horizon direction
+        # works; take one perpendicular to up.
+        helper = WORLD_UP if abs(up[1]) < 0.9 else np.array([0.0, 0.0, -1.0])
+
+        horizontal = helper - np.dot(helper, up) * up
+        length = float(np.linalg.norm(horizontal))
+
+    horizontal /= length
+
+    if yaw_degrees:
+
+        horizontal = quaternion.rotate_vector(
+            quaternion.from_axis_angle(up, yaw_degrees),
+            horizontal
+        )
+
+    pitch = math.radians(
+        float(np.clip(pitch + pitch_degrees, min_pitch, max_pitch))
+    )
+
+    new_forward = (
+        math.cos(pitch) * horizontal
+        + math.sin(pitch) * up
+    )
+
+    return quaternion.look_rotation(
+        new_forward,
+        up
+    )
+
+
+def planet_speed(
+    controller: CameraControllerComponent,
+    position
+) -> float:
+
+    if controller.altitude_speed <= 0.0:
+        return controller.movement_speed
+
+    return max(
+        controller.movement_speed,
+        altitude(controller, position) * controller.altitude_speed
+    )
+
+
+def altitude(
+    controller: CameraControllerComponent,
+    position
+) -> float:
+
+    distance = float(
+        np.linalg.norm(
+            np.asarray(position, dtype=np.float64)
+            - np.asarray(controller.planet_center, dtype=np.float64)
+        )
+    )
+
+    return distance - controller.planet_radius
+
+
+def clamp_altitude(
+    position,
+    controller: CameraControllerComponent
+) -> np.ndarray:
+    """Push `position` out to planet_radius + min_altitude if below it."""
+
+    position = np.asarray(position, dtype=np.float64)
+
+    floor = controller.planet_radius + controller.min_altitude
+
+    if floor <= 0.0:
+        return position
+
+    center = np.asarray(controller.planet_center, dtype=np.float64)
+
+    if np.linalg.norm(position - center) >= floor:
+        return position
+
+    return center + planet_up(position, center) * floor

@@ -12,6 +12,7 @@ from core.events import (
 )
 from core.handle import Handle
 from core.input import Input
+from core.jobs import JobSystem
 from core.key_codes import Key
 from core.logger import Logger
 from core.mouse_codes import MouseButton
@@ -85,6 +86,9 @@ class Application:
     # How often to check shader files for edits.
     SHADER_POLL_INTERVAL = 0.5
 
+    # Main-thread time per frame for job completions.
+    JOB_BUDGET_SECONDS = 0.002
+
     # =====================================================
     # Construction
     # =====================================================
@@ -131,6 +135,10 @@ class Application:
         self.camera_controller_system: (
             CameraControllerSystem | None
         ) = None
+
+        # Background work (mesh generation, loading);
+        # results are handed back in update().
+        self.jobs: JobSystem | None = None
 
         # -------------------------------------------------
         # UI
@@ -256,6 +264,8 @@ class Application:
         self.transform_system = TransformSystem()
         self.rotator_system = RotatorSystem()
         self.camera_controller_system = CameraControllerSystem()
+
+        self.jobs = JobSystem()
 
         self.render_system = RenderSystem(
             self.renderer,
@@ -1116,6 +1126,19 @@ class Application:
             self._fixed_accumulator = 0.0
 
         # -------------------------------------------------
+        # Background Job Results
+        # -------------------------------------------------
+        #
+        # Finished jobs' callbacks (usually GPU uploads)
+        # run here, on the GL thread, within a time budget.
+
+        with profiler.scope("Jobs"):
+
+            self.jobs.process_completions(
+                self.JOB_BUDGET_SECONDS
+            )
+
+        # -------------------------------------------------
         # Camera
         # -------------------------------------------------
 
@@ -1223,7 +1246,8 @@ class Application:
                         ),
                         profiler=profiler,
                         cprofile_capture=self.cprofile_capture,
-                        window=self.window
+                        window=self.window,
+                        jobs=self.jobs
                     )
                 )
 
@@ -1498,6 +1522,12 @@ class Application:
         self.camera_controller_system = None
         self.transform_system = None
         self.rotator_system = None
+
+        if self.jobs is not None:
+
+            self.jobs.shutdown()
+
+            self.jobs = None
 
         self.handles.clear()
 

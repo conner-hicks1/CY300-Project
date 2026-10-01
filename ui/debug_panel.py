@@ -6,6 +6,7 @@ import numpy as np
 from imgui_bundle import imgui
 
 from core.cprofile_capture import CProfileCapture
+from core.jobs import JobSystem
 from core.profiler import Profiler
 from core.timer import Timer
 from core.window import Window
@@ -46,6 +47,7 @@ class DebugContext:
     profiler: Profiler
     cprofile_capture: CProfileCapture
     window: Window
+    jobs: JobSystem
 
 
 class DebugPanel:
@@ -399,6 +401,11 @@ class DebugPanel:
             f"Triangles: {stats.triangles}\n"
             f"Objects drawn: {stats.objects_drawn} / {stats.objects_total} "
             f"(after culling)"
+        )
+
+        imgui.text(
+            f"Jobs pending: {context.jobs.pending}  "
+            f"({context.jobs.workers} workers)"
         )
 
         imgui.text_disabled(

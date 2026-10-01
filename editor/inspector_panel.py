@@ -507,6 +507,14 @@ def _edit_camera_controller(
     inspector.slider(component, "movement_speed", "Move speed", 0.1, 50.0, "%.1f", logarithmic=True)
     inspector.slider(component, "mouse_sensitivity", "Look sensitivity", 0.01, 1.0, "%.3f")
 
+    inspector.checkbox(component, "planet_mode", "Planet mode")
+
+    if component.planet_mode:
+        inspector.vec3(component, "planet_center", "Planet center", 1.0)
+        inspector.slider(component, "planet_radius", "Planet radius", 0.0, 1.0e7, "%.0f", logarithmic=True)
+        inspector.slider(component, "altitude_speed", "Altitude speed", 0.0, 5.0, "%.2f")
+        inspector.slider(component, "min_altitude", "Min altitude", 0.0, 1000.0, "%.1f", logarithmic=True)
+
     imgui.text_disabled("Hold the right mouse button to fly.")
 
 

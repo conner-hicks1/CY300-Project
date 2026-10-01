@@ -230,3 +230,18 @@ class CameraControllerComponent:
     # Prevent looking exactly straight up/down.
     min_pitch: float = -89.0
     max_pitch: float = 89.0
+
+    # Planet mode: "up" points away from planet_center
+    # instead of world +Y, so the horizon stays level
+    # anywhere on a sphere and Q/E move radially.
+    planet_mode: bool = False
+    planet_center: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    planet_radius: float = 0.0
+
+    # Speed grows with altitude above planet_radius:
+    # speed = max(movement_speed, altitude * altitude_speed).
+    # 0 disables scaling.
+    altitude_speed: float = 0.0
+
+    # Closest the camera may get to the surface.
+    min_altitude: float = 1.0
