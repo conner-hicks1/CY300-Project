@@ -3,6 +3,7 @@ from typing import TYPE_CHECKING
 from imgui_bundle import imgui
 
 from ecs.components import (
+    AtmosphereComponent,
     CameraComponent,
     CameraControllerComponent,
     DirectionalLightComponent,
@@ -569,6 +570,40 @@ def _edit_planet(
     )
 
 
+def _edit_atmosphere(
+    inspector: _Inspector,
+    component: AtmosphereComponent
+):
+
+    inspector.slider(component, "height", "Height (m)", 1_000.0, 1_000_000.0, "%.0f", logarithmic=True)
+
+    imgui.separator_text("Rayleigh (air)")
+
+    inspector.vec3(component, "rayleigh_scattering", "Scattering /Mm", 0.1)
+    inspector.slider(component, "rayleigh_scale_height", "Scale height##r", 100.0, 50_000.0, "%.0f", logarithmic=True)
+
+    imgui.separator_text("Mie (haze)")
+
+    inspector.slider(component, "mie_scattering", "Scattering##m", 0.0, 100.0, "%.2f", logarithmic=True)
+    inspector.slider(component, "mie_absorption", "Absorption##m", 0.0, 100.0, "%.2f", logarithmic=True)
+    inspector.slider(component, "mie_scale_height", "Scale height##m", 100.0, 20_000.0, "%.0f", logarithmic=True)
+    inspector.slider(component, "mie_anisotropy", "Anisotropy (g)", 0.0, 0.99)
+
+    imgui.separator_text("Ozone")
+
+    inspector.vec3(component, "ozone_absorption", "Absorption /Mm", 0.01)
+    inspector.slider(component, "ozone_altitude", "Altitude (m)", 0.0, 100_000.0, "%.0f")
+    inspector.slider(component, "ozone_thickness", "Thickness (m)", 1_000.0, 100_000.0, "%.0f")
+
+    inspector.slider(component, "ground_albedo", "Ground albedo", 0.0, 1.0)
+
+    imgui.text_disabled(
+        "Needs a Planet on the same entity.\n"
+        "Coefficients per megameter (1e-6 / m).\n"
+        "Defaults: Earth."
+    )
+
+
 def _edit_directional_light(
     inspector: _Inspector,
     component: DirectionalLightComponent
@@ -632,6 +667,7 @@ _COMPONENT_EDITORS = {
     CameraComponent: _edit_camera,
     CameraControllerComponent: _edit_camera_controller,
     PlanetComponent: _edit_planet,
+    AtmosphereComponent: _edit_atmosphere,
     DirectionalLightComponent: _edit_directional_light,
     PointLightComponent: _edit_point_light,
     SpotLightComponent: _edit_spot_light,

@@ -275,3 +275,38 @@ class PlanetComponent:
     resolution: int = 33
     max_depth: int = 15
     split_factor: float = 1.5
+
+
+# =========================================================
+# Atmosphere
+# =========================================================
+#
+# Physically based atmosphere around the planet on the same
+# entity (needs a PlanetComponent; its radius is sea
+# level). Defaults are Earth's (Hillaire 2020). Scattering
+# and absorption coefficients are per megameter (1e-6/m).
+
+@dataclass(slots=True)
+class AtmosphereComponent:
+
+    # Top of the atmosphere above sea level.
+    height: float = 100_000.0
+
+    # Rayleigh (air molecules): scatters blue most.
+    rayleigh_scattering: tuple[float, float, float] = (5.802, 13.558, 33.1)
+    rayleigh_scale_height: float = 8_000.0
+
+    # Mie (aerosols, haze): grey, strongly forward.
+    mie_scattering: float = 3.996
+    mie_absorption: float = 4.40
+    mie_scale_height: float = 1_200.0
+    mie_anisotropy: float = 0.8
+
+    # Ozone: absorbs orange-red, deepening twilight blue.
+    ozone_absorption: tuple[float, float, float] = (0.650, 1.881, 0.085)
+    ozone_altitude: float = 25_000.0
+    ozone_thickness: float = 30_000.0
+
+    # Average ground reflectance (light bounced into the
+    # sky, and the ground seen in reflections).
+    ground_albedo: float = 0.3

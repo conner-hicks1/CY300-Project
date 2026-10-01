@@ -41,6 +41,7 @@ from graphics.shader import Shader
 from graphics.texture import Texture2D
 from graphics.uniform_blocks import (
     CAMERA_BLOCK,
+    ATMOSPHERE_BLOCK,
     LIGHTS_BLOCK,
     LightingFrame,
     pack_camera_block,
@@ -135,6 +136,17 @@ class Renderer:
         self._lights_buffer = UniformBuffer(
             LIGHTS_BLOCK.size,
             LIGHTS_BLOCK.binding
+        )
+
+        # Starts disabled (all zeros) until a scene with an
+        # atmosphere sets it.
+        self._atmosphere_buffer = UniformBuffer(
+            ATMOSPHERE_BLOCK.size,
+            ATMOSPHERE_BLOCK.binding
+        )
+
+        self._atmosphere_buffer.set_data(
+            bytes(ATMOSPHERE_BLOCK.size)
         )
 
         # Core profile requires a bound VAO even for a
@@ -344,6 +356,22 @@ class Renderer:
         self._frame_textures = {}
 
         self._in_scene = False
+
+    # =====================================================
+    # Atmosphere
+    # =====================================================
+
+    def set_atmosphere(
+        self,
+        data: bytes
+    ):
+        """
+        Upload the AtmosphereBlock (graphics/atmosphere.py
+        pack_atmosphere_block). Frame-wide: read by the
+        atmosphere passes and lit shaders.
+        """
+
+        self._atmosphere_buffer.set_data(data)
 
     # =====================================================
     # Batched Draws
@@ -770,6 +798,7 @@ class Renderer:
 
         self._camera_buffer.delete()
         self._lights_buffer.delete()
+        self._atmosphere_buffer.delete()
         self._empty_vertex_array.delete()
 
         glDeleteBuffers(

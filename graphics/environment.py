@@ -46,6 +46,9 @@ class SkyParameters:
     # Apparent sun radius in degrees.
     sun_size: float
 
+    # Environment bake shader for this sky source.
+    shader_name: str = "ibl_sky"
+
     @classmethod
     def from_scene(
         cls,
@@ -232,11 +235,15 @@ class Environment:
 
     def update(
         self,
-        sky: SkyParameters
+        sky
     ) -> bool:
         """
         Re-bake if the sky changed. Returns True if it
         baked. The caller disables depth test / culling.
+
+        sky: anything with bake_key(), apply(shader) and
+        shader_name: SkyParameters (procedural sky) or
+        graphics.atmosphere.AtmosphereSky.
         """
 
         self._frames_since_bake += 1
@@ -266,7 +273,7 @@ class Environment:
 
     def bake(
         self,
-        sky: SkyParameters
+        sky
     ):
 
         renderer = self._renderer
@@ -275,7 +282,7 @@ class Environment:
         # 1. Sky -> environment cubemap
         # -------------------------------------------------
 
-        shader = self._get_shader("ibl_sky")
+        shader = self._get_shader(sky.shader_name)
 
         shader.bind()
 

@@ -2,9 +2,9 @@
 
 A small 3D engine and scene editor written in Python on top of OpenGL 4.5,
 built as a CY300 course project. It renders with physically based materials,
-cascaded shadows and image-based lighting from a procedural sky, streams an
-Earth-sized procedural planet, and comes with an ImGui editor for building and
-saving scenes.
+cascaded shadows and image-based lighting, streams an Earth-sized procedural
+planet under a physically based atmosphere, and comes with an ImGui editor for
+building and saving scenes.
 
 ![The procedural planet, seen from the surface](docs/images/scene.png)
 
@@ -20,6 +20,20 @@ saving scenes.
   the terrain
 - Terrain parameters editable live in the inspector (the planet rebuilds)
 
+**Atmosphere**
+
+| Sunset from 12 km | From orbit |
+| --- | --- |
+| ![Low sun over the mountains](docs/images/sunset.png) | ![The planet from space](docs/images/orbit.png) |
+
+- Rayleigh, Mie and ozone scattering with multiple scattering (Hillaire 2020):
+  transmittance and multiple-scattering lookup tables, then a raymarch per pixel
+- Blue sky, sunsets, haze over distant terrain, and the planet's limb seen from
+  space, from the same model and Earth's physical constants (all editable)
+- Sunlight reaching every surface is filtered by the air above it: low sun
+  turns orange, the night side goes dark
+- Ambient lighting and reflections baked from the atmosphere at the camera
+
 **Rendering**
 
 - Physically based shading (Cook-Torrance GGX, metallic-roughness as in glTF 2.0)
@@ -27,7 +41,7 @@ saving scenes.
 - Directional, point and spot lights
 - Cascaded shadow maps that follow the camera (stabilized against shimmering),
   plus spot light shadows, filtered with hardware PCF
-- Procedural sky; ambient light and reflections baked from it
+- Procedural sky for scenes without a planet; ambient light and reflections baked from it
   (split-sum image-based lighting: irradiance, prefiltered specular, BRDF LUT)
 - HDR pipeline: bloom, exposure, ACES / Reinhard tone mapping, gamma correction, FXAA
 - Batched drawing: one shared geometry buffer, one multi-draw-indirect call per
@@ -54,7 +68,7 @@ saving scenes.
   under a per-frame time budget
 - Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
   output routed to the log
-- 280+ unit tests for everything that does not need a GPU
+- 300 unit tests for everything that does not need a GPU
 
 ## Getting Started
 
@@ -85,7 +99,8 @@ python main.py
 ```
 
 This opens `assets/scenes/planet.scene.json` if it exists, otherwise the
-built-in demo: a procedural planet with the camera above a mountain valley.
+built-in demo: a procedural planet with an atmosphere, the camera above a
+mountain valley.
 The planet streams in over the first few seconds.
 
 | Option | Meaning |
@@ -123,7 +138,7 @@ The planet streams in over the first few seconds.
 | `ecs/` | Entity registry and components |
 | `systems/` | Transform, camera controller, rotator, planet streaming and render systems |
 | `planet/` | Noise, cube-sphere mapping, terrain, chunk building, level of detail |
-| `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, bloom |
+| `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, bloom |
 | `editor/` | Scene editor panels, picking, undo history |
 | `scene/` | Scene container and scene file (de)serialization |
 | `resources/` | Handle-based resource managers |

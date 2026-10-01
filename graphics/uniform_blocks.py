@@ -22,8 +22,9 @@ from graphics.shadows import (
 # Per-frame data shared by every shader lives in uniform
 # buffer objects (UBOs) instead of per-draw uniforms:
 #
-#     CameraBlock  view / projection / camera position
-#     LightsBlock  every light + shadow parameters
+#     CameraBlock      view / projection / camera position
+#     LightsBlock      every light + shadow parameters
+#     AtmosphereBlock  planet atmosphere (graphics/atmosphere.py)
 #
 # Each is uploaded once per frame, then any shader that
 # declares the block reads it for free. The GLSL
@@ -345,9 +346,18 @@ def pack_lights_block(
 # Helpers
 # =========================================================
 
+# Layout and packing: graphics/atmosphere.py.
+ATMOSPHERE_BLOCK = UniformBlockSpec(
+    name="AtmosphereBlock",
+    binding=2,
+    size=8 * 16
+)
+
+
 UNIFORM_BLOCKS: tuple[UniformBlockSpec, ...] = (
     CAMERA_BLOCK,
     LIGHTS_BLOCK,
+    ATMOSPHERE_BLOCK,
 )
 
 

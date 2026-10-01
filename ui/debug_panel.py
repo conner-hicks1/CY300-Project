@@ -490,6 +490,25 @@ class DebugPanel:
                 "Lighting re-bakes when the sky changes."
             )
 
+            imgui.separator_text("Atmosphere")
+
+            _checkbox(settings, "atmosphere_enabled", "Enabled##atmosphere")
+
+            changed, samples = imgui.slider_int(
+                "Samples##atmosphere",
+                settings.atmosphere_samples,
+                4,
+                64
+            )
+
+            if changed:
+                settings.atmosphere_samples = samples
+
+            imgui.text_disabled(
+                "Planets with an Atmosphere component\n"
+                "replace the sky settings above."
+            )
+
         # -------------------------------------------------
         # Shadows
         # -------------------------------------------------

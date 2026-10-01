@@ -9,6 +9,7 @@ from core.exceptions import ResourceError
 from core.logger import Logger
 
 from ecs.components import (
+    AtmosphereComponent,
     CameraComponent,
     CameraControllerComponent,
     DirectionalLightComponent,
@@ -630,6 +631,12 @@ COMPONENT_CODECS: tuple[ComponentCodec, ...] = (
         "Planet",
         PlanetComponent,
         create_default=lambda _: PlanetComponent()
+    ),
+
+    _dataclass_codec(
+        "Atmosphere",
+        AtmosphereComponent,
+        create_default=lambda _: AtmosphereComponent()
     ),
 
     _dataclass_codec(

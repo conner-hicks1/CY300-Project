@@ -4,7 +4,12 @@ from OpenGL.GL import (
     GL_GEQUAL,
     GL_GREATER,
     GL_LESS,
-    GL_TEXTURE_2D_ARRAY
+    GL_ONE,
+    GL_ONE_MINUS_SRC_ALPHA,
+    GL_SRC1_COLOR,
+    GL_SRC_ALPHA,
+    GL_TEXTURE_2D_ARRAY,
+    glBlendFunc
 )
 
 from core.assertions import engine_assert
@@ -12,9 +17,11 @@ from core.logger import Logger
 from core.profiler import Profiler
 
 from ecs.components import (
+    AtmosphereComponent,
     CameraComponent,
     DirectionalLightComponent,
     MeshRendererComponent,
+    PlanetComponent,
     PointLightComponent,
     SpotLightComponent,
     TransformComponent
@@ -22,6 +29,12 @@ from ecs.components import (
 from ecs.entity import Entity
 from ecs.registry import Registry
 
+from graphics.atmosphere import (
+    AtmosphereLuts,
+    AtmosphereParameters,
+    AtmosphereSky,
+    pack_atmosphere_block
+)
 from graphics.bloom import Bloom
 from graphics.draw_list import (
     DrawItem,
@@ -34,6 +47,7 @@ from graphics.environment import (
 )
 from graphics.framebuffer import (
     ColorFormat,
+    ColorTarget,
     DepthMode,
     Framebuffer,
     FramebufferSpec
@@ -156,6 +170,10 @@ class RenderSystem:
             "ibl_irradiance": self._load_engine_shader("ibl_irradiance", "fullscreen"),
             "ibl_prefilter": self._load_engine_shader("ibl_prefilter", "fullscreen"),
             "ibl_brdf": self._load_engine_shader("ibl_brdf", "fullscreen"),
+            "ibl_atmosphere": self._load_engine_shader("ibl_atmosphere", "fullscreen"),
+            "atmosphere": self._load_engine_shader("atmosphere", "fullscreen"),
+            "atmosphere_transmittance": self._load_engine_shader("atmosphere_transmittance", "fullscreen"),
+            "atmosphere_multiscatter": self._load_engine_shader("atmosphere_multiscatter", "fullscreen"),
         }
 
         # -------------------------------------------------
@@ -216,6 +234,11 @@ class RenderSystem:
             self._shader
         )
 
+        self._atmosphere_luts = AtmosphereLuts(
+            renderer,
+            self._shader
+        )
+
         self._bloom = Bloom(
             renderer,
             lambda: self._shader("bloom_downsample"),
@@ -226,6 +249,10 @@ class RenderSystem:
 
         self._hdr_framebuffer: Framebuffer | None = None
         self._ldr_framebuffer: Framebuffer | None = None
+
+        # The HDR color without its depth, for the
+        # atmosphere pass (which samples that depth).
+        self._hdr_color_target: ColorTarget | None = None
 
     def _load_engine_shader(
         self,
@@ -338,9 +365,23 @@ class RenderSystem:
                 lighting
             )
 
+            atmosphere = self._prepare_atmosphere(
+                registry,
+                camera,
+                lighting
+            )
+
         with profiler.scope("Environment", gpu=True):
 
             self._fullscreen_state(True)
+
+            if atmosphere is not None:
+
+                self._atmosphere_luts.update(
+                    atmosphere.parameters
+                )
+
+                sky = atmosphere
 
             self._environment.update(sky)
 
@@ -391,6 +432,7 @@ class RenderSystem:
                     GL_TEXTURE_2D_ARRAY
                 ),
                 **self._environment.textures(),
+                **self._atmosphere_luts.textures(),
             }
         )
 
@@ -405,7 +447,7 @@ class RenderSystem:
                 width,
                 height,
                 ColorFormat.RGBA16F,
-                DepthMode.RENDERBUFFER
+                DepthMode.TEXTURE
             )
 
             hdr.bind()
@@ -429,7 +471,13 @@ class RenderSystem:
                 visible
             )
 
-            if settings.show_sky:
+            if atmosphere is not None:
+
+                with profiler.scope("Atmosphere"):
+
+                    self._render_atmosphere(hdr)
+
+            elif settings.show_sky:
 
                 with profiler.scope("Sky"):
 
@@ -750,6 +798,161 @@ class RenderSystem:
                 else 0.0
             )
         )
+
+    # =====================================================
+    # Atmosphere
+    # =====================================================
+
+    def _prepare_atmosphere(
+        self,
+        registry: Registry,
+        camera: Camera,
+        lighting: LightEnvironment
+    ) -> AtmosphereSky | None:
+        """
+        Find the planet atmosphere (first one) and upload
+        the AtmosphereBlock. Returns the sky description
+        for the environment bake, or None (the block is
+        then uploaded disabled).
+        """
+
+        found = None
+
+        if self.settings.atmosphere_enabled:
+
+            for _, transform, planet, component in registry.view_with(
+                TransformComponent,
+                PlanetComponent,
+                AtmosphereComponent
+            ):
+
+                found = (transform, planet, component)
+
+                break
+
+        if found is None:
+
+            self._renderer.set_atmosphere(pack_atmosphere_block(None))
+
+            return None
+
+        transform, planet, component = found
+
+        parameters = AtmosphereParameters.from_components(
+            planet.radius,
+            component
+        )
+
+        center = np.asarray(transform.world_matrix, dtype=np.float64)[:3, 3]
+
+        camera_offset = np.asarray(camera.position, dtype=np.float64) - center
+
+        directional = lighting.directional
+
+        if directional is not None:
+
+            toward = -np.asarray(directional.direction, dtype=np.float64)
+
+            sun_direction = tuple(float(v) for v in toward / np.linalg.norm(toward))
+
+            sun_illuminance = tuple(
+                float(c) * float(directional.intensity)
+                for c in directional.color
+            )
+
+        else:
+
+            sun_direction = None
+            sun_illuminance = (0.0, 0.0, 0.0)
+
+        self._renderer.set_atmosphere(
+            pack_atmosphere_block(
+                parameters,
+                planet_center_relative=-camera_offset,
+                sun_direction=sun_direction,
+                sun_illuminance=sun_illuminance,
+                steps=self.settings.atmosphere_samples
+            )
+        )
+
+        distance = float(np.linalg.norm(camera_offset))
+
+        up = camera_offset / distance if distance > 0.0 else np.array([0.0, 1.0, 0.0])
+
+        return AtmosphereSky(
+            parameters=parameters,
+            sun_direction=sun_direction,
+            sun_illuminance=sun_illuminance,
+            camera_up=tuple(float(v) for v in up),
+            altitude_km=max(distance / 1000.0 - parameters.ground_radius, 0.0),
+            textures=tuple(
+                (name, texture_id)
+                for name, (texture_id, _) in self._atmosphere_luts.textures().items()
+            )
+        )
+
+    def _render_atmosphere(
+        self,
+        hdr: Framebuffer
+    ):
+        """
+        Sky + aerial perspective over the opaque scene
+        (assets/shaders/atmosphere.frag.glsl), composited
+        with dual-source blending. Leaves the HDR
+        framebuffer bound.
+        """
+
+        target = self._hdr_color_target
+
+        if (
+            target is None
+            or target.texture_id != hdr.color_texture_id
+            or target.width != hdr.width
+            or target.height != hdr.height
+        ):
+
+            if target is not None:
+                target.delete()
+
+            target = ColorTarget(hdr.color_texture_id, hdr.width, hdr.height)
+
+            self._hdr_color_target = target
+
+        target.bind()
+
+        shader = self._shader("atmosphere")
+
+        shader.bind()
+
+        for name, (texture_id, _) in self._atmosphere_luts.textures().items():
+
+            unit = 0 if name == "uTransmittanceLut" else 1
+
+            RenderCommand.bind_texture(texture_id, unit)
+
+            shader.set_int(name, unit)
+
+        RenderCommand.bind_texture(hdr.depth_texture_id, 2)
+
+        shader.set_int("uSceneDepth", 2)
+
+        self._fullscreen_state(True)
+
+        # result = inScattered + scene * transmittance
+        RenderState.set_blending(True)
+
+        glBlendFunc(GL_ONE, GL_SRC1_COLOR)
+
+        self._renderer.draw_fullscreen(shader)
+
+        # Back to the engine default (see RenderState).
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+        RenderState.set_blending(False)
+
+        self._fullscreen_state(False)
+
+        hdr.bind()
 
     def _render_sky(
         self,
@@ -1198,4 +1401,11 @@ class RenderSystem:
         self._spot_maps.delete()
 
         self._environment.delete()
+        self._atmosphere_luts.delete()
         self._bloom.delete()
+
+        if self._hdr_color_target is not None:
+
+            self._hdr_color_target.delete()
+
+            self._hdr_color_target = None

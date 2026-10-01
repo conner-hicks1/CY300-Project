@@ -78,6 +78,11 @@ class RenderSettings:
     # Scales ambient light and reflections from the sky.
     ibl_intensity: float = 1.0
 
+    # Planet atmospheres (AtmosphereComponent) replace the
+    # sky above. Samples per pixel along each view ray.
+    atmosphere_enabled: bool = True
+    atmosphere_samples: int = 24
+
     # -----------------------------------------------------
     # Shadows
     # -----------------------------------------------------

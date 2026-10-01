@@ -3,6 +3,7 @@
 #include "include/blocks.glsl"
 #include "include/lighting.glsl"
 #include "include/shadows.glsl"
+#include "include/atmosphere.glsl"
 
 
 // =========================================================
@@ -145,6 +146,14 @@ void main()
         vec3 radiance =
             uDirectionalColor.rgb
             * uDirectionalColor.a;
+
+        // On a planet with an atmosphere, the light is the
+        // sun above the air: what reaches this point is
+        // reddened near the horizon and gone at night.
+        if (atmospherePresent())
+        {
+            radiance *= sunTransmittanceAtWorld(vWorldPosition);
+        }
 
         // Geometric normal for the shadow lookup: the
         // normal map must not move where occluders are.

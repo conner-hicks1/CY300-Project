@@ -25,6 +25,7 @@ from core.timer import Timer
 from core.window import Window
 
 from ecs.components import (
+    AtmosphereComponent,
     CameraComponent,
     CameraControllerComponent,
     DirectionalLightComponent,
@@ -809,7 +810,8 @@ class Application:
                 position=center,
                 orientation=orientation
             ),
-            planet
+            planet,
+            AtmosphereComponent()
         )
 
     # =====================================================

@@ -4,13 +4,9 @@ from enum import Enum
 import numpy as np
 
 from OpenGL.GL import (
-    GL_CLAMP_TO_BORDER,
     GL_CLAMP_TO_EDGE,
     GL_COLOR_ATTACHMENT0,
     GL_DEPTH32F_STENCIL8,
-    GL_DEPTH_ATTACHMENT,
-    GL_DEPTH_COMPONENT,
-    GL_DEPTH_COMPONENT24,
     GL_DEPTH_STENCIL_ATTACHMENT,
     GL_FLOAT,
     GL_FRAMEBUFFER,
@@ -23,7 +19,6 @@ from OpenGL.GL import (
     GL_RGBA16F,
     GL_RGBA8,
     GL_TEXTURE_2D,
-    GL_TEXTURE_BORDER_COLOR,
     GL_TEXTURE_MAG_FILTER,
     GL_TEXTURE_MIN_FILTER,
     GL_TEXTURE_WRAP_S,
@@ -45,7 +40,7 @@ from OpenGL.GL import (
     glReadBuffer,
     glRenderbufferStorage,
     glTexImage2D,
-    glTexParameterfv,
+    glTexStorage2D,
     glTexParameteri
 )
 
@@ -77,8 +72,9 @@ class DepthMode(Enum):
     # never sample. Cheaper than a texture.
     RENDERBUFFER = "renderbuffer"
 
-    # Sampleable depth texture (shadow maps). Outside the
-    # texture reads as depth 1.0 ("fully lit").
+    # Sampleable depth/stencil texture (32-bit float
+    # depth), for passes that read the scene's depth, such
+    # as the atmosphere.
     TEXTURE = "texture"
 
 
@@ -312,7 +308,7 @@ class Framebuffer:
 
                 glFramebufferTexture2D(
                     GL_FRAMEBUFFER,
-                    GL_DEPTH_ATTACHMENT,
+                    GL_DEPTH_STENCIL_ATTACHMENT,
                     GL_TEXTURE_2D,
                     self.depth_texture_id,
                     0
@@ -423,37 +419,23 @@ class Framebuffer:
             texture
         )
 
-        glTexImage2D(
+        # Immutable storage: nothing to upload, and the
+        # texture is recreated on resize anyway.
+        glTexStorage2D(
             GL_TEXTURE_2D,
-            0,
-            GL_DEPTH_COMPONENT24,
+            1,
+            GL_DEPTH32F_STENCIL8,
             width,
-            height,
-            0,
-            GL_DEPTH_COMPONENT,
-            GL_FLOAT,
-            None
+            height
         )
 
-        # Nearest: the shader does its own PCF filtering.
+        # Read texel-exact (depth must not be interpolated
+        # across silhouettes).
 
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST)
         glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST)
-
-        # Samples outside the shadow map read as the far
-        # plane, i.e. "not in shadow".
-
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER)
-        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER)
-
-        glTexParameterfv(
-            GL_TEXTURE_2D,
-            GL_TEXTURE_BORDER_COLOR,
-            np.array(
-                [1.0, 1.0, 1.0, 1.0],
-                dtype=np.float32
-            )
-        )
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE)
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE)
 
         glBindTexture(
             GL_TEXTURE_2D,
@@ -515,3 +497,64 @@ class Framebuffer:
         )
 
         self._destroy()
+
+
+# =========================================================
+# Color Target
+# =========================================================
+
+class ColorTarget:
+
+    # A framebuffer rendering into an existing color
+    # texture, without depth. Lets a fullscreen pass write
+    # to a texture whose framebuffer's depth it is sampling
+    # (sampling an attached texture is a feedback loop).
+
+    def __init__(
+        self,
+        texture_id: int,
+        width: int,
+        height: int
+    ):
+
+        self.texture_id = texture_id
+        self.width = width
+        self.height = height
+
+        self.id = int(glGenFramebuffers(1))
+
+        glBindFramebuffer(GL_FRAMEBUFFER, self.id)
+
+        glFramebufferTexture2D(
+            GL_FRAMEBUFFER,
+            GL_COLOR_ATTACHMENT0,
+            GL_TEXTURE_2D,
+            texture_id,
+            0
+        )
+
+        status = glCheckFramebufferStatus(GL_FRAMEBUFFER)
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0)
+
+        if status != GL_FRAMEBUFFER_COMPLETE:
+
+            self.delete()
+
+            raise GraphicsError(
+                f"Color target incomplete (status 0x{int(status):X})."
+            )
+
+    def bind(self):
+
+        glBindFramebuffer(GL_FRAMEBUFFER, self.id)
+
+        RenderCommand.set_viewport(0, 0, self.width, self.height)
+
+    def delete(self):
+
+        if self.id:
+
+            glDeleteFramebuffers(1, [self.id])
+
+            self.id = 0
