@@ -118,6 +118,7 @@ class Renderer:
         "uOcclusionStrength": 1.0,
         "uEmissive": (0.0, 0.0, 0.0),
         "uUVScale": (1.0, 1.0),
+        "uTerrainShading": 0.0,
     }
 
     # =====================================================

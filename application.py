@@ -552,12 +552,21 @@ class Application:
             MeshFactory.create_sphere
         )
 
-        # Planet terrain: colors come per vertex
-        # (planet/terrain.py); the material sets the rest.
+        # Planet terrain: albedo and roughness are computed
+        # per pixel from per-vertex terrain inputs
+        # (assets/shaders/include/terrain.glsl).
+
+        def planet_material():
+
+            material = Material(lit)
+
+            material.set_float("uTerrainShading", 1.0)
+
+            return material
 
         handles["planet_material"] = resources.materials.load(
             PlanetSystem.MATERIAL_KEY,
-            pbr_material((1.0, 1.0, 1.0), metallic=0.0, roughness=0.9)
+            planet_material
         )
 
     # =====================================================

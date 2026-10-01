@@ -185,9 +185,16 @@ class Bloom:
 
             target.bind()
 
+            source = self._mips[level]
+
             RenderCommand.bind_texture(
-                self._mips[level].color_texture_id,
+                source.color_texture_id,
                 0
+            )
+
+            shader.set_vec2(
+                "uSourceTexelSize",
+                (1.0 / source.width, 1.0 / source.height)
             )
 
             self._renderer.draw_fullscreen(shader)

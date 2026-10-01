@@ -4,6 +4,7 @@
 #include "include/lighting.glsl"
 #include "include/shadows.glsl"
 #include "include/atmosphere.glsl"
+#include "include/terrain.glsl"
 
 
 // =========================================================
@@ -47,6 +48,11 @@ uniform float uRoughness;
 uniform float uNormalStrength;
 uniform float uOcclusionStrength;
 uniform vec3 uEmissive;                    // HDR: color * strength
+
+// 1 = planet terrain: the vertex color and UV carry terrain
+// inputs, and albedo / roughness come from
+// include/terrain.glsl.
+uniform float uTerrainShading;
 
 
 // =========================================================
@@ -107,6 +113,19 @@ void main()
     // and aliased; clamp to a small minimum.
     float roughness = clamp(uRoughness * metallicRoughness.g, 0.04, 1.0);
     float metallic = clamp(uMetallic * metallicRoughness.b, 0.0, 1.0);
+
+    if (uTerrainShading > 0.5)
+    {
+        TerrainSurface terrain = terrainSurface(
+            vColor.r,
+            vColor.g,
+            vColor.b,
+            vTexCoord.x
+        );
+
+        baseColor = terrain.albedo * uBaseColor;
+        roughness = terrain.roughness;
+    }
 
     float occlusion = mix(
         1.0,

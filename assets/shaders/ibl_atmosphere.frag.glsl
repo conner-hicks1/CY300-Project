@@ -57,7 +57,7 @@ void main()
             start,
             end,
             STEPS,
-            0.3,
+            0.5,
             transmittance
         );
     }

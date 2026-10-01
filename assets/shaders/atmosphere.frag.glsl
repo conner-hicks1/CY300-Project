@@ -29,15 +29,6 @@ layout(location = 0, index = 0) out vec4 outInScattered;
 layout(location = 0, index = 1) out vec4 outTransmittance;
 
 
-// Per-pixel offset for the sample positions, so banding
-// from a low step count turns into fine noise.
-float interleavedGradientNoise(
-    vec2 pixel
-)
-{
-    return fract(52.9829189 * fract(dot(pixel, vec2(0.06711056, 0.00583715))));
-}
-
 void main()
 {
     vec2 ndc = vTexCoord * 2.0 - 1.0;
@@ -88,15 +79,17 @@ void main()
 
     if (inside && end > start)
     {
-        float jitter = interleavedGradientNoise(gl_FragCoord.xy);
-
+        // Samples at step midpoints. (Per-pixel jitter is
+        // not needed: steps are packed where the air is
+        // dense, so there is no banding to hide, and it
+        // showed as a fine grid on the ocean from space.)
         inScattered = integrateScattering(
             origin,
             direction,
             start,
             end,
             int(uOzoneParams.y),
-            jitter,
+            0.5,
             transmittance
         ) * uSunIlluminance.rgb * uAtmosphereSunDirection.w;
     }

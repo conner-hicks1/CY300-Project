@@ -238,43 +238,58 @@ vec3 sunTransmittanceAtWorld(
 // multiple-scattering LUT term; integrated per step
 // analytically (energy-conserving; Hillaire 2015).
 //
+// Air density falls off exponentially with altitude, so
+// evenly spaced samples waste most of their budget on thin
+// air (seen from space, a ray crosses ~100 km of
+// atmosphere but nearly all of the scattering happens in
+// its lowest few km). Samples are therefore packed toward
+// the ray's lowest point: the ray is split there and each
+// half is sampled with quadratically growing steps away
+// from it.
+//
 // Returns radiance per unit sun illuminance; also the
 // transmittance along the whole segment.
 
-vec3 integrateScattering(
+struct ScatteringState
+{
+    vec3 luminance;
+    vec3 transmittance;
+};
+
+// March [from, to] (from < to, moving away from the
+// camera), with steps smallest at the start or the end.
+// jitter in [0, 1) places each sample within its step.
+void marchSegment(
     vec3 origin,
     vec3 direction,
-    float start,
-    float end,
+    float from,
+    float to,
+    bool denseAtStart,
     int steps,
     float jitter,
-    out vec3 transmittance
+    float phaseR,
+    float phaseM,
+    inout ScatteringState state
 )
 {
     vec3 sunDirection = uAtmosphereSunDirection.xyz;
 
-    float cosTheta = dot(direction, sunDirection);
-
-    float phaseR = rayleighPhase(cosTheta);
-    float phaseM = miePhase(cosTheta);
-
-    vec3 luminance = vec3(0.0);
-
-    transmittance = vec3(1.0);
-
-    float length_ = end - start;
-
-    float t = 0.0;
+    float span = to - from;
 
     for (int i = 0; i < steps; ++i)
     {
-        float next = (float(i) + jitter) / float(steps) * length_;
+        float u0 = float(i) / float(steps);
+        float u1 = float(i + 1) / float(steps);
+        float us = (float(i) + jitter) / float(steps);
 
-        float dt = next - t;
+        // Quadratic spacing; mirrored when dense at the end.
+        float t0 = denseAtStart ? u0 * u0 : 1.0 - (1.0 - u0) * (1.0 - u0);
+        float t1 = denseAtStart ? u1 * u1 : 1.0 - (1.0 - u1) * (1.0 - u1);
+        float ts = denseAtStart ? us * us : 1.0 - (1.0 - us) * (1.0 - us);
 
-        t = next;
+        float dt = (t1 - t0) * span;
 
-        vec3 p = origin + (start + t) * direction;
+        vec3 p = origin + (from + ts * span) * direction;
 
         float r = length(p);
 
@@ -299,26 +314,51 @@ vec3 integrateScattering(
             (inScattering - inScattering * sampleTransmittance)
             / max(extinction, vec3(1e-7));
 
-        luminance += integral * transmittance;
+        state.luminance += integral * state.transmittance;
 
-        transmittance *= sampleTransmittance;
+        state.transmittance *= sampleTransmittance;
     }
+}
 
-    // The tail past the last sample.
-    float rest = length_ - t;
+vec3 integrateScattering(
+    vec3 origin,
+    vec3 direction,
+    float start,
+    float end,
+    int steps,
+    float jitter,
+    out vec3 transmittance
+)
+{
+    float cosTheta = dot(direction, uAtmosphereSunDirection.xyz);
 
-    if (rest > 0.0)
+    float phaseR = rayleighPhase(cosTheta);
+    float phaseM = miePhase(cosTheta);
+
+    ScatteringState state;
+    state.luminance = vec3(0.0);
+    state.transmittance = vec3(1.0);
+
+    // Lowest point of the segment (closest to the center).
+    float lowest = clamp(-dot(origin, direction), start, end);
+
+    float length_ = max(end - start, 1e-6);
+
+    int before = int(round(float(steps) * (lowest - start) / length_));
+
+    before = clamp(before, 0, steps);
+
+    if (before > 0)
     {
-        vec3 p = origin + end * direction;
-
-        vec3 rayleighScattering;
-        float mieScattering;
-        vec3 extinction;
-
-        mediumAt(length(p) - groundRadius(), rayleighScattering, mieScattering, extinction);
-
-        transmittance *= exp(-rest * extinction);
+        marchSegment(origin, direction, start, lowest, false, before, jitter, phaseR, phaseM, state);
     }
 
-    return luminance;
+    if (steps - before > 0)
+    {
+        marchSegment(origin, direction, lowest, end, true, steps - before, jitter, phaseR, phaseM, state);
+    }
+
+    transmittance = state.transmittance;
+
+    return state.luminance;
 }

@@ -115,7 +115,15 @@ def build_chunk(
 
     slope = np.einsum("ij,ij->i", normals, directions)
 
-    colors = terrain.colors(directions, elevation, slope)
+    # Terrain inputs for the per-pixel biome shading
+    # (assets/shaders/include/terrain.glsl): color = (elevation,
+    # slope, moisture), uv.x = latitude.
+    colors = np.stack(
+        (elevation, slope, terrain.moisture(directions)),
+        axis=1
+    )
+
+    latitude = np.abs(directions[:, 1])
 
     # -----------------------------------------------------
     # Skirts
@@ -138,7 +146,7 @@ def build_chunk(
 
     all_positions = np.vstack((positions, skirt_positions)) - center
 
-    uv = _grid_uvs(n)
+    uv = np.stack((latitude, np.zeros(n * n)), axis=1)
 
     mesh = MeshData.from_attributes(
         positions=all_positions,
@@ -181,22 +189,6 @@ def _edge_vertices(
     loop.setflags(write=False)
 
     return loop
-
-
-@lru_cache(maxsize=8)
-def _grid_uvs(
-    n: int
-) -> np.ndarray:
-
-    t = np.linspace(0.0, 1.0, n)
-
-    u, v = np.meshgrid(t, t, indexing="xy")
-
-    uvs = np.stack((u.ravel(), v.ravel()), axis=1)
-
-    uvs.setflags(write=False)
-
-    return uvs
 
 
 @lru_cache(maxsize=8)

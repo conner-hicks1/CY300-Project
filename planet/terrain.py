@@ -194,90 +194,24 @@ class Terrain:
         return elevation
 
     # =====================================================
-    # Surface Color
+    # Surface Inputs
     # =====================================================
+    #
+    # Biome colors themselves are applied per pixel on the
+    # GPU (assets/shaders/include/terrain.glsl) from
+    # elevation, slope, latitude and this moisture value.
 
-    def colors(
+    def moisture(
         self,
-        directions: np.ndarray,
-        elevation: np.ndarray,
-        slope: np.ndarray
+        directions: np.ndarray
     ) -> np.ndarray:
-        """
-        Linear RGB per sample.
+        """Wetness in [0, 1] (grass vs dry grass, forests)."""
 
-        elevation: meters (negative under water).
-        slope: dot(surface normal, radial up), 1 = flat.
-        """
-
-        latitude = np.abs(directions[:, 1])
-
-        moisture = fbm(
-            self._moisture,
-            directions * 3.0,
-            3
-        ) * 0.5 + 0.5
-
-        # -------------------------------------------------
-        # Land
-        # -------------------------------------------------
-
-        grass = _mix(_DRY_GRASS, _GRASS, _smoothstep(0.35, 0.65, moisture)[:, None])
-
-        lowland = _mix(_SAND, grass, _smoothstep(5.0, 60.0, elevation)[:, None])
-
-        # Forest on moist, low, gentle ground.
-        forest = (
-            _smoothstep(0.5, 0.75, moisture)
-            * (1.0 - _smoothstep(1200.0, 2500.0, elevation))
-            * _smoothstep(0.92, 0.97, slope)
-            * _smoothstep(60.0, 200.0, elevation)
+        return np.clip(
+            fbm(self._moisture, directions * 3.0, 3) * 0.5 + 0.5,
+            0.0,
+            1.0
         )
-
-        color = _mix(lowland, _FOREST, forest[:, None])
-
-        color = _mix(color, _ROCK, _smoothstep(1500.0, 3000.0, elevation)[:, None])
-
-        # Cliffs: steep ground is bare rock.
-        color = _mix(color, _ROCK, (1.0 - _smoothstep(0.75, 0.88, slope))[:, None])
-
-        # Snow line falls toward the poles; snow does not
-        # stick to cliffs.
-        snow_line = 4200.0 * (1.0 - latitude ** 3) - 300.0
-
-        snow = (
-            _smoothstep(snow_line - 200.0, snow_line + 200.0, elevation)
-            * _smoothstep(0.7, 0.82, slope)
-        )
-
-        color = _mix(color, _SNOW, snow[:, None])
-
-        # -------------------------------------------------
-        # Water
-        # -------------------------------------------------
-
-        depth = np.clip(-elevation / 3000.0, 0.0, 1.0)
-
-        water = _mix(_SHALLOW_WATER, _DEEP_WATER, np.sqrt(depth)[:, None])
-
-        # Polar sea ice.
-        water = _mix(water, _ICE, _smoothstep(0.95, 0.97, latitude)[:, None])
-
-        underwater = (elevation < 0.0)[:, None]
-
-        return np.where(underwater, water, color)
-
-
-# Linear-space albedos.
-_SAND = np.array([0.42, 0.36, 0.22])
-_DRY_GRASS = np.array([0.28, 0.24, 0.10])
-_GRASS = np.array([0.07, 0.16, 0.04])
-_FOREST = np.array([0.025, 0.07, 0.025])
-_ROCK = np.array([0.16, 0.14, 0.12])
-_SNOW = np.array([0.80, 0.82, 0.86])
-_SHALLOW_WATER = np.array([0.02, 0.10, 0.14])
-_DEEP_WATER = np.array([0.004, 0.015, 0.05])
-_ICE = np.array([0.65, 0.72, 0.78])
 
 
 def _smoothstep(
@@ -289,12 +223,3 @@ def _smoothstep(
     t = np.clip((x - edge0) / (edge1 - edge0), 0.0, 1.0)
 
     return t * t * (3.0 - 2.0 * t)
-
-
-def _mix(
-    a,
-    b,
-    t
-) -> np.ndarray:
-
-    return a + (b - a) * t

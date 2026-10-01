@@ -16,6 +16,7 @@ uniform float uRadius;
 
 // Keeps the radius circular on non-square targets.
 uniform float uAspectRatio;
+uniform vec2 uSourceTexelSize;
 
 in vec2 vTexCoord;
 
@@ -23,7 +24,13 @@ out vec4 FragColor;
 
 void main()
 {
-    vec2 r = vec2(uRadius, uRadius * uAspectRatio);
+    // At most 1.5 source texels between taps: wider, and a
+    // tiny very bright source (the sun seen from space)
+    // turns into a 3x3 grid of separate dots.
+    vec2 r = min(
+        vec2(uRadius, uRadius * uAspectRatio),
+        1.5 * uSourceTexelSize
+    );
     vec2 uv = vTexCoord;
 
     vec3 a = texture(uSource, uv + vec2(-r.x,  r.y)).rgb;

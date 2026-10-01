@@ -389,16 +389,42 @@ def test_terrain_is_deterministic_and_bounded(terrain):
     )
 
 
-def test_colors_are_valid(terrain):
+def test_moisture_is_in_range(terrain):
 
-    directions = fibonacci_sphere(1000)
+    moisture = terrain.moisture(fibonacci_sphere(1000))
 
-    elevation = terrain.elevation(directions, 50_000.0)
+    assert moisture.min() >= 0.0 and moisture.max() <= 1.0
+    assert moisture.std() > 0.05
 
-    colors = terrain.colors(directions, elevation, np.ones(len(directions)))
 
-    assert colors.shape == (1000, 3)
-    assert colors.min() >= 0.0 and colors.max() <= 1.0
+def test_chunk_carries_terrain_inputs(terrain):
+
+    # Vertex color = (elevation, slope, moisture), uv.x =
+    # latitude, for the per-pixel shading.
+    n = 9
+
+    key = ChunkKey(2, 3, 4, 4)
+
+    data = build_chunk(key, terrain, n)
+
+    vertices = data.mesh.vertices[: n * n]
+
+    elevation, slope, moisture = vertices[:, 6], vertices[:, 7], vertices[:, 8]
+    latitude = vertices[:, 9]
+
+    positions = vertices[:, 0:3].astype(np.float64) + data.center
+
+    directions = positions / np.linalg.norm(positions, axis=1, keepdims=True)
+
+    expected = terrain.elevation(directions, edge_length(RADIUS, 3) / (n - 1))
+
+    # Sea level clamps positions, not the stored elevation.
+    np.testing.assert_allclose(elevation, expected, atol=60.0)
+
+    assert slope.min() > 0.0 and slope.max() <= 1.0 + 1e-6
+    assert moisture.min() >= 0.0 and moisture.max() <= 1.0
+
+    np.testing.assert_allclose(latitude, np.abs(directions[:, 1]), atol=1e-4)
 
 
 def test_spawn_is_on_land_facing_horizontally(terrain):
