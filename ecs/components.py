@@ -233,7 +233,9 @@ class CameraControllerComponent:
 
     # Planet mode: "up" points away from planet_center
     # instead of world +Y, so the horizon stays level
-    # anywhere on a sphere and Q/E move radially.
+    # anywhere on a sphere, W/S/A/D move along the ground
+    # (around the planet from orbit) and Space/Shift move
+    # along the zenith.
     planet_mode: bool = False
     planet_center: tuple[float, float, float] = (0.0, 0.0, 0.0)
     planet_radius: float = 0.0

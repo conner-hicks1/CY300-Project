@@ -422,7 +422,8 @@ class DebugPanel:
             )
 
         imgui.text_disabled(
-            "Hold RMB + WASD/QE: fly  |  Click: select\n"
+            "Hold RMB + WASD: fly, Space/Shift: up/down\n"
+            "Click: select  |  "
             "Q/W/E/R: select/move/rotate/scale  |  F: focus\n"
             "Ctrl+Z/Y: undo/redo  |  Ctrl+S: save  |  Ctrl+P: play\n"
             "F1: UI  |  F5: reload shaders"

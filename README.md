@@ -117,7 +117,7 @@ The planet streams in over the first few seconds.
 
 | Input | Action |
 | --- | --- |
-| Hold right mouse button | Look around; **W A S D** move, **Q / E** down / up (on a planet: toward / away from the ground; speed grows with altitude) |
+| Hold right mouse button | Look around; **W A S D** move, **Space** up, **Shift** down. On a planet, W A S D move along the ground (around the planet when in orbit) and Space / Shift move straight away from / toward it; speed grows with altitude |
 | Left click | Select an object |
 | **Q / W / E / R** | Select / move / rotate / scale tool |
 | **F** | Focus the camera on the selection |

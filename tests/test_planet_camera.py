@@ -5,9 +5,11 @@ from ecs.components import CameraControllerComponent
 from math3d import quaternion
 from math3d.transform import Transform
 from systems.camera_controller_system import (
+    MAX_ORBIT_RATE,
     altitude,
     clamp_altitude,
     planet_look,
+    planet_motion,
     planet_speed,
     planet_up
 )
@@ -153,3 +155,112 @@ def test_camera_relative_precision_at_planet_scale():
     transform.translate((0.0005, 0.0, 0.0))
 
     assert transform.position[0] == pytest.approx(0.0005, abs=1e-9)
+
+
+# =========================================================
+# Planet Motion (WASD / Space / Shift)
+# =========================================================
+
+CENTER = np.zeros(3)
+
+
+def move(position, forward, camera_up, forward_input=0.0, right_input=0.0, up_input=0.0, speed=100.0, dt=1.0):
+
+    return planet_motion(
+        position=position,
+        center=CENTER,
+        forward=forward,
+        camera_up=camera_up,
+        forward_input=forward_input,
+        right_input=right_input,
+        up_input=up_input,
+        speed=speed,
+        delta_time=dt
+    )
+
+
+def test_wasd_keeps_altitude():
+
+    start = np.array([0.0, RADIUS + 500.0, 0.0])
+
+    end, _ = move(start, (0.0, 0.0, -1.0), (0.0, 1.0, 0.0), forward_input=1.0, right_input=1.0, speed=1000.0)
+
+    assert np.linalg.norm(end) == pytest.approx(np.linalg.norm(start))
+    assert np.linalg.norm(end - start) == pytest.approx(1000.0, rel=1e-3)
+
+
+def test_forward_is_the_heading_even_looking_straight_down():
+
+    # In orbit looking at the planet: forward = -up; the
+    # top of the screen (camera up) points along -Z.
+    start = np.array([0.0, 3.0 * RADIUS, 0.0])
+
+    end, _ = move(start, (0.0, -1.0, 0.0), (0.0, 0.0, -1.0), forward_input=1.0, speed=1e5)
+
+    # Moved toward -Z around the planet, not toward it.
+    assert end[2] < 0.0
+    assert np.linalg.norm(end) == pytest.approx(np.linalg.norm(start))
+
+
+def test_pitch_does_not_change_heading():
+
+    start = np.array([0.0, RADIUS + 10.0, 0.0])
+
+    pitch = np.radians(-40.0)
+
+    forward = (0.0, np.sin(pitch), -np.cos(pitch))
+    camera_up = (0.0, np.cos(pitch), np.sin(pitch))
+
+    end, _ = move(start, forward, camera_up, forward_input=1.0)
+    level, _ = move(start, (0.0, 0.0, -1.0), (0.0, 1.0, 0.0), forward_input=1.0)
+
+    np.testing.assert_allclose(end, level, atol=1e-6)
+
+
+def test_d_moves_right():
+
+    start = np.array([0.0, RADIUS + 10.0, 0.0])
+
+    end, _ = move(start, (0.0, 0.0, -1.0), (0.0, 1.0, 0.0), right_input=1.0)
+
+    assert end[0] > 0.0 and abs(end[2]) < 1e-6
+
+
+def test_space_and_shift_move_along_zenith():
+
+    start = np.array([RADIUS + 100.0, 0.0, 0.0])
+
+    up_end, rotation = move(start, (0.0, 1.0, 0.0), (-1.0, 0.0, 0.0), up_input=1.0, speed=50.0)
+    down_end, _ = move(start, (0.0, 1.0, 0.0), (-1.0, 0.0, 0.0), up_input=-1.0, speed=50.0)
+
+    np.testing.assert_allclose(up_end, start + (50.0, 0.0, 0.0))
+    np.testing.assert_allclose(down_end, start - (50.0, 0.0, 0.0))
+
+    # No rotation for purely vertical moves.
+    np.testing.assert_allclose(rotation, quaternion.identity())
+
+
+def test_view_turns_with_the_orbit():
+
+    # The returned rotation carries the camera around the
+    # planet: what was "down" stays pointing at the center.
+    start = np.array([0.0, 3.0 * RADIUS, 0.0])
+
+    end, rotation = move(start, (0.0, -1.0, 0.0), (0.0, 0.0, -1.0), forward_input=1.0, speed=1e6)
+
+    new_forward = quaternion.rotate_vector(rotation, (0.0, -1.0, 0.0))
+
+    np.testing.assert_allclose(new_forward, -end / np.linalg.norm(end), atol=1e-9)
+
+
+def test_orbit_rate_is_capped():
+
+    start = np.array([0.0, 4.0 * RADIUS, 0.0])
+
+    distance = 4.0 * RADIUS
+
+    end, _ = move(start, (0.0, 0.0, -1.0), (0.0, 1.0, 0.0), forward_input=1.0, speed=1e12)
+
+    angle = np.arccos(np.dot(start, end) / distance ** 2)
+
+    assert angle == pytest.approx(MAX_ORBIT_RATE, rel=1e-6)

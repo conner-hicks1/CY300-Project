@@ -29,16 +29,20 @@ class CameraControllerSystem:
     # Two modes, chosen per controller:
     #
     # Flat (default): yaw about world +Y, pitch clamped,
-    #     stored as Euler angles. Q/E move along world Y.
+    #     stored as Euler angles. W/S/A/D fly along the
+    #     view; Space/Shift move along world Y.
     #
     # Planet (planet_mode): "up" is the direction away from
     #     planet_center at the camera's position. Yaw turns
     #     about that up, pitch is measured from the local
     #     horizon, and the orientation is rebuilt with
     #     look_rotation every frame, so flying around a
-    #     sphere keeps the horizon level. Q/E move radially,
-    #     speed scales with altitude, and the camera cannot
-    #     go below planet_radius + min_altitude.
+    #     sphere keeps the horizon level. W/S/A/D move
+    #     along the ground (around the planet, view turning
+    #     with it; capped at MAX_ORBIT_RATE), Space/Shift
+    #     along the zenith. Speed scales with altitude, and
+    #     the camera cannot go below planet_radius +
+    #     min_altitude.
 
     def update(
         self,
@@ -53,7 +57,7 @@ class CameraControllerSystem:
             so moving the mouse over the window (or the
             debug UI) does not spin the camera.
 
-        move_enabled: apply WASD/QE movement. Disabled
+        move_enabled: apply WASD / Space / Shift movement. Disabled
             while the debug UI has keyboard focus.
         """
 
@@ -222,9 +226,9 @@ class CameraControllerSystem:
         delta_time: float
     ):
 
-        # Q/E use world-space Y rather than transform.up,
-        # so they remain vertical even when the camera is
-        # pitched.
+        # Space/Shift use world-space Y rather than
+        # transform.up, so they remain vertical even when
+        # the camera is pitched.
 
         movement = _movement_input(
             transform,
@@ -267,28 +271,33 @@ class CameraControllerSystem:
 
         if move_enabled:
 
-            up = planet_up(
-                transform.position,
-                controller.planet_center
-            )
+            forward_input, right_input, up_input = _key_axes()
 
-            movement = _movement_input(
-                transform,
-                up
-            )
+            if forward_input or right_input or up_input:
 
-            if movement is not None:
-
-                position = (
-                    transform.position
-                    + movement
-                    * planet_speed(controller, transform.position)
-                    * delta_time
+                position, rotation = planet_motion(
+                    position=transform.position,
+                    center=controller.planet_center,
+                    forward=transform.forward,
+                    camera_up=transform.up,
+                    forward_input=forward_input,
+                    right_input=right_input,
+                    up_input=up_input,
+                    speed=planet_speed(controller, transform.position),
+                    delta_time=delta_time
                 )
 
                 transform.position = clamp_altitude(
                     position,
                     controller
+                )
+
+                # The view travels with the camera around
+                # the planet (no swinging toward where it
+                # started).
+                transform.orientation = quaternion.multiply(
+                    rotation,
+                    transform.orientation
                 )
 
         # Always re-level: moving across the sphere changes
@@ -311,31 +320,38 @@ class CameraControllerSystem:
 # Helpers
 # =========================================================
 
+def _key_axes() -> tuple[float, float, float]:
+    """
+    (forward, right, up) movement input in {-1, 0, 1}:
+    W/S, D/A, Space/Shift.
+    """
+
+    def axis(positive, negative):
+
+        return float(positive) - float(negative)
+
+    shift = Input.is_key_down(Key.LEFT_SHIFT) or Input.is_key_down(Key.RIGHT_SHIFT)
+
+    return (
+        axis(Input.is_key_down(Key.W), Input.is_key_down(Key.S)),
+        axis(Input.is_key_down(Key.D), Input.is_key_down(Key.A)),
+        axis(Input.is_key_down(Key.SPACE), shift),
+    )
+
+
 def _movement_input(
     transform,
     vertical: np.ndarray
 ) -> np.ndarray | None:
-    """Unit WASD/QE direction, or None without input."""
+    """Unit fly direction (flat mode), or None without input."""
 
-    movement = np.zeros(3)
+    forward_input, right_input, up_input = _key_axes()
 
-    if Input.is_key_down(Key.W):
-        movement += transform.forward
-
-    if Input.is_key_down(Key.S):
-        movement -= transform.forward
-
-    if Input.is_key_down(Key.D):
-        movement += transform.right
-
-    if Input.is_key_down(Key.A):
-        movement -= transform.right
-
-    if Input.is_key_down(Key.E):
-        movement += vertical
-
-    if Input.is_key_down(Key.Q):
-        movement -= vertical
+    movement = (
+        forward_input * np.asarray(transform.forward, dtype=np.float64)
+        + right_input * np.asarray(transform.right, dtype=np.float64)
+        + up_input * vertical
+    )
 
     length = float(np.linalg.norm(movement))
 
@@ -343,6 +359,95 @@ def _movement_input(
         return None
 
     return movement / length
+
+
+# Fastest a planet-mode camera may circle the planet
+# (rad/s): about 18 s per orbit. Altitude-scaled speed
+# alone would whip the planet past in orbit.
+MAX_ORBIT_RATE = 0.35
+
+
+def planet_motion(
+    position,
+    center,
+    forward,
+    camera_up,
+    forward_input: float,
+    right_input: float,
+    up_input: float,
+    speed: float,
+    delta_time: float
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Planet-mode movement. Returns (new position, rotation
+    quaternion applied to the camera's orientation).
+
+    W/S/A/D move along the ground: the camera circles the
+    planet center at constant altitude (a rotation, so the
+    view turns with it). "Forward" is the view direction
+    projected onto the horizon; looking straight down it is
+    the top of the screen. Space/Shift move along the
+    zenith.
+    """
+
+    position = np.asarray(position, dtype=np.float64)
+    center = np.asarray(center, dtype=np.float64)
+    forward = np.asarray(forward, dtype=np.float64)
+    camera_up = np.asarray(camera_up, dtype=np.float64)
+
+    offset = position - center
+
+    radius = float(np.linalg.norm(offset))
+
+    up = planet_up(position, center)
+
+    rotation = quaternion.identity()
+
+    # -----------------------------------------------------
+    # Horizontal: around the planet
+    # -----------------------------------------------------
+
+    def horizontal(vector):
+
+        return vector - np.dot(vector, up) * up
+
+    # Pitched down, the camera's up leans forward (and
+    # backward when pitched up), so this blend stays
+    # pointing "ahead" at any pitch, even straight down.
+    heading = horizontal(forward) - np.dot(forward, up) * horizontal(camera_up)
+
+    heading_length = float(np.linalg.norm(heading))
+
+    if (forward_input or right_input) and heading_length > 1e-9 and radius > 0.0:
+
+        heading /= heading_length
+
+        right = np.cross(heading, up)
+
+        direction = forward_input * heading + right_input * right
+
+        direction /= np.linalg.norm(direction)
+
+        distance = min(speed, MAX_ORBIT_RATE * radius) * delta_time
+
+        axis = np.cross(up, direction)
+
+        rotation = quaternion.from_axis_angle(
+            axis / np.linalg.norm(axis),
+            np.degrees(distance / radius)
+        )
+
+        offset = quaternion.rotate_vector(rotation, offset)
+
+        up = offset / np.linalg.norm(offset)
+
+    # -----------------------------------------------------
+    # Vertical: along the zenith
+    # -----------------------------------------------------
+
+    offset = offset + up * (up_input * speed * delta_time)
+
+    return center + offset, rotation
 
 
 def planet_up(

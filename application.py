@@ -789,7 +789,7 @@ class Application:
                 planet_mode=True,
                 planet_center=center,
                 planet_radius=ground,
-                altitude_speed=1.5,
+                altitude_speed=1.0,
                 min_altitude=2.0
             )
         )
@@ -1080,9 +1080,10 @@ class Application:
                 self.scene
             )
 
-            # Editor-style flying: WASD/QE only while the
-            # right mouse button is held, so the same keys
-            # can switch gizmo modes the rest of the time.
+            # Editor-style flying: WASD / Space / Shift only
+            # while the right mouse button is held, so the
+            # same keys can switch gizmo modes the rest of
+            # the time.
 
             self.camera_controller_system.update(
                 self.scene,
