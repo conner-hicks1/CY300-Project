@@ -23,6 +23,11 @@ from ecs.entity import Entity
 from ecs.registry import Registry
 
 from graphics.bloom import Bloom
+from graphics.draw_list import (
+    DrawItem,
+    frustum_planes,
+    spheres_in_frustum
+)
 from graphics.environment import (
     Environment,
     SkyParameters
@@ -343,6 +348,21 @@ class RenderSystem:
             frame
         )
 
+        # Every renderable's matrices, computed and uploaded
+        # once for all passes (shadow layers + scene).
+
+        with profiler.scope("Prepare draws"):
+
+            prepared = self._renderer.prepare_draws(
+                self._collect_draw_items(registry)
+            )
+
+        # Render-space camera clip matrix, for culling.
+        camera_clip = (
+            camera.projection_matrix
+            @ camera.view_rotation_matrix
+        )
+
         # -------------------------------------------------
         # 2. Shadows
         # -------------------------------------------------
@@ -391,8 +411,17 @@ class RenderSystem:
 
             RenderCommand.clear()
 
-            self._render_meshes(
-                registry
+            visible = np.flatnonzero(
+                spheres_in_frustum(
+                    frustum_planes(camera_clip),
+                    prepared.centers,
+                    prepared.radii
+                )
+            )
+
+            self._renderer.draw_batch(
+                self._resources,
+                visible
             )
 
             if settings.show_sky:
@@ -616,17 +645,11 @@ class RenderSystem:
         if not passes:
             return
 
-        casters = [
-            (
-                self._resources.meshes.get(mesh_renderer.mesh),
-                transform.world_matrix
-            )
-            for _, transform, mesh_renderer in registry.view_with(
-                TransformComponent,
-                MeshRendererComponent
-            )
-            if mesh_renderer.casts_shadows
-        ]
+        prepared = self._renderer.prepared
+
+        casters = np.flatnonzero(
+            prepared.casts_shadows
+        )
 
         shader = self._shader("shadow_depth")
 
@@ -652,42 +675,46 @@ class RenderSystem:
                 matrix
             )
 
-            for mesh, model in casters:
+            # Only casters inside this layer's light volume.
+            inside = spheres_in_frustum(
+                frustum_planes(matrix),
+                prepared.centers[casters],
+                prepared.radii[casters]
+            )
 
-                self._renderer.draw_depth(
-                    mesh,
-                    shader,
-                    model
-                )
+            self._renderer.draw_depth_batch(
+                shader,
+                casters[inside]
+            )
 
         RenderState.set_cull_front_faces(False)
 
         RenderState.set_depth_func(GL_GREATER)
 
     # =====================================================
-    # Scene Pass
+    # Scene Items
     # =====================================================
 
-    def _render_meshes(
+    def _collect_draw_items(
         self,
         registry: Registry
-    ):
+    ) -> list[DrawItem]:
 
-        for _, transform, mesh_renderer in registry.view_with(
-            TransformComponent,
-            MeshRendererComponent
-        ):
+        meshes = self._resources.meshes
+        materials = self._resources.materials
 
-            self._renderer.draw(
-                self._resources.meshes.get(
-                    mesh_renderer.mesh
-                ),
-                self._resources.materials.get(
-                    mesh_renderer.material
-                ),
-                self._resources,
-                transform.world_matrix
+        return [
+            DrawItem(
+                mesh=meshes.get(mesh_renderer.mesh),
+                material=materials.get(mesh_renderer.material),
+                world_matrix=transform.world_matrix,
+                casts_shadows=mesh_renderer.casts_shadows
             )
+            for _, transform, mesh_renderer in registry.view_with(
+                TransformComponent,
+                MeshRendererComponent
+            )
+        ]
 
     # =====================================================
     # Sky

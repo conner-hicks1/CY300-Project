@@ -1,10 +1,37 @@
+import ctypes
+
 from dataclasses import dataclass
 
 import numpy as np
 
+from OpenGL.GL import (
+    GL_DRAW_INDIRECT_BUFFER,
+    GL_DYNAMIC_DRAW,
+    GL_SHADER_STORAGE_BUFFER,
+    GL_STREAM_DRAW,
+    GL_TRIANGLES,
+    GL_UNSIGNED_INT,
+    glBindBuffer,
+    glBindBufferBase,
+    glBufferData,
+    glBufferSubData,
+    glDeleteBuffers,
+    glDrawElementsBaseVertex,
+    glGenBuffers,
+    glMultiDrawElementsIndirect
+)
+
 from core.assertions import engine_assert
 
 from graphics.buffer import UniformBuffer
+from graphics.draw_list import (
+    DrawItem,
+    PreparedDraws,
+    build_commands,
+    group_by_material,
+    prepare as prepare_draw_list
+)
+from graphics.geometry_pool import GeometryPool
 from graphics.lighting import LightEnvironment
 from graphics.material import Material, MaterialValue
 from graphics.mesh import Mesh
@@ -22,7 +49,6 @@ from graphics.uniform_blocks import (
 from graphics.vertex_array import VertexArray
 
 from math3d.camera import Camera
-from math3d.matrices import normal_matrix
 
 from resources.resources import Resources
 
@@ -34,13 +60,25 @@ from resources.resources import Resources
 @dataclass(slots=True)
 class RenderStats:
 
+    # GPU draw submissions (one multi-draw counts once).
     draw_calls: int = 0
     triangles: int = 0
+
+    # Scene objects drawn (after culling) / prepared.
+    objects_drawn: int = 0
+    objects_total: int = 0
 
     def reset(self):
 
         self.draw_calls = 0
         self.triangles = 0
+        self.objects_drawn = 0
+        self.objects_total = 0
+
+
+# Storage-buffer binding of the per-draw records
+# (assets/shaders/include/draw_data.glsl).
+DRAW_RECORDS_BINDING = 2
 
 
 class Renderer:
@@ -104,6 +142,16 @@ class Renderer:
         # triangle generated from gl_VertexID).
 
         self._empty_vertex_array = VertexArray()
+
+        # Batched rendering: per-draw records (storage
+        # buffer) and indirect commands.
+
+        self._records_buffer = int(glGenBuffers(1))
+        self._command_buffer = int(glGenBuffers(1))
+
+        self._prepared: PreparedDraws | None = None
+
+        self._command_capacity = 0
 
         # sampler name -> texture used when a material
         # does not provide one (white albedo, flat normal).
@@ -213,6 +261,8 @@ class Renderer:
 
         self.stats.reset()
 
+        self._prepared = None
+
         self._in_scene = True
 
     @property
@@ -296,120 +346,208 @@ class Renderer:
         self._in_scene = False
 
     # =====================================================
-    # Lit Draw
+    # Batched Draws
     # =====================================================
+    #
+    # Per frame:
+    #
+    #     renderer.begin_scene(camera, lighting, frame)
+    #     renderer.prepare_draws(items)        # all objects
+    #     renderer.draw_depth_batch(shader, indices)   # per shadow layer
+    #     renderer.draw_batch(resources, indices)      # scene
+    #
+    # prepare_draws() computes every object's camera-relative
+    # matrices at once (numpy) and uploads them to a storage
+    # buffer. Each draw_* call then issues one
+    # glMultiDrawElementsIndirect per material for any
+    # subset of objects (e.g. those that survived culling),
+    # instead of one Python-driven draw call per object.
 
-    def draw(
+    def prepare_draws(
         self,
-        mesh: Mesh,
-        material: Material,
-        resources: Resources,
-        model_matrix: np.ndarray
-    ):
+        items: list[DrawItem]
+    ) -> PreparedDraws:
 
         self._assert_in_scene()
 
-        engine_assert(
-            mesh is not None,
-            "Renderer received a None Mesh."
+        prepared = prepare_draw_list(
+            items,
+            self._origin
         )
 
-        engine_assert(
-            material is not None,
-            "Renderer received a None Material."
+        self._prepared = prepared
+
+        count = len(prepared.items)
+
+        self.stats.objects_total = count
+
+        if count == 0:
+            return prepared
+
+        GeometryPool.instance().ensure_draw_capacity(count)
+
+        self._upload(
+            GL_SHADER_STORAGE_BUFFER,
+            self._records_buffer,
+            prepared.records
         )
 
-        engine_assert(
-            resources is not None,
-            "Renderer received None Resources."
+        glBindBufferBase(
+            GL_SHADER_STORAGE_BUFFER,
+            DRAW_RECORDS_BINDING,
+            self._records_buffer
         )
 
-        # -------------------------------------------------
-        # Shader
-        # -------------------------------------------------
+        return prepared
 
-        shader = resources.shaders.get(
-            material.shader
-        )
+    @property
+    def prepared(
+        self
+    ) -> PreparedDraws | None:
 
-        shader.bind()
+        return self._prepared
 
-        # -------------------------------------------------
-        # Per-Object Uniforms
-        # -------------------------------------------------
+    def draw_batch(
+        self,
+        resources: Resources,
+        indices: np.ndarray
+    ):
+        """Lit draw of prepared objects `indices`, one multi-draw per material."""
 
-        shader.set_mat4(
-            "uModel",
-            self.to_render_space(model_matrix)
-        )
+        self._assert_prepared()
 
-        if shader.has_uniform("uNormalMatrix"):
+        for material, members in group_by_material(
+            self._prepared,
+            indices
+        ):
 
-            shader.set_mat3(
-                "uNormalMatrix",
-                normal_matrix(model_matrix)
+            shader = resources.shaders.get(
+                material.shader
             )
 
-        for name, (unit, _, _) in self._frame_textures.items():
+            shader.bind()
 
-            if shader.has_uniform(name):
+            for name, (unit, _, _) in self._frame_textures.items():
 
-                shader.set_int(
-                    name,
-                    unit
-                )
+                if shader.has_uniform(name):
+                    shader.set_int(name, unit)
 
-        # -------------------------------------------------
-        # Material
-        # -------------------------------------------------
+            self._apply_material_values(shader, material)
+            self._apply_material_textures(shader, material, resources)
 
-        self._apply_material_values(
-            shader,
-            material
-        )
+            self._multi_draw(members)
 
-        self._apply_material_textures(
-            shader,
-            material,
-            resources
-        )
+        self.stats.objects_drawn += len(indices)
 
-        # -------------------------------------------------
-        # Geometry
-        # -------------------------------------------------
-
-        self._submit(
-            mesh
-        )
-
-    # =====================================================
-    # Depth-Only Draw (Shadow Pass)
-    # =====================================================
-
-    def draw_depth(
+    def draw_depth_batch(
         self,
-        mesh: Mesh,
         shader: Shader,
-        model_matrix: np.ndarray
+        indices: np.ndarray
     ):
         """
-        Draw with an already-bound depth shader. The light
-        matrix comes from LightsBlock.
+        Depth-only draw of prepared objects with an already
+        bound shader (uLightMatrix set by the caller).
         """
+
+        self._assert_prepared()
+
+        self._multi_draw(indices)
+
+    def _multi_draw(
+        self,
+        indices: np.ndarray
+    ):
+
+        if len(indices) == 0:
+            return
+
+        commands = build_commands(
+            self._prepared,
+            indices
+        )
+
+        self._write_commands(
+            commands
+        )
+
+        GeometryPool.instance().bind()
+
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, self._command_buffer)
+
+        # The indirect "pointer" is a byte offset into the
+        # bound GL_DRAW_INDIRECT_BUFFER; pass it as a ctypes
+        # pointer value (None makes PyOpenGL treat it as
+        # client memory).
+        glMultiDrawElementsIndirect(
+            GL_TRIANGLES,
+            GL_UNSIGNED_INT,
+            ctypes.c_void_p(0),
+            len(commands),
+            0
+        )
+
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0)
+
+        self.stats.draw_calls += 1
+        self.stats.triangles += int(commands[:, 0].sum()) // 3
+
+    def _write_commands(
+        self,
+        commands: np.ndarray
+    ):
+
+        # Storage is allocated once (grown when needed) and
+        # updated in place. Re-specifying the indirect buffer
+        # with glBufferData between multi-draws triggers
+        # GL_INVALID_OPERATION on the Intel driver.
+
+        data = np.ascontiguousarray(commands)
+
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, self._command_buffer)
+
+        if data.nbytes > self._command_capacity:
+
+            capacity = max(self._command_capacity, 4096)
+
+            while capacity < data.nbytes:
+                capacity *= 2
+
+            glBufferData(GL_DRAW_INDIRECT_BUFFER, capacity, None, GL_DYNAMIC_DRAW)
+
+            self._command_capacity = capacity
+
+        glBufferSubData(GL_DRAW_INDIRECT_BUFFER, 0, data.nbytes, data)
+
+        glBindBuffer(GL_DRAW_INDIRECT_BUFFER, 0)
+
+    @staticmethod
+    def _upload(
+        target: int,
+        buffer: int,
+        array: np.ndarray
+    ):
+
+        # Orphan + refill: the driver hands back fresh
+        # storage, so this never waits for the GPU to finish
+        # reading last frame's data.
+
+        data = np.ascontiguousarray(array)
+
+        glBindBuffer(target, buffer)
+        glBufferData(target, data.nbytes, data, GL_STREAM_DRAW)
+        glBindBuffer(target, 0)
+
+    def _assert_prepared(self):
 
         self._assert_in_scene()
 
-        shader.set_mat4(
-            "uModel",
-            self.to_render_space(model_matrix)
-        )
-
-        self._submit(
-            mesh
+        engine_assert(
+            self._prepared is not None,
+            "Call Renderer.prepare_draws() before batched draws."
         )
 
     # =====================================================
-    # Unlit Draw (Gizmos)
+    # Single Draws
     # =====================================================
 
     def draw_unlit(
@@ -419,6 +557,7 @@ class Renderer:
         model_matrix: np.ndarray,
         color
     ):
+        """One flat-colored mesh (light gizmos, selection outline)."""
 
         self._assert_in_scene()
 
@@ -434,13 +573,20 @@ class Renderer:
             color
         )
 
-        self._submit(
-            mesh
+        allocation = mesh.allocation
+
+        GeometryPool.instance().bind()
+
+        glDrawElementsBaseVertex(
+            GL_TRIANGLES,
+            allocation.index_count,
+            GL_UNSIGNED_INT,
+            ctypes.c_void_p(allocation.first_index * 4),
+            allocation.base_vertex
         )
 
-    # =====================================================
-    # Fullscreen Draw (Post-Processing)
-    # =====================================================
+        self.stats.draw_calls += 1
+        self.stats.triangles += allocation.index_count // 3
 
     def draw_fullscreen(
         self,
@@ -458,39 +604,6 @@ class Renderer:
         RenderCommand.draw_arrays(
             3
         )
-
-        self.stats.draw_calls += 1
-
-    # =====================================================
-    # Submission
-    # =====================================================
-
-    def _submit(
-        self,
-        mesh: Mesh
-    ):
-
-        mesh.vertex_array.bind()
-
-        if mesh.index_buffer is not None:
-
-            RenderCommand.draw_indexed(
-                mesh.index_buffer.count
-            )
-
-            self.stats.triangles += (
-                mesh.index_buffer.count // 3
-            )
-
-        else:
-
-            RenderCommand.draw_arrays(
-                mesh.vertex_count
-            )
-
-            self.stats.triangles += (
-                mesh.vertex_count // 3
-            )
 
         self.stats.draw_calls += 1
 
@@ -658,6 +771,13 @@ class Renderer:
         self._camera_buffer.delete()
         self._lights_buffer.delete()
         self._empty_vertex_array.delete()
+
+        glDeleteBuffers(
+            2,
+            [self._records_buffer, self._command_buffer]
+        )
+
+        GeometryPool.shutdown()
 
         self._default_textures.clear()
 

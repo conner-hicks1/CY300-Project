@@ -1,52 +1,33 @@
 import numpy as np
 
-from OpenGL.GL import GL_TRIANGLES
-
 from core.assertions import engine_assert
 from core.logger import Logger
 
-from graphics.buffer import (
-    VertexBuffer,
-    IndexBuffer
+from graphics.geometry_pool import (
+    GeometryPool,
+    PoolAllocation
 )
-
-from graphics.mesh_data import (
-    COLOR_SIZE,
-    NORMAL_SIZE,
-    POSITION_SIZE,
-    TANGENT_SIZE,
-    UV_SIZE,
-    MeshData
-)
-from graphics.vertex_array import VertexArray
-from graphics.vertex_layout import VertexLayout
-
-
-def standard_layout() -> VertexLayout:
-
-    # Must match graphics/mesh_data.py and the
-    # layout(location = N) inputs in the vertex shaders.
-
-    return (
-        VertexLayout()
-        .add(POSITION_SIZE)     # 0 Position
-        .add(NORMAL_SIZE)       # 1 Normal
-        .add(COLOR_SIZE)        # 2 Color
-        .add(UV_SIZE)           # 3 UV
-        .add(TANGENT_SIZE)      # 4 Tangent (w = handedness)
-    )
+from graphics.mesh_data import MeshData
 
 
 class Mesh:
 
     # =====================================================
-    # From MeshData
+    # Mesh
     # =====================================================
+    #
+    # A range of vertices and indices in the shared
+    # GeometryPool (one VAO for every mesh), so meshes can
+    # be drawn in batches with multi-draw indirect.
+    #
+    # Keeps its MeshData for CPU-side queries: bounds for
+    # picking, and a bounding sphere for frustum culling.
 
     @classmethod
     def from_data(
         cls,
-        data: MeshData
+        data: MeshData,
+        pool: GeometryPool | None = None
     ) -> "Mesh":
 
         engine_assert(
@@ -54,151 +35,75 @@ class Mesh:
             "Mesh.from_data() requires MeshData."
         )
 
-        mesh = cls(
-            data.vertices,
-            standard_layout(),
-            data.indices
+        return cls(
+            data,
+            pool or GeometryPool.instance()
         )
-
-        # Kept for CPU-side queries (bounds, picking).
-
-        mesh.data = data
-
-        mesh.bounds = data.bounds
-
-        return mesh
 
     def __init__(
         self,
-        vertices,
-        layout,
-        indices=None,
-        primitive=GL_TRIANGLES
+        data: MeshData,
+        pool: GeometryPool
     ):
 
-        engine_assert(
-            layout is not None,
-            "Mesh requires a VertexLayout."
+        self.data = data
+
+        self._pool = pool
+
+        self.allocation: PoolAllocation | None = pool.allocate(
+            data.vertices,
+            data.indices
         )
 
-        engine_assert(
-            layout.stride > 0,
-            "Mesh layout must have a positive stride."
+        # Local-space axis-aligned bounds (min, max).
+        self.bounds: tuple[np.ndarray, np.ndarray] = data.bounds
+
+        low, high = self.bounds
+
+        # Local bounding sphere (center, radius) around the
+        # box: cheap to transform and test per frame.
+        self.bounding_center = (
+            (np.asarray(low, dtype=np.float64) + np.asarray(high, dtype=np.float64))
+            * 0.5
         )
 
-        self.layout = layout
-        self.primitive = primitive
-
-        self.data: MeshData | None = None
-
-        # Local-space (min, max); None for meshes built
-        # without MeshData (they cannot be picked).
-        self.bounds: tuple[np.ndarray, np.ndarray] | None = None
-
-        # =================================================
-        # Vertex Data
-        # =================================================
-
-        vertices = np.asarray(
-            vertices,
-            dtype=np.float32
+        self.bounding_radius = float(
+            np.linalg.norm(
+                np.asarray(high, dtype=np.float64)
+                - np.asarray(low, dtype=np.float64)
+            ) * 0.5
         )
-
-        engine_assert(
-            vertices.size > 0,
-            "Mesh must contain vertex data."
-        )
-
-        engine_assert(
-            vertices.nbytes % layout.stride == 0,
-            (
-                "Vertex data size must be divisible "
-                "by the layout stride."
-            )
-        )
-
-        self.vertex_count = (
-            vertices.nbytes
-            // layout.stride
-        )
-
-        # =================================================
-        # Validate Indices Before GPU Allocation
-        # =================================================
-
-        validated_indices = None
-
-        if indices is not None:
-
-            validated_indices = np.asarray(
-                indices,
-                dtype=np.uint32
-            )
-
-            engine_assert(
-                validated_indices.size > 0,
-                (
-                    "Indexed mesh cannot contain "
-                    "an empty index array."
-                )
-            )
-
-            engine_assert(
-                np.max(validated_indices)
-                < self.vertex_count,
-                (
-                    "Mesh contains an index that "
-                    "references a nonexistent vertex."
-                )
-            )
-
-        # =================================================
-        # VAO / VBO
-        # =================================================
-
-        self.vertex_array = VertexArray()
-
-        self.vertex_array.bind()
-
-        self.vertex_buffer = VertexBuffer(
-            vertices
-        )
-
-        self.vertex_array.add_buffer(
-            self.vertex_buffer,
-            self.layout
-        )
-
-        # =================================================
-        # Index Buffer
-        # =================================================
-
-        self.index_buffer = None
-
-        if validated_indices is not None:
-
-            # Important:
-            # EBO binding is stored inside the VAO.
-            self.index_buffer = IndexBuffer(
-                validated_indices
-            )
-
-        # =================================================
-        # Unbind
-        # =================================================
-
-        self.vertex_array.unbind()
-        self.vertex_buffer.unbind()
 
         Logger.debug(
-            "[Mesh] Created: vertices=%d, indices=%d.",
-            self.vertex_count,
-            (
-                self.index_buffer.count
-                if self.index_buffer is not None
-                else 0
-            )
+            "[Mesh] Allocated %d vertices, %d indices.",
+            self.allocation.vertex_count,
+            self.allocation.index_count
         )
+
+    # =====================================================
+    # Queries
+    # =====================================================
+
+    @property
+    def vertex_count(
+        self
+    ) -> int:
+
+        return self.allocation.vertex_count
+
+    @property
+    def index_count(
+        self
+    ) -> int:
+
+        return self.allocation.index_count
+
+    @property
+    def triangle_count(
+        self
+    ) -> int:
+
+        return self.allocation.index_count // 3
 
     # =====================================================
     # Cleanup
@@ -206,15 +111,16 @@ class Mesh:
 
     def delete(self):
 
+        if self.allocation is None:
+            return
+
         Logger.debug(
-            "[Mesh] Deleting."
+            "[Mesh] Freeing %d vertices.",
+            self.allocation.vertex_count
         )
 
-        if self.index_buffer is not None:
+        self._pool.free(
+            self.allocation
+        )
 
-            self.index_buffer.delete()
-
-            self.index_buffer = None
-
-        self.vertex_buffer.delete()
-        self.vertex_array.delete()
+        self.allocation = None

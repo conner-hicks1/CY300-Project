@@ -1,6 +1,7 @@
 #version 450 core
 
 #include "include/blocks.glsl"
+#include "include/draw_data.glsl"
 
 
 // =========================================================
@@ -31,10 +32,8 @@ out vec2 vTexCoord;
 // Uniforms
 // =========================================================
 
-uniform mat4 uModel;
-
-// Cofactor of uModel's upper 3x3 (see math3d/matrices.py).
-uniform mat3 uNormalMatrix;
+// Model and normal matrices come per object from the
+// draw-record buffer (include/draw_data.glsl).
 
 // Material UV tiling.
 uniform vec2 uUVScale;
@@ -46,8 +45,12 @@ uniform vec2 uUVScale;
 
 void main()
 {
+    DrawRecord record = uDraws[aDrawIndex];
+
+    // "World" here is camera-relative world space (the
+    // camera sits at the origin; see Renderer.prepare_draws).
     vec4 worldPosition =
-        uModel
+        record.model
         * vec4(aPosition, 1.0);
 
     gl_Position =
@@ -57,12 +60,12 @@ void main()
 
     vWorldPosition = worldPosition.xyz;
 
-    vNormal = uNormalMatrix * aNormal;
+    vNormal = mat3(record.normalMatrix) * aNormal;
 
     // Tangents lie in the surface, so they transform with
     // the model matrix itself (not the normal matrix).
     vTangent = vec4(
-        mat3(uModel) * aTangent.xyz,
+        mat3(record.model) * aTangent.xyz,
         aTangent.w
     );
 

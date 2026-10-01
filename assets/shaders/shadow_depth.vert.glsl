@@ -9,17 +9,18 @@
 // one layer of a shadow map array (a cascade of the
 // directional light, or a spot light).
 
+#include "include/draw_data.glsl"
+
 layout(location = 0) in vec3 aPosition;
 
-uniform mat4 uModel;
-
-// World -> this cascade's / spot light's clip space.
+// Camera-relative world -> this cascade's / spot light's
+// clip space (graphics/shadows.py to_render_space).
 uniform mat4 uLightMatrix;
 
 void main()
 {
     gl_Position =
         uLightMatrix
-        * uModel
+        * uDraws[aDrawIndex].model
         * vec4(aPosition, 1.0);
 }

@@ -396,7 +396,9 @@ class DebugPanel:
 
         imgui.text(
             f"Draw calls: {stats.draw_calls}   "
-            f"Triangles: {stats.triangles}"
+            f"Triangles: {stats.triangles}\n"
+            f"Objects drawn: {stats.objects_drawn} / {stats.objects_total} "
+            f"(after culling)"
         )
 
         imgui.text_disabled(
