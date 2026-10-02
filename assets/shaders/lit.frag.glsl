@@ -76,6 +76,12 @@ vec3 surfaceNormal(
     vec3 geometricNormal
 )
 {
+    // Terrain has no normal map; its "tangent" is data.
+    if (uTerrainShading > 0.5)
+    {
+        return geometricNormal;
+    }
+
     // Re-orthogonalize after interpolation.
     vec3 T = normalize(
         vTangent.xyz
@@ -140,7 +146,8 @@ void main()
                 vColor.g,
                 vColor.b,
                 vTexCoord.x,
-                vTexCoord.y
+                vTexCoord.y,
+                vTangent
             );
 
             roughness = 0.9;

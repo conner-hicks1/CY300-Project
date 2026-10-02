@@ -20,6 +20,7 @@ from ecs.components import (
     PointLightComponent,
     RotatorComponent,
     SpotLightComponent,
+    TectonicsComponent,
     TransformComponent
 )
 from ecs.entity import Entity
@@ -637,6 +638,12 @@ COMPONENT_CODECS: tuple[ComponentCodec, ...] = (
         "Atmosphere",
         AtmosphereComponent,
         create_default=lambda _: AtmosphereComponent()
+    ),
+
+    _dataclass_codec(
+        "Tectonics",
+        TectonicsComponent,
+        create_default=lambda _: TectonicsComponent()
     ),
 
     _dataclass_codec(

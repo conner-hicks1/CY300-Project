@@ -312,3 +312,38 @@ class AtmosphereComponent:
     # Average ground reflectance (light bounced into the
     # sky, and the ground seen in reflections).
     ground_albedo: float = 0.3
+
+
+# =========================================================
+# Tectonics
+# =========================================================
+#
+# Plate tectonics for the planet on the same entity
+# (planet/tectonics.py; driven by TectonicsSystem). The
+# simulation's continents, ocean basins and mountain belts
+# replace the planet's noise continents.
+#
+# The simulation state itself is not saved: simulated_time
+# is, and loading re-simulates from the seed to that time
+# (deterministic).
+
+@dataclass(slots=True)
+class TectonicsComponent:
+
+    seed: int = 1
+    plate_count: int = 12
+
+    # Fraction of the surface that starts as continent.
+    land_fraction: float = 0.3
+
+    # Typical plate speed, cm / year (Earth: 2-10).
+    plate_speed: float = 5.0
+
+    # Simulated time per step (million years).
+    time_step: float = 5.0
+
+    # Grid cells per cube-face edge (6 * n^2 cells).
+    resolution: int = 128
+
+    # Million years simulated so far.
+    simulated_time: float = 0.0

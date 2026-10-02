@@ -152,11 +152,12 @@ def find_spawn(
 
     rise[(distances < 5_000.0) | (path_elevation < 20.0)] = -np.inf
 
-    # Prefer green valleys below the snow.
-    below_snow = path_elevation < 2_000.0
+    # Prefer green valleys below the snow, close enough that
+    # the range fills the view.
+    for preferred in (path_elevation < 2_000.0, distances <= 25_000.0):
 
-    if np.isfinite(rise[below_snow]).any():
-        rise[~below_snow] = -np.inf
+        if np.isfinite(rise[preferred]).any():
+            rise[~preferred] = -np.inf
 
     index = int(np.argmax(rise))
 

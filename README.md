@@ -12,13 +12,35 @@ building and saving scenes.
 
 **Procedural planet**
 
-- Earth-sized cube-sphere planet with continents, oceans, ridged mountain
-  ranges, hills, snow lines and polar ice, from seeded 3D gradient noise
+- Earth-sized cube-sphere planet: continents and ocean basins from the plate
+  simulation (or seeded noise without it), ridged mountain ranges, hills,
+  snow lines and polar ice
 - Quadtree level of detail per cube face with horizon culling; chunks are built
   on worker threads and streamed in coarse-to-fine without holes or cracks
 - Planet-aware camera: radial "up", altitude-scaled flying speed, stays above
   the terrain
 - Terrain parameters editable live in the inspector (the planet rebuilds)
+
+**Plate tectonics**
+
+![Crust-age view after a few hundred million years: young sea floor (red) at the ridges, older floor (blue), continents (tan)](docs/images/tectonics.png)
+
+- A plate simulation on a global cube-sphere grid (~98,000 cells, ~80 km
+  apart) shapes the continents: rigid plates rotate about their own poles at a
+  few cm per year, 5 million years per step
+- Where plates pull apart, new ocean floor forms at mid-ocean ridges and
+  deepens as it ages; where they converge, the denser crust sinks: island
+  arcs, Andes-style ranges (ocean under continent) and Himalaya-style ranges
+  (continent-continent collisions)
+- Erosion wears mountains down; colliding continents weld into one plate and
+  large plates rift apart again, opening new oceans (a Wilson cycle)
+- Runs in the background while you watch (Tectonics panel: play, pause,
+  step, reset, speed); the terrain rebuilds from each new state without
+  popping
+- Data views: plates, crust age (with magnetic-stripe bands), continental /
+  oceanic crust, converging / spreading boundaries
+- Deterministic: a saved scene stores the seed and simulated time and
+  re-simulates to the same planet on load
 
 **Atmosphere**
 
@@ -79,7 +101,7 @@ building and saving scenes.
   under a per-frame time budget
 - Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
   output routed to the log
-- 300 unit tests for everything that does not need a GPU
+- 360 unit tests for everything that does not need a GPU
 
 ## Getting Started
 
@@ -147,8 +169,8 @@ The planet streams in over the first few seconds.
 | `main.py`, `application.py` | Entry point, main loop, demo content |
 | `core/` | Window, input, events, timer, logging, profiler, job system |
 | `ecs/` | Entity registry and components |
-| `systems/` | Transform, camera controller, rotator, planet streaming and render systems |
-| `planet/` | Noise, cube-sphere mapping, terrain, chunk building, level of detail |
+| `systems/` | Transform, camera controller, rotator, tectonics, planet streaming and render systems |
+| `planet/` | Noise, cube-sphere mapping and simulation grid, plate tectonics, terrain, chunk building, level of detail, solar time |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, bloom |
 | `editor/` | Scene editor, hierarchy / inspector / planet panels, picking, undo history |
 | `scene/` | Scene container and scene file (de)serialization |

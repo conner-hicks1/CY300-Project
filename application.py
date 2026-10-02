@@ -34,6 +34,7 @@ from ecs.components import (
     HierarchyComponent,
     NameComponent,
     PlanetComponent,
+    TectonicsComponent,
     TransformComponent
 )
 from ecs.entity import Entity
@@ -53,14 +54,16 @@ from math3d.transform import Transform
 
 from planet import solar
 from planet.spawn import find_spawn
-from planet.terrain import Terrain, TerrainSettings
+from planet.tectonics import TectonicField, TectonicSimulation
+from planet.terrain import Terrain
 
 from resources.resources import Resources
 
 from systems.camera_controller_system import (
     CameraControllerSystem
 )
-from systems.planet_system import PlanetSystem
+from systems.planet_system import PlanetSystem, terrain_settings_for
+from systems.tectonics_system import TectonicsSystem, tectonic_settings_for
 from systems.render_system import RenderSystem
 from systems.rotator_system import RotatorSystem
 from systems.transform_system import TransformSystem
@@ -72,6 +75,7 @@ from scene.scene_serializer import (
 )
 
 from editor.planet_panel import PlanetPanel, sun_orientation
+from editor.tectonics_panel import TectonicsPanel
 from editor.scene_editor import SceneEditor
 
 from ui.debug_panel import DebugContext, DebugPanel
@@ -154,6 +158,8 @@ class Application:
         self.jobs: JobSystem | None = None
 
         self.planet_system: PlanetSystem | None = None
+        self.tectonics_system: TectonicsSystem | None = None
+        self.tectonics_panel: TectonicsPanel | None = None
 
         # -------------------------------------------------
         # UI
@@ -303,10 +309,15 @@ class Application:
 
         self._load_resources()
 
+        self.tectonics_system = TectonicsSystem(
+            self.jobs
+        )
+
         self.planet_system = PlanetSystem(
             self.resources,
             self.jobs,
-            self.handles["planet_material"]
+            self.handles["planet_material"],
+            field_provider=self.tectonics_system.field
         )
 
         self.serializer = SceneSerializer(
@@ -330,6 +341,12 @@ class Application:
         # editor's Hierarchy / Inspector.
         self.planet_panel = PlanetPanel(
             self.editor,
+            self.planet_system
+        )
+
+        self.tectonics_panel = TectonicsPanel(
+            self.editor,
+            self.tectonics_system,
             self.planet_system
         )
 
@@ -743,17 +760,21 @@ class Application:
 
         planet = PlanetComponent()
 
+        # Plate tectonics shapes the continents. The starting
+        # state is computed here (~1 s) rather than in the
+        # background, so the spawn point is chosen on the
+        # real terrain and the first frame already shows it.
+        tectonics = TectonicsComponent()
+
+        simulation = TectonicSimulation(
+            tectonic_settings_for(planet, tectonics)
+        )
+
+        initial = simulation.initial_state()
+
         terrain = Terrain(
-            TerrainSettings(
-                seed=planet.seed,
-                radius=planet.radius,
-                continent_frequency=planet.continent_frequency,
-                continent_height=planet.continent_height,
-                land_bias=planet.land_bias,
-                mountain_frequency=planet.mountain_frequency,
-                mountain_height=planet.mountain_height,
-                detail_height=planet.detail_height
-            )
+            terrain_settings_for(planet),
+            TectonicField.from_state(simulation.grid, initial, version=0)
         )
 
         spawn = find_spawn(terrain)
@@ -788,7 +809,7 @@ class Application:
         self._create_entity(
             "Camera",
             Transform(
-                position=(0.0, 1200.0, 0.0),
+                position=(0.0, 500.0, 0.0),
                 orientation=quaternion.multiply(
                     quaternion.look_rotation(view, up),
                     quaternion.from_euler((-6.0, 0.0, 0.0))
@@ -840,15 +861,18 @@ class Application:
         # Planet
         # -------------------------------------------------
 
-        self._create_entity(
+        planet_entity = self._create_entity(
             "Planet",
             Transform(
                 position=center,
                 orientation=orientation
             ),
             planet,
-            AtmosphereComponent()
+            AtmosphereComponent(),
+            tectonics
         )
+
+        self.tectonics_system.prime(planet_entity, planet, tectonics, initial)
 
     # =====================================================
     # Main Loop
@@ -1146,6 +1170,12 @@ class Application:
             self.planet_system.view_mode != 0
         )
 
+        with profiler.scope("Tectonics"):
+
+            self.tectonics_system.update(
+                self.scene
+            )
+
         with profiler.scope("Planet"):
 
             self.planet_system.update(
@@ -1243,6 +1273,8 @@ class Application:
                     self.timer.delta_time,
                     self.timer.fps
                 )
+
+                self.tectonics_panel.draw()
 
                 self.debug_panel.draw(
                     DebugContext(
@@ -1549,6 +1581,12 @@ class Application:
         # =================================================
         # Systems
         # =================================================
+
+        if self.tectonics_system is not None:
+
+            self.tectonics_system.shutdown()
+
+            self.tectonics_system = None
 
         # Chunk meshes live in the renderer's geometry pool.
         if self.planet_system is not None:

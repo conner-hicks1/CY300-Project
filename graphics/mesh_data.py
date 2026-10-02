@@ -63,13 +63,16 @@ class MeshData:
         indices,
         normals=None,
         uvs=None,
-        colors=None
+        colors=None,
+        tangents=None
     ) -> "MeshData":
         """
         Build interleaved vertex data. Missing normals are
         computed (smooth), missing UVs default to 0,
-        missing colors to white, and tangents are always
-        derived from positions/UVs.
+        missing colors to white, and missing tangents are
+        derived from positions/UVs. (Planet terrain passes
+        `tangents` to carry per-vertex data instead; its
+        shading uses no normal map.)
         """
 
         positions = np.asarray(
@@ -145,11 +148,20 @@ class MeshData:
             "MeshData attribute arrays must have one entry per vertex."
         )
 
-        tangents = compute_tangents(
-            positions,
-            normals,
-            uvs,
-            indices
+        if tangents is None:
+
+            tangents = compute_tangents(
+                positions,
+                normals,
+                uvs,
+                indices
+            )
+
+        tangents = np.asarray(tangents, dtype=np.float32).reshape(-1, 4)
+
+        engine_assert(
+            len(tangents) == count,
+            "MeshData tangents must have one entry per vertex."
         )
 
         vertices = np.hstack(

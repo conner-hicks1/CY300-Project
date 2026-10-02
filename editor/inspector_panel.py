@@ -14,6 +14,7 @@ from ecs.components import (
     PointLightComponent,
     RotatorComponent,
     SpotLightComponent,
+    TectonicsComponent,
     TransformComponent
 )
 from ecs.entity import Entity
@@ -610,6 +611,20 @@ def _edit_atmosphere(
     )
 
 
+def _edit_tectonics(
+    inspector: _Inspector,
+    component: TectonicsComponent
+):
+
+    imgui.text(f"Simulated: {component.simulated_time:,.0f} million years")
+
+    imgui.text_disabled(
+        "Play, step and settings: Tectonics panel.\n"
+        "Saved scenes re-simulate to this time\n"
+        "on load (from the seed)."
+    )
+
+
 def _edit_directional_light(
     inspector: _Inspector,
     component: DirectionalLightComponent
@@ -674,6 +689,7 @@ _COMPONENT_EDITORS = {
     CameraControllerComponent: _edit_camera_controller,
     PlanetComponent: _edit_planet,
     AtmosphereComponent: _edit_atmosphere,
+    TectonicsComponent: _edit_tectonics,
     DirectionalLightComponent: _edit_directional_light,
     PointLightComponent: _edit_point_light,
     SpotLightComponent: _edit_spot_light,

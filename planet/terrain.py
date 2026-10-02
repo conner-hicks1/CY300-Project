@@ -69,6 +69,15 @@ _RANGE_FREQUENCY_SCALE = 5.0
 # well under 1) so peaks approach mountain_height.
 _RIDGE_GAIN = 1.6
 
+# With a tectonic field: the simulation's highest crust
+# (planet/tectonics.py MAX_CONTINENT_ELEVATION), the share
+# of the noise mountains added on top (the field already
+# raises the belts), and the coastline roughening.
+TECTONIC_MAX_ELEVATION = 7_500.0
+_TECTONIC_RIDGE_SHARE = 0.85
+_TECTONIC_COAST_FREQUENCY = 14.0
+_TECTONIC_COAST_NOISE = 450.0
+
 
 class Terrain:
 
@@ -85,10 +94,18 @@ class Terrain:
 
     def __init__(
         self,
-        settings: TerrainSettings
+        settings: TerrainSettings,
+        field=None
     ):
+        """
+        field: optional planet.tectonics.TectonicField. With
+            one, continents, ocean basins and mountain belts
+            come from the plate simulation; noise adds the
+            detail it cannot resolve (~80 km cells).
+        """
 
         self.settings = settings
+        self.field = field
 
         seed = settings.seed * 7919
 
@@ -97,6 +114,24 @@ class Terrain:
         self._mountains = Perlin(seed + 2)
         self._detail = Perlin(seed + 3)
         self._moisture = Perlin(seed + 4)
+
+    @property
+    def max_elevation(
+        self
+    ) -> float:
+        """Upper bound of the surface height (horizon culling)."""
+
+        if self.field is None:
+            return self.settings.max_elevation
+
+        s = self.settings
+
+        return (
+            TECTONIC_MAX_ELEVATION
+            + _RIDGE_GAIN * s.mountain_height * _TECTONIC_RIDGE_SHARE
+            + s.detail_height
+            + _TECTONIC_COAST_NOISE
+        )
 
     def elevation(
         self,
@@ -122,35 +157,45 @@ class Terrain:
             )
 
         # -------------------------------------------------
-        # Continents
+        # Continents and mountain placement
         # -------------------------------------------------
 
-        continent_points = directions * s.continent_frequency
+        if self.field is not None:
 
-        continents = fbm(
-            self._continents,
-            continent_points,
-            min(octaves(s.continent_frequency), 7)
-        ) + s.land_bias
+            elevation, land, mask = self._tectonic_base(directions, octaves)
 
-        # 0 in the ocean, rising to 1 just inland.
-        land = _smoothstep(-0.02, 0.06, continents)
+            ridge_share = _TECTONIC_RIDGE_SHARE
 
-        elevation = continents * (2.0 * s.continent_height)
+        else:
+
+            continent_points = directions * s.continent_frequency
+
+            continents = fbm(
+                self._continents,
+                continent_points,
+                min(octaves(s.continent_frequency), 7)
+            ) + s.land_bias
+
+            # 0 in the ocean, rising to 1 just inland.
+            land = _smoothstep(-0.02, 0.06, continents)
+
+            elevation = continents * (2.0 * s.continent_height)
+
+            mask = _smoothstep(
+                0.0,
+                0.35,
+                fbm(
+                    self._mountain_mask,
+                    directions * (s.continent_frequency * _RANGE_FREQUENCY_SCALE),
+                    3
+                ) + 0.1
+            ) * land
+
+            ridge_share = 1.0
 
         # -------------------------------------------------
         # Mountains
         # -------------------------------------------------
-
-        mask = _smoothstep(
-            0.0,
-            0.35,
-            fbm(
-                self._mountain_mask,
-                directions * (s.continent_frequency * _RANGE_FREQUENCY_SCALE),
-                3
-            ) + 0.1
-        ) * land
 
         if np.any(mask > 0.0):
 
@@ -169,6 +214,7 @@ class Terrain:
                 ridges * ridges * _RIDGE_GAIN
                 * mask
                 * s.mountain_height
+                * ridge_share
             )
 
         # -------------------------------------------------
@@ -192,6 +238,68 @@ class Terrain:
             )
 
         return elevation
+
+    def _tectonic_base(
+        self,
+        directions: np.ndarray,
+        octaves
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+        """
+        (elevation, land 0..1, mountain mask) from the plate
+        simulation, roughened below its resolution.
+        """
+
+        field = self.field
+
+        elevation = field.sample("elevation", directions)
+
+        # Coastlines and shelves finer than the grid.
+        elevation = elevation + fbm(
+            self._continents,
+            directions * _TECTONIC_COAST_FREQUENCY,
+            min(octaves(_TECTONIC_COAST_FREQUENCY), 6)
+        ) * _TECTONIC_COAST_NOISE
+
+        land = _smoothstep(-100.0, 200.0, elevation)
+
+        # Peaks where crust was recently uplifted (young
+        # belts); rugged foothills wherever land stands high.
+        orogeny = field.sample("orogeny", directions)
+
+        mask = np.maximum(
+            _smoothstep(200.0, 2_000.0, orogeny),
+            _smoothstep(400.0, 3_000.0, elevation)
+        ) * land
+
+        return elevation, land, mask
+
+    def tectonic_data(
+        self,
+        directions: np.ndarray
+    ) -> np.ndarray:
+        """
+        (n, 4) per-vertex data for the tectonic views:
+        plate index, crust age / 400 Myr, continental
+        fraction, boundary closing speed (cm/yr). Plate -1
+        without a simulation.
+        """
+
+        data = np.zeros((len(directions), 4), dtype=np.float32)
+
+        field = self.field
+
+        if field is None:
+
+            data[:, 0] = -1.0
+
+            return data
+
+        data[:, 0] = field.plate_at(directions)
+        data[:, 1] = field.sample("age", directions) / 400.0
+        data[:, 2] = field.sample("continental", directions)
+        data[:, 3] = field.sample("activity", directions)
+
+        return data
 
     # =====================================================
     # Surface Inputs

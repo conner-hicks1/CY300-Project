@@ -149,12 +149,17 @@ def build_chunk(
     # uv.y: quadtree depth, for the "Detail level" view.
     uv = np.stack((latitude, np.full(n * n, key.depth / 20.0)), axis=1)
 
+    # Tectonic data for the plate / crust views rides in
+    # the tangent slot (terrain shading uses no normal map).
+    tectonic = terrain.tectonic_data(directions)
+
     mesh = MeshData.from_attributes(
         positions=all_positions,
         indices=_indices(n),
         normals=np.vstack((normals, normals[edge])),
         uvs=np.vstack((uv, uv[edge])),
-        colors=np.vstack((colors, colors[edge]))
+        colors=np.vstack((colors, colors[edge])),
+        tangents=np.vstack((tectonic, tectonic[edge]))
     )
 
     return ChunkData(

@@ -1,5 +1,6 @@
 import time
 
+from collections.abc import Callable
 from dataclasses import dataclass
 
 import numpy as np
@@ -39,6 +40,10 @@ TERRAIN_VIEWS: tuple[tuple[str, str], ...] = (
     ("Moisture", "Dry (brown) to wet (blue)."),
     ("Latitude", "10-degree bands from the equator."),
     ("Detail level", "Quadtree depth of each chunk."),
+    ("Plates", "Tectonic plates, outlined at their boundaries."),
+    ("Crust age", "Sea floor from young (red, at ridges) to old (blue); continents grey."),
+    ("Crust type", "Continental (tan) or oceanic (blue) crust."),
+    ("Boundaries", "Plates converging (red) or pulling apart (blue)."),
 )
 
 
@@ -76,19 +81,32 @@ class _Planet:
 
     def __init__(
         self,
-        component: PlanetComponent
+        component: PlanetComponent,
+        field=None
     ):
 
         self.config = _config_of(component)
 
-        settings = _terrain_settings(component)
+        # Tectonic field the terrain was built from (None =
+        # noise continents); its version, for change checks.
+        self.field = field
+        self.field_version = field.version if field is not None else None
 
-        self.terrain = Terrain(settings)
+        settings = terrain_settings_for(component)
+
+        self.terrain = Terrain(settings, field)
+
+        self.created = time.monotonic()
+
+        # The planet this one replaces: it keeps drawing
+        # until this one has streamed in (no popping to
+        # coarse terrain on every rebuild).
+        self.previous: "_Planet | None" = None
         self.resolution = component.resolution
 
         self.selector = LodSelector(
             radius=settings.radius,
-            max_elevation=settings.max_elevation,
+            max_elevation=self.terrain.max_elevation,
             max_depth=component.max_depth,
             split_factor=component.split_factor
         )
@@ -202,16 +220,30 @@ class PlanetSystem:
     # restart the whole build every frame.
     REBUILD_DELAY = 0.35
 
+    # A changed tectonic field (simulation running) rebuilds
+    # the planet at most this often (seconds).
+    FIELD_REBUILD_INTERVAL = 1.0
+
+    # A replaced planet keeps drawing until its successor
+    # has streamed in, or at most this long (seconds).
+    SWAP_TIMEOUT = 4.0
+
     def __init__(
         self,
         resources: Resources,
         jobs: JobSystem,
-        material: Handle
+        material: Handle,
+        field_provider: Callable[[Entity], object] | None = None
     ):
+        """
+        field_provider: entity -> tectonic field (or None),
+            e.g. TectonicsSystem.field.
+        """
 
         self._resources = resources
         self._jobs = jobs
         self._material = material
+        self._field_provider = field_provider or (lambda entity: None)
 
         self._planets: dict[Entity, _Planet] = {}
 
@@ -270,21 +302,28 @@ class PlanetSystem:
 
             config = _config_of(component)
 
+            field = self._field_provider(entity)
+
+            field_version = field.version if field is not None else None
+
             if planet is None:
 
-                planet = _Planet(component)
+                planet = _Planet(component, field)
 
                 self._planets[entity] = planet
 
-            elif planet.config != config and self._settled(entity, config):
+            elif (
+                planet.config != config
+                and self._settled(entity, config)
+            ) or (
+                planet.config == config
+                and planet.field_version != field_version
+                and time.monotonic() - planet.created >= self.FIELD_REBUILD_INTERVAL
+            ):
 
-                Logger.info("[Planet] Settings changed; rebuilding.")
+                building -= self._replace(entity, planet, component, field)
 
-                building -= self._release(planet)
-
-                planet = _Planet(component)
-
-                self._planets[entity] = planet
+                planet = self._planets[entity]
 
             world = _rigid(transform.world_matrix)
 
@@ -343,14 +382,25 @@ class PlanetSystem:
 
                 planet.items_key = cache_key
 
-            items.extend(planet.items)
+            previous = planet.previous
+
+            if previous is not None and (
+                not planet.wanted
+                or time.monotonic() - planet.created >= self.SWAP_TIMEOUT
+            ):
+
+                self._release(previous)
+
+                planet.previous = previous = None
+
+            items.extend(previous.items if previous is not None else planet.items)
 
             self._evict(planet)
 
         # Planets whose entity is gone.
         for entity in [e for e in self._planets if e not in seen]:
 
-            self._release(self._planets.pop(entity))
+            self._release_all(self._planets.pop(entity))
 
             self._pending_config.pop(entity, None)
 
@@ -581,6 +631,78 @@ class PlanetSystem:
 
             planet.dirty = True
 
+    def _replace(
+        self,
+        entity: Entity,
+        planet: _Planet,
+        component: PlanetComponent,
+        field
+    ) -> int:
+        """
+        Start a new build of the planet; the current one
+        keeps drawing until it is ready. Returns the number
+        of chunk builds cancelled.
+        """
+
+        if planet.config != _config_of(component):
+            Logger.info("[Planet] Settings changed; rebuilding.")
+
+        cancelled = 0
+
+        # Only one generation of fallback: if the planet being
+        # replaced was itself still waiting on its
+        # predecessor, that older one stays on screen.
+        if planet.previous is not None:
+
+            cancelled += self._release(planet)
+
+            fallback = planet.previous
+
+        else:
+
+            fallback = planet
+
+            cancelled += self._cancel_jobs(planet)
+
+        replacement = _Planet(component, field)
+
+        replacement.previous = fallback
+
+        self._planets[entity] = replacement
+
+        return cancelled
+
+    def _cancel_jobs(
+        self,
+        planet: _Planet
+    ) -> int:
+
+        cancelled = 0
+
+        for key in [key for key, chunk in planet.chunks.items() if chunk.job is not None]:
+
+            chunk = planet.chunks.pop(key)
+
+            chunk.job.cancel()
+            chunk.job = None
+
+            cancelled += 1
+
+        return cancelled
+
+    def _release_all(
+        self,
+        planet: _Planet
+    ):
+
+        if planet.previous is not None:
+
+            self._release(planet.previous)
+
+            planet.previous = None
+
+        self._release(planet)
+
     def _release(
         self,
         planet: _Planet
@@ -681,14 +803,14 @@ class PlanetSystem:
     def shutdown(self):
 
         for planet in self._planets.values():
-            self._release(planet)
+            self._release_all(planet)
 
         self._planets.clear()
 
         self._items = []
 
 
-def _terrain_settings(
+def terrain_settings_for(
     component: PlanetComponent
 ) -> TerrainSettings:
 
@@ -710,7 +832,7 @@ def _config_of(
     """Everything that, when changed, requires a rebuild."""
 
     return (
-        _terrain_settings(component),
+        terrain_settings_for(component),
         component.resolution,
         component.max_depth,
         component.split_factor

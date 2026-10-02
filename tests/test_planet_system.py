@@ -155,12 +155,17 @@ def test_settings_change_rebuilds(world):
 
     system.update(scene, camera)
 
-    # Old chunks freed immediately.
-    assert FakeMesh.live == 0
+    # The old planet keeps drawing while the new one builds.
+    old_items = list(system.draw_items)
+
+    assert old_items and FakeMesh.live > 0
 
     stream(scene, system, jobs, camera)
 
+    # Swapped: the new chunks are drawn, the old ones freed.
     assert system.stats.chunks_drawn > 0
+    assert not {id(item.mesh) for item in system.draw_items} & {id(item.mesh) for item in old_items}
+    assert FakeMesh.live == system.stats.chunks_loaded
 
 
 def test_removed_planet_is_released(world):

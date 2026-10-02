@@ -38,6 +38,10 @@ out vec2 vTexCoord;
 // Material UV tiling.
 uniform vec2 uUVScale;
 
+// Planet terrain: the tangent attribute carries tectonic
+// data (planet/chunk.py), passed through untransformed.
+uniform float uTerrainShading;
+
 
 // =========================================================
 // Main
@@ -64,10 +68,9 @@ void main()
 
     // Tangents lie in the surface, so they transform with
     // the model matrix itself (not the normal matrix).
-    vTangent = vec4(
-        mat3(record.model) * aTangent.xyz,
-        aTangent.w
-    );
+    vTangent = uTerrainShading > 0.5
+        ? aTangent
+        : vec4(mat3(record.model) * aTangent.xyz, aTangent.w);
 
     vColor = aColor;
 
