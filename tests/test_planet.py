@@ -399,8 +399,8 @@ def test_moisture_is_in_range(terrain):
 
 def test_chunk_carries_terrain_inputs(terrain):
 
-    # Vertex color = (elevation, slope, moisture), uv.x =
-    # latitude, for the per-pixel shading.
+    # Vertex color = (elevation, slope, precipitation),
+    # uv.x = temperature, for the per-pixel shading.
     n = 9
 
     key = ChunkKey(2, 3, 4, 4)
@@ -409,8 +409,8 @@ def test_chunk_carries_terrain_inputs(terrain):
 
     vertices = data.mesh.vertices[: n * n]
 
-    elevation, slope, moisture = vertices[:, 6], vertices[:, 7], vertices[:, 8]
-    latitude = vertices[:, 9]
+    elevation, slope, precipitation = vertices[:, 6], vertices[:, 7], vertices[:, 8]
+    temperature = vertices[:, 9]
 
     positions = vertices[:, 0:3].astype(np.float64) + data.center
 
@@ -422,9 +422,14 @@ def test_chunk_carries_terrain_inputs(terrain):
     np.testing.assert_allclose(elevation, expected, atol=60.0)
 
     assert slope.min() > 0.0 and slope.max() <= 1.0 + 1e-6
-    assert moisture.min() >= 0.0 and moisture.max() <= 1.0
 
-    np.testing.assert_allclose(latitude, np.abs(directions[:, 1]), atol=1e-4)
+    expected_temperature, expected_precipitation = terrain.surface_climate(directions, elevation)
+
+    np.testing.assert_allclose(temperature, expected_temperature, atol=0.05)
+    np.testing.assert_allclose(precipitation, expected_precipitation, rtol=1e-4)
+
+    assert precipitation.min() > 0.0
+    assert -60.0 < temperature.min() and temperature.max() < 45.0
 
 
 def test_spawn_is_on_land_facing_horizontally(terrain):

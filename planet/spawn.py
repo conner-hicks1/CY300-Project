@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from planet.climate import wetness
 from planet.terrain import Terrain
 
 
@@ -67,7 +68,15 @@ def find_spawn(
 
     latitude = np.abs(directions[:, 1])
 
-    lowland = np.flatnonzero((elevation > 50.0) & (elevation < 1200.0) & (latitude < 0.6))
+    lowland_mask = (elevation > 50.0) & (elevation < 1200.0) & (latitude < 0.6)
+
+    # Prefer green, temperate lowland (not desert or ice),
+    # when the planet has any.
+    temperature, precipitation = terrain.surface_climate(directions, elevation)
+
+    pleasant = lowland_mask & (temperature > 6.0) & (wetness(precipitation, temperature) > 0.8)
+
+    lowland = np.flatnonzero(pleasant if pleasant.sum() >= 20 else lowland_mask)
     peaks = np.flatnonzero((elevation > 0.4 * settings.mountain_height) & (latitude < 0.6))
 
     if len(lowland) == 0 or len(peaks) == 0:

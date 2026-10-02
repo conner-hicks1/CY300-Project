@@ -117,13 +117,14 @@ def build_chunk(
 
     # Terrain inputs for the per-pixel biome shading
     # (assets/shaders/include/terrain.glsl): color = (elevation,
-    # slope, moisture), uv.x = latitude, uv.y = depth / 20.
+    # slope, precipitation), uv.x = temperature,
+    # uv.y = depth / 20.
+    temperature, precipitation = terrain.surface_climate(directions, elevation)
+
     colors = np.stack(
-        (elevation, slope, terrain.moisture(directions)),
+        (elevation, slope, precipitation),
         axis=1
     )
-
-    latitude = np.abs(directions[:, 1])
 
     # -----------------------------------------------------
     # Skirts
@@ -147,7 +148,7 @@ def build_chunk(
     all_positions = np.vstack((positions, skirt_positions)) - center
 
     # uv.y: quadtree depth, for the "Detail level" view.
-    uv = np.stack((latitude, np.full(n * n, key.depth / 20.0)), axis=1)
+    uv = np.stack((temperature, np.full(n * n, key.depth / 20.0)), axis=1)
 
     # Tectonic data for the plate / crust views rides in
     # the tangent slot (terrain shading uses no normal map).

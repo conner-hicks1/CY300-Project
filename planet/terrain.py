@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from planet.climate import fallback_surface
 from planet.noise import (
     Perlin,
     fbm,
@@ -95,17 +96,22 @@ class Terrain:
     def __init__(
         self,
         settings: TerrainSettings,
-        field=None
+        field=None,
+        climate=None
     ):
         """
         field: optional planet.tectonics.TectonicField. With
             one, continents, ocean basins and mountain belts
             come from the plate simulation; noise adds the
             detail it cannot resolve (~80 km cells).
+        climate: optional planet.climate.ClimateField:
+            temperature and rainfall for the biomes (without
+            one: latitude and noise).
         """
 
         self.settings = settings
         self.field = field
+        self.climate = climate
 
         seed = settings.seed * 7919
 
@@ -307,7 +313,22 @@ class Terrain:
     #
     # Biome colors themselves are applied per pixel on the
     # GPU (assets/shaders/include/terrain.glsl) from
-    # elevation, slope, latitude and this moisture value.
+    # elevation, slope, temperature and rainfall.
+
+    def surface_climate(
+        self,
+        directions: np.ndarray,
+        elevation: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        (annual mean temperature C at each point's own
+        height, precipitation mm / year).
+        """
+
+        if self.climate is not None:
+            return self.climate.surface(directions, elevation)
+
+        return fallback_surface(directions, elevation, self.moisture(directions))
 
     def moisture(
         self,

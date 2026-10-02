@@ -347,3 +347,31 @@ class TectonicsComponent:
 
     # Million years simulated so far.
     simulated_time: float = 0.0
+
+
+# =========================================================
+# Climate
+# =========================================================
+#
+# Annual-mean climate for the planet on the same entity
+# (planet/climate.py; ClimateSystem): temperature from
+# sunlight and height, winds, and rainfall carried from the
+# oceans. Drives the biomes (forests, deserts, tundra...)
+# and where snow lies. Recomputed whenever the land changes.
+
+@dataclass(slots=True)
+class ClimateComponent:
+
+    # Degrees (Earth: 23.44): how unevenly the year's
+    # sunlight is spread between equator and poles.
+    axial_tilt: float = 23.44
+
+    # Added to every temperature (C): a warmer or colder
+    # world (ice ages, hothouse climates).
+    temperature_offset: float = 0.0
+
+    # Scales evaporation, so rainfall (1 = Earth-like).
+    humidity: float = 1.0
+
+    # Grid cells per cube-face edge.
+    resolution: int = 64

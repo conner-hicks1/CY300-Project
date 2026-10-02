@@ -37,13 +37,14 @@ TERRAIN_VIEWS: tuple[tuple[str, str], ...] = (
     ("Natural", "Biome colors."),
     ("Elevation", "Height map with 500 m contour lines; coast in black."),
     ("Slope", "Flat ground bright, cliffs dark."),
-    ("Moisture", "Dry (brown) to wet (blue)."),
-    ("Latitude", "10-degree bands from the equator."),
+    ("Temperature", "Annual mean, blue (-30 C) to red (35 C); dark line at freezing."),
+    ("Rainfall", "Yearly rain, dry (tan) to wet (blue), log scale."),
     ("Detail level", "Quadtree depth of each chunk."),
     ("Plates", "Tectonic plates, outlined at their boundaries."),
     ("Crust age", "Sea floor from young (red, at ridges) to old (blue); continents grey."),
     ("Crust type", "Continental (tan) or oceanic (blue) crust."),
     ("Boundaries", "Plates converging (red) or pulling apart (blue)."),
+    ("Biomes", "Ice, tundra, taiga, forest, grassland, desert, savanna, rainforest."),
 )
 
 
@@ -82,19 +83,22 @@ class _Planet:
     def __init__(
         self,
         component: PlanetComponent,
-        field=None
+        field=None,
+        climate=None
     ):
 
         self.config = _config_of(component)
 
-        # Tectonic field the terrain was built from (None =
-        # noise continents); its version, for change checks.
+        # Tectonic field and climate the terrain was built
+        # from (None = noise continents / latitude climate),
+        # and their versions, for change checks.
         self.field = field
-        self.field_version = field.version if field is not None else None
+        self.climate = climate
+        self.data_version = _data_version(field, climate)
 
         settings = terrain_settings_for(component)
 
-        self.terrain = Terrain(settings, field)
+        self.terrain = Terrain(settings, field, climate)
 
         self.created = time.monotonic()
 
@@ -233,17 +237,21 @@ class PlanetSystem:
         resources: Resources,
         jobs: JobSystem,
         material: Handle,
-        field_provider: Callable[[Entity], object] | None = None
+        field_provider: Callable[[Entity], object] | None = None,
+        climate_provider: Callable[[Entity], object] | None = None
     ):
         """
         field_provider: entity -> tectonic field (or None),
             e.g. TectonicsSystem.field.
+        climate_provider: entity -> climate field (or None),
+            e.g. ClimateSystem.field.
         """
 
         self._resources = resources
         self._jobs = jobs
         self._material = material
         self._field_provider = field_provider or (lambda entity: None)
+        self._climate_provider = climate_provider or (lambda entity: None)
 
         self._planets: dict[Entity, _Planet] = {}
 
@@ -303,12 +311,13 @@ class PlanetSystem:
             config = _config_of(component)
 
             field = self._field_provider(entity)
+            climate = self._climate_provider(entity)
 
-            field_version = field.version if field is not None else None
+            data_version = _data_version(field, climate)
 
             if planet is None:
 
-                planet = _Planet(component, field)
+                planet = _Planet(component, field, climate)
 
                 self._planets[entity] = planet
 
@@ -317,11 +326,11 @@ class PlanetSystem:
                 and self._settled(entity, config)
             ) or (
                 planet.config == config
-                and planet.field_version != field_version
+                and planet.data_version != data_version
                 and time.monotonic() - planet.created >= self.FIELD_REBUILD_INTERVAL
             ):
 
-                building -= self._replace(entity, planet, component, field)
+                building -= self._replace(entity, planet, component, field, climate)
 
                 planet = self._planets[entity]
 
@@ -636,7 +645,8 @@ class PlanetSystem:
         entity: Entity,
         planet: _Planet,
         component: PlanetComponent,
-        field
+        field,
+        climate=None
     ) -> int:
         """
         Start a new build of the planet; the current one
@@ -664,7 +674,7 @@ class PlanetSystem:
 
             cancelled += self._cancel_jobs(planet)
 
-        replacement = _Planet(component, field)
+        replacement = _Planet(component, field, climate)
 
         replacement.previous = fallback
 
@@ -823,6 +833,18 @@ def terrain_settings_for(
         mountain_frequency=component.mountain_frequency,
         mountain_height=component.mountain_height,
         detail_height=component.detail_height
+    )
+
+
+def _data_version(
+    field,
+    climate
+) -> tuple:
+    """Identifies the simulation data a planet is built from."""
+
+    return (
+        field.version if field is not None else None,
+        climate.version if climate is not None else None,
     )
 
 

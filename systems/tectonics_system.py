@@ -1,3 +1,4 @@
+import itertools
 import time
 
 from dataclasses import dataclass
@@ -108,6 +109,10 @@ class TectonicsSystem:
         self._pending: dict[Entity, tuple[TectonicSettings, float]] = {}
 
         self.rate = self.DEFAULT_RATE
+
+        # Field versions are unique across runs (a reset
+        # starts a new run), so consumers can compare them.
+        self._versions = itertools.count(1)
 
     # =====================================================
     # Queries / Commands (editor)
@@ -391,7 +396,7 @@ class TectonicsSystem:
 
         run.state = state
 
-        run.version += 1
+        run.version = next(self._versions)
 
         run.field = TectonicField.from_state(
             run.simulation.grid,

@@ -33,6 +33,7 @@ from ecs.components import (
     DirectionalLightComponent,
     HierarchyComponent,
     NameComponent,
+    ClimateComponent,
     PlanetComponent,
     TectonicsComponent,
     TransformComponent
@@ -64,6 +65,7 @@ from systems.camera_controller_system import (
 )
 from systems.planet_system import PlanetSystem, terrain_settings_for
 from systems.tectonics_system import TectonicsSystem, tectonic_settings_for
+from systems.climate_system import ClimateSystem, climate_settings_for, compute_climate
 from systems.render_system import RenderSystem
 from systems.rotator_system import RotatorSystem
 from systems.transform_system import TransformSystem
@@ -76,6 +78,7 @@ from scene.scene_serializer import (
 
 from editor.planet_panel import PlanetPanel, sun_orientation
 from editor.tectonics_panel import TectonicsPanel
+from editor.climate_panel import ClimatePanel
 from editor.scene_editor import SceneEditor
 
 from ui.debug_panel import DebugContext, DebugPanel
@@ -160,6 +163,8 @@ class Application:
         self.planet_system: PlanetSystem | None = None
         self.tectonics_system: TectonicsSystem | None = None
         self.tectonics_panel: TectonicsPanel | None = None
+        self.climate_system: ClimateSystem | None = None
+        self.climate_panel: ClimatePanel | None = None
 
         # -------------------------------------------------
         # UI
@@ -313,11 +318,17 @@ class Application:
             self.jobs
         )
 
+        self.climate_system = ClimateSystem(
+            self.jobs,
+            tectonic_field=self.tectonics_system.field
+        )
+
         self.planet_system = PlanetSystem(
             self.resources,
             self.jobs,
             self.handles["planet_material"],
-            field_provider=self.tectonics_system.field
+            field_provider=self.tectonics_system.field,
+            climate_provider=self.climate_system.field
         )
 
         self.serializer = SceneSerializer(
@@ -347,6 +358,12 @@ class Application:
         self.tectonics_panel = TectonicsPanel(
             self.editor,
             self.tectonics_system,
+            self.planet_system
+        )
+
+        self.climate_panel = ClimatePanel(
+            self.editor,
+            self.climate_system,
             self.planet_system
         )
 
@@ -772,9 +789,21 @@ class Application:
 
         initial = simulation.initial_state()
 
+        tectonic_field = TectonicField.from_state(simulation.grid, initial, version=0)
+
+        # The climate decides where forests, deserts and snow
+        # are; also computed up front (~0.5 s).
+        climate = ClimateComponent()
+
+        climate_field, _ = compute_climate(
+            climate_settings_for(climate),
+            Terrain(terrain_settings_for(planet), tectonic_field)
+        )
+
         terrain = Terrain(
             terrain_settings_for(planet),
-            TectonicField.from_state(simulation.grid, initial, version=0)
+            tectonic_field,
+            climate_field
         )
 
         spawn = find_spawn(terrain)
@@ -869,10 +898,19 @@ class Application:
             ),
             planet,
             AtmosphereComponent(),
-            tectonics
+            tectonics,
+            climate
         )
 
         self.tectonics_system.prime(planet_entity, planet, tectonics, initial)
+
+        self.climate_system.prime(
+            planet_entity,
+            planet,
+            climate,
+            climate_field,
+            self.tectonics_system.field(planet_entity)
+        )
 
     # =====================================================
     # Main Loop
@@ -1176,6 +1214,12 @@ class Application:
                 self.scene
             )
 
+        with profiler.scope("Climate"):
+
+            self.climate_system.update(
+                self.scene
+            )
+
         with profiler.scope("Planet"):
 
             self.planet_system.update(
@@ -1275,6 +1319,8 @@ class Application:
                 )
 
                 self.tectonics_panel.draw()
+
+                self.climate_panel.draw()
 
                 self.debug_panel.draw(
                     DebugContext(
@@ -1581,6 +1627,12 @@ class Application:
         # =================================================
         # Systems
         # =================================================
+
+        if self.climate_system is not None:
+
+            self.climate_system.shutdown()
+
+            self.climate_system = None
 
         if self.tectonics_system is not None:
 

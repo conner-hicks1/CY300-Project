@@ -8,14 +8,19 @@
 //     aColor.r    elevation (m above sea level, negative
 //                 under water)
 //     aColor.g    slope: dot(normal, radial up), 1 = flat
-//     aColor.b    moisture in [0, 1]
-//     aTexCoord.x latitude: |sin| of the planet-space
-//                 latitude, 0 = equator, 1 = pole
+//     aColor.b    precipitation (mm / year)
+//     aTexCoord.x annual mean temperature (C) at this
+//                 point's own height
 //
-// Thresholding per pixel keeps coastlines and snow lines
-// smooth even on coarse chunks whose vertices are hundreds
-// of kilometers apart (per-vertex colors there showed as
-// triangle-shaped blocks).
+// Temperature and rainfall come from the climate model
+// (planet/climate.py), or from latitude and noise without
+// one. Biomes follow a Whittaker diagram: how wet a place
+// is depends on rain relative to how warm it is (warm air
+// dries the ground faster).
+//
+// Thresholding per pixel keeps coastlines, tree lines and
+// snow lines smooth even on coarse chunks whose vertices
+// are hundreds of kilometers apart.
 
 struct TerrainSurface
 {
@@ -23,51 +28,78 @@ struct TerrainSurface
     float roughness;
 };
 
+// Linear-space albedos.
 const vec3 TERRAIN_SAND = vec3(0.42, 0.36, 0.22);
+const vec3 TERRAIN_HOT_DESERT = vec3(0.55, 0.42, 0.25);
+const vec3 TERRAIN_COLD_DESERT = vec3(0.30, 0.28, 0.22);
 const vec3 TERRAIN_DRY_GRASS = vec3(0.28, 0.24, 0.10);
 const vec3 TERRAIN_GRASS = vec3(0.07, 0.16, 0.04);
-const vec3 TERRAIN_FOREST = vec3(0.025, 0.07, 0.025);
+const vec3 TERRAIN_FOREST = vec3(0.03, 0.08, 0.025);
+const vec3 TERRAIN_RAINFOREST = vec3(0.012, 0.05, 0.012);
+const vec3 TERRAIN_TAIGA = vec3(0.02, 0.045, 0.03);
+const vec3 TERRAIN_TUNDRA = vec3(0.17, 0.16, 0.10);
 const vec3 TERRAIN_ROCK = vec3(0.16, 0.14, 0.12);
 const vec3 TERRAIN_SNOW = vec3(0.80, 0.82, 0.86);
 const vec3 TERRAIN_SHALLOW_WATER = vec3(0.02, 0.10, 0.14);
 const vec3 TERRAIN_DEEP_WATER = vec3(0.004, 0.015, 0.05);
 const vec3 TERRAIN_ICE = vec3(0.65, 0.72, 0.78);
 
+// Rain relative to what the warmth evaporates: < 0.3
+// desert, ~0.5-1 grassland / savanna, > 1.2 forest.
+float terrainWetness(
+    float precipitation,
+    float temperature
+)
+{
+    return precipitation / (300.0 + 30.0 * max(temperature, 0.0));
+}
+
 TerrainSurface terrainSurface(
     float elevation,
     float slope,
-    float moisture,
-    float latitude
+    float precipitation,
+    float temperature
 )
 {
+    float wetness = terrainWetness(precipitation, temperature);
+
+    // 1 in the tropics; 1 in the boreal zone.
+    float tropical = smoothstep(18.0, 24.0, temperature);
+    float boreal = smoothstep(8.0, 2.0, temperature);
+
     // -----------------------------------------------------
-    // Land
+    // Land: desert -> grassland -> forest by wetness,
+    // flavored by warmth
     // -----------------------------------------------------
 
-    vec3 grass = mix(TERRAIN_DRY_GRASS, TERRAIN_GRASS, smoothstep(0.35, 0.65, moisture));
+    vec3 desert = mix(TERRAIN_HOT_DESERT, TERRAIN_COLD_DESERT, boreal);
 
-    vec3 land = mix(TERRAIN_SAND, grass, smoothstep(5.0, 60.0, elevation));
+    vec3 grass = mix(TERRAIN_DRY_GRASS, TERRAIN_GRASS, smoothstep(0.5, 1.0, wetness));
 
-    // Forest on moist, low, gentle ground.
-    float forest =
-        smoothstep(0.5, 0.75, moisture)
-        * (1.0 - smoothstep(1200.0, 2500.0, elevation))
-        * smoothstep(0.92, 0.97, slope)
-        * smoothstep(60.0, 200.0, elevation);
+    vec3 forest = mix(TERRAIN_FOREST, TERRAIN_RAINFOREST, tropical);
 
-    land = mix(land, TERRAIN_FOREST, forest);
+    forest = mix(forest, TERRAIN_TAIGA, boreal);
 
-    land = mix(land, TERRAIN_ROCK, smoothstep(1500.0, 3000.0, elevation));
+    vec3 land = mix(desert, grass, smoothstep(0.15, 0.45, wetness));
 
-    // Cliffs: steep ground is bare rock.
+    land = mix(land, forest, smoothstep(0.9, 1.6, wetness) * smoothstep(0.9, 0.96, slope));
+
+    // Too cold for trees: tundra (and the alpine zone above
+    // the tree line, since temperature follows height).
+    land = mix(land, TERRAIN_TUNDRA, smoothstep(1.0, -3.0, temperature));
+
+    // Beaches.
+    land = mix(TERRAIN_SAND, land, smoothstep(5.0, 60.0, elevation));
+
+    // Cliffs are bare rock, as are cold high slopes.
     land = mix(land, TERRAIN_ROCK, 1.0 - smoothstep(0.75, 0.88, slope));
 
-    // Snow line falls toward the poles; snow does not
-    // stick to cliffs.
-    float snowLine = 4200.0 * (1.0 - latitude * latitude * latitude) - 300.0;
+    land = mix(land, TERRAIN_ROCK, smoothstep(-3.0, -7.0, temperature) * 0.6);
 
+    // Lasting snow and ice where the year averages below
+    // freezing; snow does not stick to cliffs.
     float snow =
-        smoothstep(snowLine - 200.0, snowLine + 200.0, elevation)
+        smoothstep(-2.0, -7.0, temperature)
         * smoothstep(0.7, 0.82, slope);
 
     land = mix(land, TERRAIN_SNOW, snow);
@@ -80,8 +112,9 @@ TerrainSurface terrainSurface(
 
     vec3 water = mix(TERRAIN_SHALLOW_WATER, TERRAIN_DEEP_WATER, sqrt(depth));
 
-    // Polar sea ice.
-    float ice = smoothstep(0.95, 0.97, latitude);
+    // Sea ice where the sea surface averages below freezing
+    // (sea water freezes at about -2 C).
+    float ice = smoothstep(-1.5, -5.0, temperature);
 
     water = mix(water, TERRAIN_ICE, ice);
 
@@ -103,6 +136,46 @@ TerrainSurface terrainSurface(
     return surface;
 }
 
+// Whittaker-style biome class (for the Biomes view):
+//   0 ice  1 tundra  2 taiga  3 temperate forest
+//   4 grassland  5 desert  6 savanna  7 tropical rainforest
+// Keep in sync with BIOMES in planet/climate.py.
+int terrainBiome(
+    float precipitation,
+    float temperature
+)
+{
+    float wetness = terrainWetness(precipitation, temperature);
+
+    if (temperature < -5.0) return 0;
+    if (temperature < 0.0) return 1;
+    if (wetness < 0.3) return 5;
+
+    if (temperature < 6.0) return wetness > 0.9 ? 2 : 4;
+
+    if (temperature < 20.0) return wetness > 1.2 ? 3 : 4;
+
+    return wetness > 1.5 ? 7 : 6;
+}
+
+vec3 biomeColor(
+    int biome
+)
+{
+    const vec3 colors[8] = vec3[](
+        vec3(0.92, 0.95, 1.00),     // ice
+        vec3(0.62, 0.60, 0.48),     // tundra
+        vec3(0.18, 0.40, 0.35),     // taiga
+        vec3(0.15, 0.55, 0.18),     // temperate forest
+        vec3(0.72, 0.80, 0.35),     // grassland
+        vec3(0.95, 0.80, 0.45),     // desert
+        vec3(0.85, 0.65, 0.25),     // savanna
+        vec3(0.02, 0.38, 0.10)      // tropical rainforest
+    );
+
+    return colors[clamp(biome, 0, 7)];
+}
+
 
 // =========================================================
 // Data Views
@@ -113,10 +186,11 @@ TerrainSurface terrainSurface(
 // in systems/planet_system.py:
 //
 //   1 elevation (hypsometric tint, 500 m contours, coast)
-//   2 slope      3 moisture      4 latitude bands
+//   2 slope        3 temperature    4 rainfall
 //   5 detail level (quadtree depth, from aTexCoord.y)
 //   6 plates       7 crust age      8 crust type
 //   9 plate boundaries (red converging, blue pulling apart)
+//  10 biomes
 //
 // Modes 6-9 read the tectonic data each chunk vertex
 // carries in its tangent slot (planet/terrain.py
@@ -124,8 +198,7 @@ TerrainSurface terrainSurface(
 // y age / 400 Myr, z continental fraction, w closing
 // speed at a boundary (cm/yr).
 //
-// New data layers (plates, crust age, temperature...) are
-// added here as further modes.
+// New data layers are added here as further modes.
 
 vec3 elevationTint(
     float elevation
@@ -256,12 +329,22 @@ vec3 terrainOverlayColor(
     int mode,
     float elevation,
     float slope,
-    float moisture,
-    float latitude,
+    float precipitation,
+    float temperature,
     float detail,
     vec4 tectonic
 )
 {
+    if (mode == 10)
+    {
+        if (elevation < 0.0)
+        {
+            return temperature < -2.0 ? biomeColor(0) : vec3(0.15, 0.3, 0.6);
+        }
+
+        return biomeColor(terrainBiome(precipitation, temperature));
+    }
+
     if (mode >= 6)
     {
         return tectonicOverlayColor(mode, tectonic);
@@ -290,18 +373,28 @@ vec3 terrainOverlayColor(
 
     if (mode == 3)
     {
-        return mix(vec3(0.55, 0.38, 0.18), vec3(0.10, 0.35, 0.85), moisture);
+        // Temperature: blue (-30 C) - white (5 C) - red
+        // (35 C), with a dark line at freezing.
+        vec3 color = temperature < 5.0
+            ? mix(vec3(0.1, 0.25, 0.9), vec3(0.95), clamp((temperature + 30.0) / 35.0, 0.0, 1.0))
+            : mix(vec3(0.95), vec3(0.9, 0.15, 0.05), clamp((temperature - 5.0) / 30.0, 0.0, 1.0));
+
+        float width = max(fwidth(temperature), 1e-3);
+
+        return color * mix(0.4, 1.0, smoothstep(0.5 * width, 1.5 * width, abs(temperature)));
     }
 
     if (mode == 4)
     {
-        float degrees_ = degrees(asin(clamp(latitude, 0.0, 1.0)));
+        // Rainfall on a log scale: 50 mm (tan) to 4,000 mm
+        // (deep blue) a year.
+        float t = clamp((log(max(precipitation, 1.0)) / log(10.0) - 1.7) / 1.9, 0.0, 1.0);
 
-        float band = mod(floor(degrees_ / 10.0), 2.0);
+        vec3 dry = vec3(0.85, 0.7, 0.4);
+        vec3 moist = vec3(0.2, 0.65, 0.25);
+        vec3 wet = vec3(0.05, 0.2, 0.75);
 
-        vec3 color = mix(vec3(0.25, 0.55, 0.85), vec3(0.85, 0.85, 0.85), degrees_ / 90.0);
-
-        return color * (0.8 + 0.2 * band);
+        return t < 0.5 ? mix(dry, moist, t * 2.0) : mix(moist, wet, t * 2.0 - 1.0);
     }
 
     if (mode == 5)
@@ -324,11 +417,11 @@ vec3 terrainOverlay(
     int mode,
     float elevation,
     float slope,
-    float moisture,
-    float latitude,
+    float precipitation,
+    float temperature,
     float detail,
     vec4 tectonic
 )
 {
-    return 0.45 * terrainOverlayColor(mode, elevation, slope, moisture, latitude, detail, tectonic);
+    return 0.45 * terrainOverlayColor(mode, elevation, slope, precipitation, temperature, detail, tectonic);
 }

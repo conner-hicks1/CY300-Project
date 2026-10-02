@@ -12,6 +12,7 @@ from ecs.components import (
     AtmosphereComponent,
     CameraComponent,
     CameraControllerComponent,
+    ClimateComponent,
     DirectionalLightComponent,
     HierarchyComponent,
     MeshRendererComponent,
@@ -644,6 +645,12 @@ COMPONENT_CODECS: tuple[ComponentCodec, ...] = (
         "Tectonics",
         TectonicsComponent,
         create_default=lambda _: TectonicsComponent()
+    ),
+
+    _dataclass_codec(
+        "Climate",
+        ClimateComponent,
+        create_default=lambda _: ClimateComponent()
     ),
 
     _dataclass_codec(

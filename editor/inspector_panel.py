@@ -6,6 +6,7 @@ from ecs.components import (
     AtmosphereComponent,
     CameraComponent,
     CameraControllerComponent,
+    ClimateComponent,
     DirectionalLightComponent,
     HierarchyComponent,
     MeshRendererComponent,
@@ -625,6 +626,18 @@ def _edit_tectonics(
     )
 
 
+def _edit_climate(
+    inspector: _Inspector,
+    component: ClimateComponent
+):
+
+    inspector.slider(component, "temperature_offset", "Temperature (C)", -25.0, 25.0, "%+.1f")
+    inspector.slider(component, "humidity", "Humidity", 0.1, 4.0, "%.2f", logarithmic=True)
+    inspector.slider(component, "axial_tilt", "Axial tilt", 0.0, 60.0, "%.1f")
+
+    imgui.text_disabled("Summary and views: Climate panel.")
+
+
 def _edit_directional_light(
     inspector: _Inspector,
     component: DirectionalLightComponent
@@ -690,6 +703,7 @@ _COMPONENT_EDITORS = {
     PlanetComponent: _edit_planet,
     AtmosphereComponent: _edit_atmosphere,
     TectonicsComponent: _edit_tectonics,
+    ClimateComponent: _edit_climate,
     DirectionalLightComponent: _edit_directional_light,
     PointLightComponent: _edit_point_light,
     SpotLightComponent: _edit_spot_light,

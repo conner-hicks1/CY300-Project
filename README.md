@@ -14,7 +14,7 @@ building and saving scenes.
 
 - Earth-sized cube-sphere planet: continents and ocean basins from the plate
   simulation (or seeded noise without it), ridged mountain ranges, hills,
-  snow lines and polar ice
+  and biomes, snow and sea ice from the climate model
 - Quadtree level of detail per cube face with horizon culling; chunks are built
   on worker threads and streamed in coarse-to-fine without holes or cracks
 - Planet-aware camera: radial "up", altitude-scaled flying speed, stays above
@@ -41,6 +41,24 @@ building and saving scenes.
   oceanic crust, converging / spreading boundaries
 - Deterministic: a saved scene stores the seed and simulated time and
   re-simulates to the same planet on load
+
+**Climate and biomes**
+
+![Natural colors, biomes, temperature and rainfall](docs/images/climate.png)
+
+- Annual-mean climate from the planet's geography (~0.3 s, recomputed in the
+  background whenever the land changes): sunlight by latitude for the axial
+  tilt, heat carried by the oceans, 6.5 C cooler per km of height
+- Earth's wind belts (trade winds, westerlies, polar easterlies) carry ocean
+  moisture inland; it rains where air rises (the equatorial belt, mountains
+  facing the wind) and stays dry where it sinks (the ~30 degree desert belts)
+  and in mountains' rain shadows
+- Biomes from temperature and rainfall (a Whittaker diagram): ice, tundra,
+  taiga, temperate forest, grassland, desert, savanna, tropical rainforest;
+  snow and tree lines follow temperature, so they fall with latitude and rise
+  with warmth
+- Climate panel: global temperature, humidity, axial tilt, biome shares;
+  temperature, rainfall and biome views
 
 **Atmosphere**
 
@@ -101,7 +119,7 @@ building and saving scenes.
   under a per-frame time budget
 - Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
   output routed to the log
-- 360 unit tests for everything that does not need a GPU
+- 380 unit tests for everything that does not need a GPU
 
 ## Getting Started
 
@@ -169,8 +187,8 @@ The planet streams in over the first few seconds.
 | `main.py`, `application.py` | Entry point, main loop, demo content |
 | `core/` | Window, input, events, timer, logging, profiler, job system |
 | `ecs/` | Entity registry and components |
-| `systems/` | Transform, camera controller, rotator, tectonics, planet streaming and render systems |
-| `planet/` | Noise, cube-sphere mapping and simulation grid, plate tectonics, terrain, chunk building, level of detail, solar time |
+| `systems/` | Transform, camera controller, rotator, tectonics, climate, planet streaming and render systems |
+| `planet/` | Noise, cube-sphere mapping and simulation grid, plate tectonics, climate, terrain, chunk building, level of detail, solar time |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, bloom |
 | `editor/` | Scene editor, hierarchy / inspector / planet panels, picking, undo history |
 | `scene/` | Scene container and scene file (de)serialization |

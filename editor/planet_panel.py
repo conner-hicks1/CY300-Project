@@ -10,6 +10,7 @@ from imgui_bundle import imgui
 from ecs.components import (
     AtmosphereComponent,
     CameraComponent,
+    ClimateComponent,
     CameraControllerComponent,
     DirectionalLightComponent,
     NameComponent,
@@ -430,6 +431,15 @@ class PlanetPanel:
 
         hour, declination, elevation = current
 
+        # The sun's latitude swings between +-tilt over the
+        # year (the climate's axial tilt, Earth's without).
+        climate = context.scene.try_get_component(context.planet, ClimateComponent)
+
+        tilt = max(
+            0.1,
+            climate.axial_tilt if climate is not None else solar.MAX_DECLINATION
+        )
+
         hours = int(hour)
         minutes = int((hour - hours) * 60.0)
 
@@ -451,8 +461,8 @@ class PlanetPanel:
         changed, new_declination = imgui.slider_float(
             "Season",
             math.degrees(declination),
-            -solar.MAX_DECLINATION,
-            solar.MAX_DECLINATION,
+            -tilt,
+            tilt,
             "sun %+.1f deg"
         )
 
