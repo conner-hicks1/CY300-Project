@@ -2,6 +2,7 @@
   "format": 1,
   "name": "Titan",
   "kind": "moon",
+  "seed": 132,
   "orbits": "Saturn",
   "description": "Saturn's hazy giant moon: a thick nitrogen atmosphere, methane rain, rivers, and lakes of liquid hydrocarbons.",
   "physical": {

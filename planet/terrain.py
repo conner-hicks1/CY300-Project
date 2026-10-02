@@ -3,6 +3,11 @@ from dataclasses import dataclass
 import numpy as np
 
 from planet.climate import fallback_surface
+from planet.craters import CraterSettings, Craters
+
+# Crust brightness of fresh ejecta and rays (1 = the
+# brightest highlands).
+RAY_BRIGHTNESS = 1.6
 from planet.noise import (
     Perlin,
     fbm,
@@ -48,6 +53,18 @@ class TerrainSettings:
     # Gas giants: cloud bands instead of a solid surface
     # (no relief). 0 = solid surface.
     bands: int = 0
+
+    # Impact craters (planet/craters.py): rate relative to
+    # the Moon's (0 = none), surface age where no tectonic
+    # field gives one (Myr), erosion time (Myr; 0 = never),
+    # smallest crater the air lets through and simple ->
+    # complex transition (m), bright rays.
+    crater_density: float = 0.0
+    surface_age: float = 4_000.0
+    crater_erosion: float = 0.0
+    crater_min_diameter: float = 0.0
+    crater_transition: float = 15_000.0
+    crater_rays: bool = False
 
     @property
     def min_elevation(
@@ -130,6 +147,23 @@ class Terrain:
         self.field = field
         self.climate = climate
 
+        self.craters = None
+
+        if settings.crater_density > 0.0 and not settings.bands:
+
+            self.craters = Craters(
+                CraterSettings(
+                    seed=settings.seed,
+                    density=settings.crater_density,
+                    surface_age=settings.surface_age,
+                    erosion_time=settings.crater_erosion,
+                    min_diameter=settings.crater_min_diameter,
+                    transition_diameter=settings.crater_transition,
+                    rays=settings.crater_rays
+                ),
+                settings.radius
+            )
+
         # The field's height range (culling bounds), and the
         # coastline roughening (plate worlds only: elsewhere
         # it would swamp low relief such as Europa's).
@@ -158,13 +192,16 @@ class Terrain:
     ) -> float:
         """Upper bound of the surface height (horizon culling)."""
 
+        rim = self.craters.max_rim if self.craters is not None else 0.0
+
         if self.field is None:
-            return self.settings.max_elevation
+            return self.settings.max_elevation + rim
 
         s = self.settings
 
         return (
-            max(self._field_max, 0.0)
+            rim
+            + max(self._field_max, 0.0)
             + _RIDGE_GAIN * s.mountain_height * _TECTONIC_RIDGE_SHARE
             + s.detail_height
             + self._coast_noise
@@ -178,10 +215,15 @@ class Terrain:
 
         s = self.settings
 
-        if self.field is None or s.has_liquid or s.bands:
+        if s.has_liquid or s.bands:
             return s.min_elevation
 
-        return min(self._field_min, 0.0) - s.detail_height - self._coast_noise - 200.0
+        depth = self.craters.max_depth if self.craters is not None else 0.0
+
+        if self.field is None:
+            return s.min_elevation - depth
+
+        return min(self._field_min, 0.0) - s.detail_height - self._coast_noise - 200.0 - depth
 
     def elevation(
         self,
@@ -292,7 +334,33 @@ class Terrain:
                 * (0.3 + 0.7 * land)
             )
 
+        # -------------------------------------------------
+        # Craters, as many as the surface is old
+        # -------------------------------------------------
+
+        if self.craters is not None:
+
+            elevation += self.craters.height(
+                directions,
+                spacing,
+                self.surface_age(directions)
+            )
+
         return elevation
+
+    def surface_age(
+        self,
+        directions: np.ndarray
+    ):
+        """
+        Surface age (Myr) per point: the tectonic field's
+        crust age, else the planet's.
+        """
+
+        if self.field is None:
+            return self.settings.surface_age
+
+        return self.field.sample("age", directions)
 
     def _tectonic_base(
         self,
@@ -317,11 +385,21 @@ class Terrain:
                 min(octaves(_TECTONIC_COAST_FREQUENCY), 6)
             ) * self._coast_noise
 
-        land = _smoothstep(-100.0, 200.0, elevation)
-
         # Peaks where crust was recently uplifted (young
         # belts); rugged foothills wherever land stands high.
         orogeny = field.sample("orogeny", directions)
+
+        if getattr(field, "regime", "plate_tectonics") != "plate_tectonics":
+
+            # Other regimes have no continents and no ranges
+            # beyond what they uplift themselves (Venus's
+            # tesserae, Io's blocks); craters roughen the
+            # rest.
+            land = np.ones_like(elevation)
+
+            return elevation, land, _smoothstep(200.0, 2_000.0, orogeny)
+
+        land = _smoothstep(-100.0, 200.0, elevation)
 
         mask = np.maximum(
             _smoothstep(200.0, 2_000.0, orogeny),
@@ -355,6 +433,17 @@ class Terrain:
         data[:, 1] = field.sample("age", directions) / getattr(field, "age_scale", 400.0)
         data[:, 2] = field.sample("continental", directions)
         data[:, 3] = field.sample("activity", directions)
+
+        # Young craters' bright ejecta and rays lighten the
+        # crust (the mineral palette colors by it), past the
+        # brightest highlands (fresh, unweathered rock).
+        if self.craters is not None and self.settings.crater_rays:
+
+            data[:, 2] = np.clip(
+                data[:, 2] + 0.6 * self.craters.brightness(directions, self.surface_age(directions)),
+                0.0,
+                RAY_BRIGHTNESS
+            )
 
         return data
 

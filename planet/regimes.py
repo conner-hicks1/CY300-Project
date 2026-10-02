@@ -331,7 +331,8 @@ class StagnantLid(RegimeSimulation):
 
             age = np.where(distance < radius * 1.2, np.minimum(age, rng.uniform(3_800.0, 4_100.0)), age)
 
-        orogeny = 900.0 * highland
+        # Highlands are rugged, but mostly from craters.
+        orogeny = 400.0 * highland
 
         # Volcanic provinces over mantle plumes (Tharsis):
         # broad rises, younger than the crust around them.
@@ -364,7 +365,9 @@ class StagnantLid(RegimeSimulation):
         age = age + (rng.uniform(3_200.0, 3_700.0) - age) * flooded
 
         state.height = self.diffuse(height, 0.25, 2)
-        state.continental = highland * (1.0 - flooded)
+
+        # Bright highlands, mid-toned lowlands, dark lava.
+        state.continental = (0.6 + 0.4 * highland) * (1.0 - flooded)
         state.age = age
         state.orogeny = orogeny * (1.0 - flooded)
         state.activity = activity * 0.5

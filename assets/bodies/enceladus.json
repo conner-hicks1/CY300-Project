@@ -2,6 +2,7 @@
   "format": 1,
   "name": "Enceladus",
   "kind": "moon",
+  "seed": 121,
   "orbits": "Saturn",
   "description": "Small, brilliant-white ice moon whose south-pole geysers feed Saturn's E ring.",
   "physical": {

@@ -2,6 +2,7 @@
   "format": 1,
   "name": "Pluto",
   "kind": "dwarf",
+  "seed": 176,
   "orbits": "Sun",
   "description": "Dwarf planet with a heart-shaped plain of nitrogen ice, reddish tholin highlands and water-ice mountains.",
   "physical": {

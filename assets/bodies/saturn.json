@@ -2,6 +2,7 @@
   "format": 1,
   "name": "Saturn",
   "kind": "gas_giant",
+  "seed": 110,
   "orbits": "Sun",
   "description": "Gas giant with the brightest ring system; less dense than water.",
   "physical": {

@@ -93,6 +93,25 @@ building and saving scenes.
 - Relief scales with gravity; the mineral palette colors each regime's crust
   (dark maria and lava, bright highlands and ice)
 
+**Impact craters**
+
+![Craters on the Moon: at the surface, at the terminator from orbit, and a map of the whole Moon (maria, saturated highlands, ray craters)](docs/images/craters.png)
+
+- Craters at every size from ~150 km down to tens of meters, evaluated per
+  vertex like noise (a seamless 3D lattice per size octave), so they appear
+  at any level of detail
+- A realistic size mix (N(>D) ~ D^-2) and a count that follows the surface's
+  age from its tectonic regime, by the lunar cratering chronology with its
+  heavy bombardment: saturated lunar highlands, sparser maria, nearly blank
+  Io and Europa
+- Simple bowls below a transition diameter that shrinks with gravity (Moon
+  ~15 km, Mars ~7 km), flat-floored complex craters with central peaks
+  above; raised rims, ejecta blankets, older craters worn shallower
+- Air burns up small impactors (Venus: nothing under ~3 km); rain and
+  methane weather erase old craters (Earth, Titan)
+- Young craters on airless bodies throw bright, lopsided ejecta rays
+- Each body has its own seed (its own basins, maria and craters)
+
 **Climate and biomes**
 
 ![Natural colors, biomes, temperature and rainfall](docs/images/climate.png)
@@ -185,7 +204,7 @@ building and saving scenes.
   under a per-frame time budget
 - Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
   output routed to the log
-- 464 unit tests for everything that does not need a GPU
+- 475 unit tests for everything that does not need a GPU
 
 ## Getting Started
 
@@ -254,7 +273,7 @@ The planet streams in over the first few seconds.
 | `core/` | Window, input, events, timer, logging, profiler, job system |
 | `ecs/` | Entity registry and components |
 | `systems/` | Transform, camera controller, rotator, tectonics, climate, planet streaming and render systems |
-| `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping and simulation grid, plate tectonics and other tectonic regimes, climate, terrain, chunk building, level of detail, solar time |
+| `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping and simulation grid, plate tectonics and other tectonic regimes, impact craters, climate, terrain, chunk building, level of detail, solar time |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, bloom |
 | `editor/` | Scene editor, hierarchy / inspector / planet panels, picking, undo history |
 | `scene/` | Scene container and scene file (de)serialization |

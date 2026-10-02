@@ -560,6 +560,20 @@ def _edit_planet(
     inspector.slider(component, "mountain_height", "Mountain height", 0.0, 20_000.0, "%.0f")
     inspector.slider(component, "detail_height", "Detail height", 0.0, 2_000.0, "%.0f")
 
+    imgui.separator_text("Craters")
+
+    inspector.slider(component, "crater_density", "Impact rate", 0.0, 4.0, "%.2f x Moon")
+    imgui.set_item_tooltip("0 = no craters. How many show also depends on the surface's age.")
+    inspector.slider(component, "surface_age", "Surface age (Myr)", 0.0, 4_500.0, "%.0f")
+    imgui.set_item_tooltip("Used where no tectonic simulation gives the crust's age.")
+    inspector.slider(component, "crater_erosion", "Erosion (Myr)", 0.0, 5_000.0, "%.0f")
+    imgui.set_item_tooltip("Craters older than about this are worn away (0 = never).")
+    inspector.slider(component, "crater_min_diameter", "Smallest (m)", 0.0, 5_000.0, "%.0f")
+    imgui.set_item_tooltip("The atmosphere burns up smaller impactors.")
+    inspector.slider(component, "crater_transition", "Complex above (m)", 500.0, 40_000.0, "%.0f")
+    imgui.set_item_tooltip("Larger craters have flat floors and central peaks.")
+    inspector.checkbox(component, "crater_rays", "Bright rays")
+
     imgui.separator_text("Level of detail")
 
     for field, label, low, high in (

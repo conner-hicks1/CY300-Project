@@ -2,6 +2,7 @@
   "format": 1,
   "name": "Jupiter",
   "kind": "gas_giant",
+  "seed": 55,
   "orbits": "Sun",
   "description": "Largest planet: a hydrogen-helium giant striped by jet streams, with the Great Red Spot storm.",
   "physical": {

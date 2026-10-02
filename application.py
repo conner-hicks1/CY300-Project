@@ -693,8 +693,6 @@ class Application:
 
         scene = self.scene
 
-        seed = scene.get_component(entity, PlanetComponent).seed
-
         for component_type in (
             PlanetComponent,
             BodyComponent,
@@ -706,7 +704,7 @@ class Application:
             if scene.has_component(entity, component_type):
                 scene.remove_component(entity, component_type)
 
-        parts = components_for(profile, seed=seed)
+        parts = components_for(profile)
 
         for component in parts.all():
             scene.add_component(entity, component)

@@ -2,6 +2,7 @@
   "format": 1,
   "name": "Ganymede",
   "kind": "moon",
+  "seed": 88,
   "orbits": "Jupiter",
   "description": "Largest moon in the solar system: dark ancient terrain cut by bright grooved ice.",
   "physical": {

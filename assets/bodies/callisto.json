@@ -2,6 +2,7 @@
   "format": 1,
   "name": "Callisto",
   "kind": "moon",
+  "seed": 99,
   "orbits": "Jupiter",
   "description": "The most heavily cratered surface known: dark, ancient and geologically dead.",
   "physical": {

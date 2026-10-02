@@ -2,6 +2,7 @@
   "format": 1,
   "name": "Moon",
   "kind": "moon",
+  "seed": 33,
   "orbits": "Earth",
   "description": "Earth's airless companion: bright cratered highlands and dark lava plains (maria).",
   "physical": {

@@ -2,6 +2,7 @@
   "format": 1,
   "name": "Neptune",
   "kind": "ice_giant",
+  "seed": 154,
   "orbits": "Sun",
   "description": "Outermost giant: deep blue methane atmosphere with the fastest winds in the solar system.",
   "physical": {

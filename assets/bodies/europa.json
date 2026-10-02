@@ -2,6 +2,7 @@
   "format": 1,
   "name": "Europa",
   "kind": "moon",
+  "seed": 77,
   "orbits": "Jupiter",
   "description": "Smooth water-ice shell over a hidden ocean, crisscrossed by reddish cracks (lineae).",
   "physical": {

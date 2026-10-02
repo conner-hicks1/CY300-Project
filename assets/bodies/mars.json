@@ -2,6 +2,7 @@
   "format": 1,
   "name": "Mars",
   "kind": "terrestrial",
+  "seed": 44,
   "orbits": "Sun",
   "description": "Cold desert world with a thin carbon dioxide atmosphere, rust-red dust, polar ice caps and the tallest volcano in the solar system.",
   "physical": {

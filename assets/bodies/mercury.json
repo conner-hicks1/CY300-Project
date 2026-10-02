@@ -2,6 +2,7 @@
   "format": 1,
   "name": "Mercury",
   "kind": "terrestrial",
+  "seed": 11,
   "orbits": "Sun",
   "description": "Smallest planet and closest to the Sun: airless, heavily cratered, scorching days and frigid nights.",
   "physical": {

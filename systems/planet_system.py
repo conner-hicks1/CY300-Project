@@ -921,7 +921,13 @@ def terrain_settings_for(
             component.liquid != "none"
             and not getattr(climate, "liquid_boiled", False)
         ),
-        bands=max(0, int(component.bands)) if component.palette == "bands" else 0
+        bands=max(0, int(component.bands)) if component.palette == "bands" else 0,
+        crater_density=max(0.0, float(component.crater_density)),
+        surface_age=float(component.surface_age),
+        crater_erosion=max(0.0, float(component.crater_erosion)),
+        crater_min_diameter=max(0.0, float(component.crater_min_diameter)),
+        crater_transition=max(100.0, float(component.crater_transition)),
+        crater_rays=bool(component.crater_rays)
     )
 
 

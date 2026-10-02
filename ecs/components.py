@@ -307,6 +307,21 @@ class PlanetComponent:
     # Number of cloud bands ("bands" palette).
     bands: int = 0
 
+    # Impact craters (planet/craters.py): impact rate
+    # relative to the Moon's (0 = none); how many show
+    # depends on the surface's age (the tectonic field's, or
+    # surface_age in Myr). Erosion (Myr, 0 = never) wears
+    # old ones away; air stops impactors smaller than
+    # crater_min_diameter (m); craters above
+    # crater_transition (m) get flat floors and central
+    # peaks; airless bodies keep bright rays.
+    crater_density: float = 1.0
+    surface_age: float = 4_000.0
+    crater_erosion: float = 300.0
+    crater_min_diameter: float = 100.0
+    crater_transition: float = 3_000.0
+    crater_rays: bool = False
+
 
 # =========================================================
 # Atmosphere

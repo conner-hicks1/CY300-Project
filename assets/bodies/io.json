@@ -2,6 +2,7 @@
   "format": 1,
   "name": "Io",
   "kind": "moon",
+  "seed": 66,
   "orbits": "Jupiter",
   "description": "Most volcanic body known: sulfur-yellow plains, lava lakes and towering non-volcanic mountains.",
   "physical": {

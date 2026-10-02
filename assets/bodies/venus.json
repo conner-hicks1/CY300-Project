@@ -2,6 +2,7 @@
   "format": 1,
   "name": "Venus",
   "kind": "terrestrial",
+  "seed": 22,
   "orbits": "Sun",
   "description": "Earth-sized but smothered in a 92-bar carbon dioxide atmosphere under sulfuric-acid clouds; hottest surface in the solar system.",
   "physical": {

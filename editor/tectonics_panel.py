@@ -310,7 +310,7 @@ class TectonicsPanel:
             imgui.text(
                 f"{status.continental_fraction * 100.0:.0f}% "
                 + {
-                    "stagnant_lid": "highland crust",
+                    "stagnant_lid": "crust not flooded by lava",
                     "episodic_resurfacing": "tesserae (survived resurfacing)",
                     "heat_pipe": "frosted plains (the rest: fresh lava)",
                     "ice_shell": "bright ice plains",

@@ -2,6 +2,7 @@
   "format": 1,
   "name": "Triton",
   "kind": "moon",
+  "seed": 165,
   "orbits": "Neptune",
   "description": "Neptune's captured moon: pinkish nitrogen ice, cantaloupe terrain and active geysers; orbits backwards.",
   "physical": {

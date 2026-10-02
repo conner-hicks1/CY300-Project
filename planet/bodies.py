@@ -239,6 +239,10 @@ class BodyProfile:
 
     rings: tuple[float, float] | None = None
 
+    # Seed of the body's terrain and tectonics (each body
+    # its own layout of basins and craters).
+    seed: int = 1
+
     # -----------------------------------------------------
     # Derived physics
     # -----------------------------------------------------
@@ -636,7 +640,8 @@ def parse_profile(
         humidity=number(climate, "humidity", 0.0),
         band_count=band_count,
         band_colors=band_colors,
-        rings=ring_extent
+        rings=ring_extent,
+        seed=int(number(data, "seed", 0.0, default=1))
     )
 
     if profile.bond_albedo >= 1.0:
@@ -719,8 +724,12 @@ VISIBLE_ATMOSPHERE_BAR = 1e-4
 
 def components_for(
     profile: BodyProfile,
-    seed: int = 1
+    seed: int | None = None
 ) -> BodyComponents:
+    """seed: None = the profile's own."""
+
+    if seed is None:
+        seed = profile.seed
 
     terrain = profile.terrain
 
@@ -751,6 +760,7 @@ def components_for(
         ice=profile.ice,
         frost_point=profile.frost_point_c,
         life=profile.life,
+        **crater_settings(profile),
         bands=profile.band_count if bands else 0
     )
 
@@ -816,6 +826,37 @@ def components_for(
         climate=climate,
         tectonics=tectonics
     )
+
+
+def crater_settings(
+    profile: BodyProfile
+) -> dict:
+    """
+    PlanetComponent crater fields from the body's physics:
+    - complex craters start at ~15 km on the Moon, scaling
+      with 1 / gravity (Mars ~7 km, Earth ~3 km)
+    - air burns up small impactors: ~100 m at 1 bar, ~3 km
+      under Venus's 92 bar (~P^0.75)
+    - liquid weather (Earth's rain, Titan's methane) erases
+      craters within a few hundred Myr
+    - bright rays survive only without air
+    """
+
+    if profile.palette == "bands" or not profile.has_solid_surface:
+        return {"crater_density": 0.0}
+
+    air = profile.atmosphere
+
+    pressure = air.surface_pressure_bar if air is not None else 0.0
+
+    return {
+        "crater_density": 1.0,
+        "surface_age": 4_000.0,
+        "crater_transition": 15_000.0 * 1.62 / max(profile.surface_gravity, 0.05),
+        "crater_min_diameter": 100.0 * pressure ** 0.75,
+        "crater_erosion": 300.0 if profile.liquid in ("water", "methane") else 0.0,
+        "crater_rays": pressure < VISIBLE_ATMOSPHERE_BAR,
+    }
 
 
 def relief_scale(

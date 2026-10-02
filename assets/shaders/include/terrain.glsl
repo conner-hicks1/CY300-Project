@@ -86,7 +86,9 @@ vec3 mineralLand(
         bright = mix(bright, crust, 0.75);
     }
 
-    vec3 land = mix(uColorLow, uColorHigh, bright);
+    // Past 1 (crater rays): brighter than the highlands.
+    vec3 land = mix(uColorLow, uColorHigh, min(bright, 1.0))
+        * (1.0 + 0.6 * max(bright - 1.0, 0.0));
 
     land = mix(land, uColorSteep, 1.0 - smoothstep(0.75, 0.9, slope));
 
@@ -98,7 +100,8 @@ vec3 mineralLand(
 }
 
 // crust: 0 dark .. 1 bright crust from a tectonic regime
-// (the tectonic data's "continental" channel), -1 without.
+// (the tectonic data's "continental" channel; up to 1.6
+// on fresh crater rays), -1 without.
 TerrainSurface terrainSurface(
     float elevation,
     float slope,

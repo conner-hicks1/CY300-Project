@@ -2,6 +2,7 @@
   "format": 1,
   "name": "Uranus",
   "kind": "ice_giant",
+  "seed": 143,
   "orbits": "Sun",
   "description": "Ice giant tipped on its side (98 degree tilt); methane gives it a pale cyan color.",
   "physical": {
