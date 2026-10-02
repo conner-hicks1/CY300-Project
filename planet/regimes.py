@@ -383,7 +383,10 @@ class StagnantLid(RegimeSimulation):
 
         vigor = math.exp(-state.time / self.COOLING_TIME)
 
-        state.activity *= math.exp(-dt / 400.0)
+        # Activity marks volcanic provinces (planet/volcanoes.py
+        # builds their volcanoes); extinct ones keep them, so
+        # it fades only slowly.
+        state.activity *= math.exp(-dt / 4_000.0)
 
         # Now and then a plume erupts: near the old volcanic
         # provinces while they last, anywhere otherwise.
@@ -547,7 +550,7 @@ class EpisodicResurfacing(RegimeSimulation):
 
         next_event = state.memory.get("next_resurfacing", 300.0) - dt
 
-        state.activity *= math.exp(-dt / 100.0)
+        state.activity *= math.exp(-dt / 1_000.0)
 
         if next_event <= 0.0:
 
@@ -571,7 +574,8 @@ class EpisodicResurfacing(RegimeSimulation):
             state.age = state.age * survives
             state.orogeny = state.orogeny * survives
             state.continental = state.continental * survives
-            state.activity = 3.0 * flooded
+            # Fresh plains dotted with small shield volcanoes.
+            state.activity = 0.4 * flooded
 
             next_event = float(rng.uniform(*self.INTERVAL))
 

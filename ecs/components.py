@@ -322,6 +322,13 @@ class PlanetComponent:
     crater_transition: float = 3_000.0
     crater_rays: bool = False
 
+    # Volcanoes (planet/volcanoes.py; need a tectonic
+    # simulation, which says where magma comes up): 0..1 how
+    # much the body builds them (large shields need >= 0.5),
+    # and the tallest its gravity allows (m).
+    volcanism: float = 1.0
+    volcano_max_height: float = 10_000.0
+
 
 # =========================================================
 # Atmosphere

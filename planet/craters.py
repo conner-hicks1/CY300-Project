@@ -61,7 +61,7 @@ _D_LOW = _D_HIGH * 0.5
 # cell holds a crater.
 _CELL_CHANCE = 2.0 * (_D_LOW ** -2 - _D_HIGH ** -2)
 
-_CORNERS = np.array(
+LATTICE_CORNERS = np.array(
     [[(c >> 0) & 1, (c >> 1) & 1, (c >> 2) & 1] for c in range(8)],
     dtype=np.int64
 )
@@ -264,55 +264,62 @@ class Craters:
 
         s = self.settings
 
-        n = len(points)
+        keys, cell_of, point = lattice_cells(points, cell)
 
-        # The 8 lattice cells around every point, all at once.
-        base = np.floor(points / cell - 0.5).astype(np.int64)
+        # Per candidate crater (each cell once).
+        h = lattice_hash(keys, s.seed * 1_000 + octave)
 
-        key = (base[:, None, :] + _CORNERS[None, :, :]).reshape(-1, 3)
+        roll = lattice_uniform(h, 0)
 
-        point = np.repeat(np.arange(n), 8)
+        center = (keys + np.stack([lattice_uniform(h, k) for k in (1, 2, 3)], axis=1)) * cell
 
-        h = _hash(key, s.seed * 1_000 + octave)
+        length = np.linalg.norm(center, axis=1)
+
+        # Only centers near the surface (so the 8 cells
+        # checked always contain every crater in reach).
+        near = np.abs(length - self.radius) < 0.25 * cell
+
+        pairs = np.nonzero(near[cell_of])[0]
+
+        if len(pairs) == 0:
+            return
+
+        cell_of, point = cell_of[pairs], point[pairs]
 
         # Fade in rather than cut where the age (and so the
         # chance) changes across a crater.
-        weight = np.clip((chance[point] - _uniform(h, 0)) / 0.03, 0.0, 1.0)
+        weight = np.clip((chance[point] - roll[cell_of]) / 0.03, 0.0, 1.0)
 
         live = np.nonzero(weight > 0.0)[0]
 
         if len(live) == 0:
             return
 
-        h = h[live]
-        point = point[live]
-        weight = weight[live]
+        cell_of, point, weight = cell_of[live], point[live], weight[live]
 
-        center = (key[live] + np.stack([_uniform(h, k) for k in (1, 2, 3)], axis=1)) * cell
-
-        length = np.linalg.norm(center, axis=1)
+        unit = center / length[:, None]
 
         # Power-law size within the octave.
-        diameter = _D_LOW * cell / np.sqrt(1.0 - 0.75 * _uniform(h, 4))
+        diameter = _D_LOW * cell / np.sqrt(1.0 - 0.75 * lattice_uniform(h, 4))
 
         x = np.linalg.norm(
-            directions[point] - center / length[:, None],
+            directions[point] - unit[cell_of],
             axis=1
-        ) * self.radius / (0.5 * diameter)
+        ) * self.radius / (0.5 * diameter[cell_of])
 
-        # Only centers near the surface (so the 8 cells
-        # checked always contain every crater in reach).
-        hit = (np.abs(length - self.radius) < 0.25 * cell) & (x < EJECTA)
+        hit = x < EJECTA
 
         if not np.any(hit):
             return
 
+        cell_of, point, weight, x = cell_of[hit], point[hit], weight[hit], x[hit]
+
         # Old craters are worn shallower.
-        fresh = 0.3 + 0.7 * np.sqrt(_uniform(h[hit], 5))
+        fresh = 0.3 + 0.7 * np.sqrt(lattice_uniform(h, 5))
 
-        profile = crater_profile(x[hit], diameter[hit], s.transition_diameter)
+        profile = crater_profile(x, diameter[cell_of], s.transition_diameter)
 
-        np.add.at(out, point[hit], profile * fresh * weight[hit])
+        np.add.at(out, point, profile * fresh[cell_of] * weight)
 
     # -----------------------------------------------------
     # Rays (brightness)
@@ -356,18 +363,18 @@ class Craters:
 
         for corner, slot in ((c, k) for c in range(8) for k in range(RAY_SLOTS)):
 
-            key = base + _CORNERS[corner]
+            key = base + LATTICE_CORNERS[corner]
 
-            h = _hash(key, s.seed * 7_919 + 99 + slot * 131)
+            h = lattice_hash(key, s.seed * 7_919 + 99 + slot * 131)
 
-            live = np.nonzero(_uniform(h, 0) < chance)[0]
+            live = np.nonzero(lattice_uniform(h, 0) < chance)[0]
 
             if len(live) == 0:
                 continue
 
             h = h[live]
 
-            center = (key[live] + np.stack([_uniform(h, k) for k in (1, 2, 3)], axis=1)) * cell
+            center = (key[live] + np.stack([lattice_uniform(h, k) for k in (1, 2, 3)], axis=1)) * cell
 
             length = np.linalg.norm(center, axis=1)
 
@@ -375,7 +382,7 @@ class Craters:
 
             c = center / length[:, None]
 
-            r = 0.5 * (RAY_DIAMETER[0] + (RAY_DIAMETER[1] - RAY_DIAMETER[0]) * _uniform(h, 4))
+            r = 0.5 * (RAY_DIAMETER[0] + (RAY_DIAMETER[1] - RAY_DIAMETER[0]) * lattice_uniform(h, 4))
 
             d = directions[live]
 
@@ -406,18 +413,18 @@ class Craters:
 
             for lobe in range(3):
 
-                k = np.floor(5.0 + 22.0 * _uniform(h, 5 + lobe))
-                phase = 6.283 * _uniform(h, 8 + lobe)
+                k = np.floor(5.0 + 22.0 * lattice_uniform(h, 5 + lobe))
+                phase = 6.283 * lattice_uniform(h, 8 + lobe)
 
                 lobes = (0.5 + 0.5 * np.cos(k * theta + phase)) ** (6 + 4 * lobe)
 
                 streaks = np.maximum(streaks, lobes * (1.0 - 0.25 * lobe))
 
-                reach += lobes * (0.3 + 0.7 * _uniform(h, 11 + lobe))
+                reach += lobes * (0.3 + 0.7 * lattice_uniform(h, 11 + lobe))
 
             # Some directions throw rays much farther.
             reach = RAY_REACH * np.clip(0.25 + reach, 0.25, 1.0) * (
-                0.6 + 0.4 * (0.5 + 0.5 * np.cos(np.floor(1.0 + 3.0 * _uniform(h, 14)) * theta + 6.283 * _uniform(h, 15)))
+                0.6 + 0.4 * (0.5 + 0.5 * np.cos(np.floor(1.0 + 3.0 * lattice_uniform(h, 14)) * theta + 6.283 * lattice_uniform(h, 15)))
             )
 
             rays = streaks * (1.0 - _smoothstep(0.3, 1.0, x / reach)) * _smoothstep(0.8, 1.2, x)
@@ -496,7 +503,39 @@ def _mix(
     return h ^ (h >> np.uint64(31))
 
 
-def _hash(
+def lattice_cells(
+    points: np.ndarray,
+    cell: float
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """
+    The 8 lattice cells (of this size) around every point,
+    each distinct cell once: (cells (m, 3), the cell index
+    of each point-cell pair (8n,), the point of each pair
+    (8n,)). Neighboring points share cells, so per-cell work
+    (hashing, placing the feature) runs m << 8n times.
+    """
+
+    n = len(points)
+
+    base = np.floor(points / cell - 0.5).astype(np.int64)
+
+    keys = (base[:, None, :] + LATTICE_CORNERS[None, :, :]).reshape(-1, 3)
+
+    # Pack each cell into one integer for a fast unique.
+    offset = np.int64(1 << 20)
+
+    packed = (
+        ((keys[:, 0] + offset) << np.int64(42))
+        | ((keys[:, 1] + offset) << np.int64(21))
+        | (keys[:, 2] + offset)
+    )
+
+    _, first, cell_of = np.unique(packed, return_index=True, return_inverse=True)
+
+    return keys[first], cell_of.reshape(-1), np.repeat(np.arange(n), 8)
+
+
+def lattice_hash(
     key: np.ndarray,
     salt: int
 ) -> np.ndarray:
@@ -513,7 +552,7 @@ def _hash(
         )
 
 
-def _uniform(
+def lattice_uniform(
     h: np.ndarray,
     stream: int
 ) -> np.ndarray:

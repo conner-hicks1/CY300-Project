@@ -4,6 +4,7 @@ import numpy as np
 
 from planet.climate import fallback_surface
 from planet.craters import CraterSettings, Craters
+from planet.volcanoes import VolcanoSettings, Volcanoes
 
 # Crust brightness of fresh ejecta and rays (1 = the
 # brightest highlands).
@@ -65,6 +66,12 @@ class TerrainSettings:
     crater_min_diameter: float = 0.0
     crater_transition: float = 15_000.0
     crater_rays: bool = False
+
+    # Volcanoes (planet/volcanoes.py, with a tectonic
+    # field): 0..1 how much the body builds them, and the
+    # tallest its gravity allows (m).
+    volcanism: float = 0.0
+    volcano_max_height: float = 10_000.0
 
     @property
     def min_elevation(
@@ -149,6 +156,23 @@ class Terrain:
 
         self.craters = None
 
+        self.volcanoes = None
+
+        if field is not None and settings.volcanism > 0.0 and not settings.bands:
+
+            volcanoes = Volcanoes(
+                VolcanoSettings(
+                    seed=settings.seed,
+                    volcanism=settings.volcanism,
+                    max_height=settings.volcano_max_height
+                ),
+                settings.radius,
+                field
+            )
+
+            if volcanoes.enabled:
+                self.volcanoes = volcanoes
+
         if settings.crater_density > 0.0 and not settings.bands:
 
             self.craters = Craters(
@@ -193,6 +217,9 @@ class Terrain:
         """Upper bound of the surface height (horizon culling)."""
 
         rim = self.craters.max_rim if self.craters is not None else 0.0
+
+        if self.volcanoes is not None:
+            rim += self.volcanoes.max_height
 
         if self.field is None:
             return self.settings.max_elevation + rim
@@ -333,6 +360,13 @@ class Terrain:
                 * s.detail_height
                 * (0.3 + 0.7 * land)
             )
+
+        # -------------------------------------------------
+        # Volcanoes where magma reaches the surface
+        # -------------------------------------------------
+
+        if self.volcanoes is not None:
+            elevation += self.volcanoes.height(directions, spacing)
 
         # -------------------------------------------------
         # Craters, as many as the surface is old

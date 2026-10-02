@@ -41,6 +41,7 @@ BODIES_DIRECTORY = Path("assets/bodies")
 
 from planet.phases import ICES, SUBSTANCES, frost_point
 from planet.regimes import DEFAULT_TIME_STEPS
+from planet.volcanoes import max_volcano_height
 
 GRAVITATIONAL_CONSTANT = 6.674e-11
 GAS_CONSTANT = 8.314                            # J / (mol K)
@@ -761,6 +762,7 @@ def components_for(
         frost_point=profile.frost_point_c,
         life=profile.life,
         **crater_settings(profile),
+        **volcano_settings(profile),
         bands=profile.band_count if bands else 0
     )
 
@@ -856,6 +858,40 @@ def crater_settings(
         "crater_min_diameter": 100.0 * pressure ** 0.75,
         "crater_erosion": 300.0 if profile.liquid in ("water", "methane") else 0.0,
         "crater_rays": pressure < VISIBLE_ATMOSPHERE_BAR,
+    }
+
+
+def volcano_settings(
+    profile: BodyProfile
+) -> dict:
+    """
+    PlanetComponent volcano fields from the body:
+    - the tallest volcano scales with 1 / gravity
+    - large shields need sustained mantle plumes: plate and
+      resurfacing worlds, heat-pipe Io (low shields only by
+      its activity), and rocky stagnant lids big enough to
+      stay hot (Mars, not the Moon or Mercury, which get
+      small domes)
+    - icy bodies: none (cryovolcanism is not modeled)
+    """
+
+    if profile.palette == "bands" or not profile.has_solid_surface:
+        return {"volcanism": 0.0}
+
+    density = profile.mass_kg / (4.0 / 3.0 * math.pi * profile.radius_m ** 3)
+
+    rocky = density > 3_000.0
+
+    if not rocky or profile.regime in ("ice_shell", "none"):
+        volcanism = 0.0
+    elif profile.regime == "stagnant_lid":
+        volcanism = 1.0 if profile.radius_km > 3_000.0 else 0.15
+    else:
+        volcanism = 1.0
+
+    return {
+        "volcanism": volcanism,
+        "volcano_max_height": max_volcano_height(profile.surface_gravity),
     }
 
 

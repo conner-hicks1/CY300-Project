@@ -574,6 +574,16 @@ def _edit_planet(
     imgui.set_item_tooltip("Larger craters have flat floors and central peaks.")
     inspector.checkbox(component, "crater_rays", "Bright rays")
 
+    imgui.separator_text("Volcanoes")
+
+    inspector.slider(component, "volcanism", "Volcanism", 0.0, 1.0, "%.2f")
+    imgui.set_item_tooltip(
+        "How much the body builds volcanoes where its tectonics bring magma up "
+        "(large shields need 0.5 or more). Needs a tectonic simulation."
+    )
+    inspector.slider(component, "volcano_max_height", "Tallest (m)", 1_000.0, 30_000.0, "%.0f")
+    imgui.set_item_tooltip("Gravity's limit: ~10 km on Earth, ~25 km on Mars.")
+
     imgui.separator_text("Level of detail")
 
     for field, label, low, high in (

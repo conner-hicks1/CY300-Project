@@ -112,6 +112,23 @@ building and saving scenes.
 - Young craters on airless bodies throw bright, lopsided ejecta rays
 - Each body has its own seed (its own basins, maria and craters)
 
+**Volcanoes**
+
+![Mars's tallest volcano from 850 km (basal cliff, frosted summit caldera) and its relief map](docs/images/volcanoes.png)
+
+- Built where the tectonic simulation brings magma up: shield volcanoes over
+  mantle plumes and hot spots (Olympus Mons, Mauna Loa, Maat Mons) with
+  summit calderas, radial lava-flow ridges and, on the giants, a basal
+  cliff; stratovolcano chains above subduction zones; fields of small
+  shields on volcanic plains (Venus)
+- Gravity sets the ceiling: the tallest scale with 1/g (Earth ~10 km, Venus
+  ~11 km, Mars ~26 km)
+- Only bodies that sustain plumes build large edifices (Earth, Venus, Mars,
+  Io's low shields); the Moon and Mercury get small domes, icy moons none
+- Evaluated per sample on the same seamless lattice as craters (each
+  volcano exists if the ground at its center is volcanic), so they appear
+  at every level of detail; summits are cold enough for snow and frost
+
 **Climate and biomes**
 
 ![Natural colors, biomes, temperature and rainfall](docs/images/climate.png)
@@ -204,7 +221,7 @@ building and saving scenes.
   under a per-frame time budget
 - Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
   output routed to the log
-- 475 unit tests for everything that does not need a GPU
+- 486 unit tests for everything that does not need a GPU
 
 ## Getting Started
 
@@ -273,7 +290,7 @@ The planet streams in over the first few seconds.
 | `core/` | Window, input, events, timer, logging, profiler, job system |
 | `ecs/` | Entity registry and components |
 | `systems/` | Transform, camera controller, rotator, tectonics, climate, planet streaming and render systems |
-| `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping and simulation grid, plate tectonics and other tectonic regimes, impact craters, climate, terrain, chunk building, level of detail, solar time |
+| `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping and simulation grid, plate tectonics and other tectonic regimes, impact craters, volcanoes, climate, terrain, chunk building, level of detail, solar time |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, bloom |
 | `editor/` | Scene editor, hierarchy / inspector / planet panels, picking, undo history |
 | `scene/` | Scene container and scene file (de)serialization |

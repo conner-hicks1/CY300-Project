@@ -927,7 +927,9 @@ def terrain_settings_for(
         crater_erosion=max(0.0, float(component.crater_erosion)),
         crater_min_diameter=max(0.0, float(component.crater_min_diameter)),
         crater_transition=max(100.0, float(component.crater_transition)),
-        crater_rays=bool(component.crater_rays)
+        crater_rays=bool(component.crater_rays),
+        volcanism=float(min(max(component.volcanism, 0.0), 1.0)),
+        volcano_max_height=max(100.0, float(component.volcano_max_height))
     )
 
 
