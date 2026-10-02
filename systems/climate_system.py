@@ -6,9 +6,10 @@ import numpy as np
 from core.jobs import Job, JobSystem
 from core.logger import Logger
 
-from ecs.components import ClimateComponent, PlanetComponent
+from ecs.components import BodyComponent, ClimateComponent, PlanetComponent
 from ecs.entity import Entity
 
+from planet.bodies import climate_physics
 from planet.climate import (
     ClimateField,
     ClimateModel,
@@ -114,13 +115,14 @@ class ClimateSystem:
         planet: PlanetComponent,
         component: ClimateComponent,
         field: ClimateField,
-        tectonic_field=None
+        tectonic_field=None,
+        body: BodyComponent | None = None
     ):
         """Start from a field computed elsewhere (the demo)."""
 
         run = _Run()
 
-        run.key = _key(planet, component, tectonic_field)
+        run.key = _key(planet, component, tectonic_field, body)
         run.field = field
         run.version = field.version
 
@@ -161,10 +163,12 @@ class ClimateSystem:
 
             tectonic_field = self._tectonic_field(entity)
 
-            key = _key(planet, component, tectonic_field)
+            body = scene.registry.try_get(entity, BodyComponent)
+
+            key = _key(planet, component, tectonic_field, body)
 
             if run.job is None and key != run.key:
-                self._start(run, key, planet, component, tectonic_field)
+                self._start(run, key, planet, component, tectonic_field, body)
 
         for entity in [e for e in self._runs if e not in seen]:
             self._stop(self._runs.pop(entity))
@@ -175,10 +179,11 @@ class ClimateSystem:
         key: tuple,
         planet: PlanetComponent,
         component: ClimateComponent,
-        tectonic_field
+        tectonic_field,
+        body: BodyComponent | None = None
     ):
 
-        settings = _climate_settings(component)
+        settings = _climate_settings(component, planet, body)
         terrain_settings = terrain_settings_for(planet)
 
         version = self._next_version
@@ -274,38 +279,72 @@ def compute_climate(
 
     state = model.compute(elevation)
 
-    field = ClimateField.from_state(grid, state, version, land=elevation > 0.0)
+    field = ClimateField.from_state(
+        grid,
+        state,
+        version,
+        land=elevation > 0.0,
+        lapse_rate=settings.lapse_rate
+    )
 
     return field, state.compute_seconds
 
 
 def _climate_settings(
-    component: ClimateComponent
+    component: ClimateComponent,
+    planet: PlanetComponent | None = None,
+    body: BodyComponent | None = None
 ) -> ClimateSettings:
+    """
+    Climate settings for a planet: the climate component's
+    tilt, offset and humidity, plus the body's physics
+    (sunlight, albedo, greenhouse, pressure, lapse rate);
+    Earth's physics without a body.
+    """
+
+    humidity = max(0.0, float(component.humidity))
+
+    physics = {}
+
+    if body is not None:
+
+        physics = climate_physics(
+            body,
+            planet.liquid if planet is not None else "water",
+            humidity
+        )
+
+    elif planet is not None and planet.liquid != "water":
+
+        physics = {"ocean": False}
 
     return ClimateSettings(
         axial_tilt=float(np.clip(component.axial_tilt, 0.0, 90.0)),
         temperature_offset=float(component.temperature_offset),
-        humidity=max(0.0, float(component.humidity)),
-        resolution=max(16, int(component.resolution))
+        humidity=humidity,
+        resolution=max(16, int(component.resolution)),
+        **physics
     )
 
 
 def climate_settings_for(
-    component: ClimateComponent
+    component: ClimateComponent,
+    planet: PlanetComponent | None = None,
+    body: BodyComponent | None = None
 ) -> ClimateSettings:
 
-    return _climate_settings(component)
+    return _climate_settings(component, planet, body)
 
 
 def _key(
     planet: PlanetComponent,
     component: ClimateComponent,
-    tectonic_field
+    tectonic_field,
+    body: BodyComponent | None = None
 ) -> tuple:
 
     return (
-        _climate_settings(component),
+        _climate_settings(component, planet, body),
         terrain_settings_for(planet),
         tectonic_field.version if tectonic_field is not None else None,
     )

@@ -15,17 +15,19 @@ layout(std140) uniform AtmosphereBlock
     vec4 uPlanetCenter;             // xyz relative to the camera (km), w 1 = present
     vec4 uAtmosphereRadii;          // x ground, y top radius (km), z Mie g, w ground albedo
     vec4 uRayleighScattering;       // rgb 1/km, w scale height (km)
-    vec4 uMieParams;                // x scattering, y absorption (1/km),
-                                    // z scale height (km), w sun angular radius
+    vec4 uMieScattering;            // rgb 1/km, w scale height (km)
+    vec4 uMieAbsorption;            // rgb 1/km, w sun angular radius (rad)
     vec4 uOzoneAbsorption;          // rgb 1/km, w center altitude (km)
     vec4 uOzoneParams;              // x half width (km), y raymarch steps,
-                                    // z 1 = haze over geometry
+                                    // z 1 = haze over geometry,
+                                    // w thick-atmosphere weight
     vec4 uAtmosphereSunDirection;   // xyz toward the sun, w 1 = present
     vec4 uSunIlluminance;           // rgb sun color * intensity, w disc brightness
 };
 
 uniform sampler2D uTransmittanceLut;
 uniform sampler2D uMultiScatteringLut;
+uniform sampler2D uDiffuseLut;
 
 const float ATMOSPHERE_PI = 3.14159265358979;
 
@@ -119,14 +121,14 @@ bool atmosphereSegment(
 void mediumAt(
     float altitude,
     out vec3 rayleighScattering,
-    out float mieScattering,
+    out vec3 mieScattering,
     out vec3 extinction
 )
 {
     altitude = max(altitude, 0.0);
 
     float rayleighDensity = exp(-altitude / uRayleighScattering.w);
-    float mieDensity = exp(-altitude / uMieParams.z);
+    float mieDensity = exp(-altitude / uMieScattering.w);
 
     // Ozone: a tent around its center altitude.
     float ozoneDensity = max(
@@ -135,11 +137,11 @@ void mediumAt(
     );
 
     rayleighScattering = uRayleighScattering.rgb * rayleighDensity;
-    mieScattering = uMieParams.x * mieDensity;
+    mieScattering = uMieScattering.rgb * mieDensity;
 
     extinction =
         rayleighScattering
-        + vec3((uMieParams.x + uMieParams.y) * mieDensity)
+        + (uMieScattering.rgb + uMieAbsorption.rgb) * mieDensity
         + uOzoneAbsorption.rgb * ozoneDensity;
 }
 
@@ -208,12 +210,47 @@ vec3 sunTransmittance(
     return texture(uTransmittanceLut, lutCoordinates(radius, sunCosZenith)).rgb;
 }
 
+// 0..1: how optically thick the atmosphere is (see
+// AtmosphereParameters.thick_weight).
+float thickAtmosphereWeight()
+{
+    return uOzoneParams.w;
+}
+
+// Diffuse daylight at this altitude under a thick
+// atmosphere: irradiance as a fraction of the sunlight at
+// the top (atmosphere_diffuse.frag.glsl).
+vec3 diffuseDaylight(
+    float radius,
+    float sunCosZenith
+)
+{
+    return texture(uDiffuseLut, lutCoordinates(radius, sunCosZenith)).rgb;
+}
+
+// Light scattered more than once, as radiance per unit sun
+// illuminance (multiplied by the scattering coefficient).
+// Thin air: Hillaire's LUT. Thick air: the isotropic
+// diffuse daylight field (radiance = irradiance / pi).
 vec3 multipleScattering(
     float radius,
     float sunCosZenith
 )
 {
-    return texture(uMultiScatteringLut, lutCoordinates(radius, sunCosZenith)).rgb;
+    vec3 hillaire = texture(uMultiScatteringLut, lutCoordinates(radius, sunCosZenith)).rgb;
+
+    float weight = thickAtmosphereWeight();
+
+    if (weight <= 0.0)
+    {
+        return hillaire;
+    }
+
+    return mix(
+        hillaire,
+        diffuseDaylight(radius, sunCosZenith) / ATMOSPHERE_PI,
+        weight
+    );
 }
 
 // Sunlight reaching a camera-relative world position (in
@@ -295,7 +332,7 @@ void marchSegment(
         float r = length(p);
 
         vec3 rayleighScattering;
-        float mieScattering;
+        vec3 mieScattering;
         vec3 extinction;
 
         mediumAt(r - groundRadius(), rayleighScattering, mieScattering, extinction);

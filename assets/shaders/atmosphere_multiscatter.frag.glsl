@@ -76,14 +76,14 @@ void main()
                 float r = length(p);
 
                 vec3 rayleighScattering;
-                float mieScattering;
+                vec3 mieScattering;
                 vec3 extinction;
 
                 mediumAt(r - groundRadius(), rayleighScattering, mieScattering, extinction);
 
                 vec3 sampleTransmittance = exp(-dt * extinction);
 
-                vec3 scattering = rayleighScattering + vec3(mieScattering);
+                vec3 scattering = rayleighScattering + mieScattering;
 
                 vec3 safeExtinction = max(extinction, vec3(1e-7));
 

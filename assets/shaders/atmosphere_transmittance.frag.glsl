@@ -49,7 +49,7 @@ void main()
         vec3 p = origin + (float(i) + 0.5) * dt * direction;
 
         vec3 rayleighScattering;
-        float mieScattering;
+        vec3 mieScattering;
         vec3 extinction;
 
         mediumAt(length(p) - groundRadius(), rayleighScattering, mieScattering, extinction);

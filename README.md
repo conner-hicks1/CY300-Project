@@ -31,8 +31,10 @@ building and saving scenes.
   size, mass, rotation, tilt, orbit, star, temperature, surface liquid and
   colors, terrain relief, atmosphere (pressure, gases, aerosols), geology
 - Physics derived from them: surface gravity, sunlight, equilibrium and
-  greenhouse temperature, atmospheric scale height (H = RT / Mg), light
-  scattering from pressure and gas mix, the sun's apparent size
+  greenhouse temperature, atmospheric scale height (H = RT / Mg), lapse rate
+  (g / cp, less in moist or thin air), light scattering from pressure and gas
+  mix, colored dust and haze, the star's color from its temperature, the
+  sun's apparent size and (compressed) brightness
 - File > New Planet builds any of them; Planet panel > Body shows its facts
   and turns the planet into another body (undoable)
 - Dry worlds keep their basins, methane seas (Titan), glowing lava lakes
@@ -65,9 +67,16 @@ building and saving scenes.
 
 ![Natural colors, biomes, temperature and rainfall](docs/images/climate.png)
 
-- Annual-mean climate from the planet's geography (~0.3 s, recomputed in the
-  background whenever the land changes): sunlight by latitude for the axial
-  tilt, heat carried by the oceans, 6.5 C cooler per km of height
+- Annual-mean climate from an energy balance (~0.5 s, recomputed in the
+  background whenever the land or the physics change): sunlight by latitude
+  for the star's flux, distance, orbit eccentricity and axial tilt; albedo;
+  a greenhouse (infrared optical depth); heat carried by the air (more in
+  thick air: Venus is nearly the same temperature everywhere, Mars's thin air
+  barely evens anything out) and the oceans; cooler with height by the
+  body's own lapse rate
+- Each body's greenhouse is calibrated so its global mean matches the
+  observed one (Venus 464 C, Earth 15 C, Mars -63 C, Titan -180 C); airless
+  bodies follow from sunlight alone
 - Earth's wind belts (trade winds, westerlies, polar easterlies) carry ocean
   moisture inland; it rains where air rises (the equatorial belt, mountains
   facing the wind) and stays dry where it sinks (the ~30 degree desert belts)
@@ -76,8 +85,11 @@ building and saving scenes.
   taiga, temperate forest, grassland, desert, savanna, tropical rainforest;
   snow and tree lines follow temperature, so they fall with latitude and rise
   with warmth
-- Climate panel: global temperature, humidity, axial tilt, biome shares;
-  temperature, rainfall and biome views
+- Climate panel: global temperature, humidity, axial tilt, and physical
+  what-ifs (move the body closer to its star, change its albedo, thicken its
+  greenhouse) with sunlight, equilibrium temperature and lapse rate shown;
+  planet-wide min / mean / max, biome shares; temperature, rainfall and biome
+  views
 
 **Atmosphere**
 
@@ -91,6 +103,11 @@ building and saving scenes.
   space, from the same model and Earth's physical constants (all editable)
 - Sunlight reaching every surface is filtered by the air above it: low sun
   turns orange, the night side goes dark
+- Colored aerosols (per-channel scattering and absorption): Mars's
+  butterscotch dust, Titan's orange haze
+- Optically thick atmospheres (Venus's clouds, Titan's haze) pass diffuse
+  daylight down to the ground (a two-stream estimate baked into a third lookup
+  table), so their surfaces are dimly lit instead of black
 - Ambient lighting and reflections baked from the atmosphere at the camera
 
 **Rendering**
@@ -138,7 +155,7 @@ building and saving scenes.
   under a per-frame time budget
 - Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
   output routed to the log
-- 400 unit tests for everything that does not need a GPU
+- 416 unit tests for everything that does not need a GPU
 
 ## Getting Started
 

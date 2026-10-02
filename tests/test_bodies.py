@@ -83,6 +83,12 @@ def minimal_profile(**overrides) -> dict:
     ("surface.liquid", "milk", "'liquid' must be one of"),
     ("surface.colors.low", [2.0, 0.0, 0.0], "three numbers in 0..1"),
     ("surface.palette", "bands", "needs a 'bands' section"),
+    ("atmosphere", {
+        "surface_pressure_bar": 0.01,
+        "composition": {"N2": 1.0},
+        "aerosols": {"scattering_per_Mm": 1, "absorption_per_Mm": 1, "scale_height_km": 1,
+                     "anisotropy": 0.5, "absorption_tint": [1, 2]}
+    }, "'absorption_tint' must be three numbers"),
 ])
 def test_validation(path, value, message):
 
@@ -177,6 +183,23 @@ def test_thick_and_hazy_atmospheres(presets):
     assert titan.mie_scattering > earth.mie_scattering
 
     assert components_for(presets["titan"]).planet.liquid == "methane"
+
+    # Colored aerosols: Mars's dust and Titan's haze absorb
+    # blue most.
+    for body in ("mars", "titan"):
+
+        tint = components_for(presets[body]).atmosphere.mie_absorption_tint
+
+        assert tint[2] > tint[1] > tint[0]
+
+    # Venus and Titan are thick enough for diffuse daylight.
+    for body, thick in (("earth", False), ("mars", False), ("venus", True), ("titan", True)):
+
+        parts = components_for(presets[body])
+
+        params = AtmosphereParameters.from_components(parts.planet.radius, parts.atmosphere)
+
+        assert (params.thick_weight > 0.5) == thick
 
 
 def test_gas_giant(presets):
@@ -277,7 +300,8 @@ def test_vacuum_atmosphere_is_empty():
     vacuum = AtmosphereParameters.vacuum(1_737_400.0)
 
     assert vacuum.rayleigh_scattering == (0.0, 0.0, 0.0)
-    assert vacuum.mie_scattering == 0.0
+    assert vacuum.mie_scattering == (0.0, 0.0, 0.0)
+    assert vacuum.thick_weight == 0.0
     assert vacuum.top_radius > vacuum.ground_radius
 
     assert vacuum.transmittance_to_sun(vacuum.ground_radius + 0.5, 0.5) == pytest.approx(np.ones(3))
@@ -290,3 +314,54 @@ def test_sun_size_from_distance(presets):
 
     assert ratio == pytest.approx(1.0 / 1.524, rel=1e-3)
     assert math.isfinite(presets["pluto"].sun_angular_radius_deg)
+
+
+# =========================================================
+# Climate Physics
+# =========================================================
+
+def test_lapse_rates(presets):
+
+    # Dry rate g / cp, less in moist air, much less in thin air.
+    assert presets["earth"].lapse_rate_k_per_km == pytest.approx(6.3, abs=0.5)
+    assert presets["venus"].lapse_rate_k_per_km == pytest.approx(8.0, abs=1.0)
+    assert presets["mars"].lapse_rate_k_per_km < 2.0
+    assert presets["moon"].lapse_rate_k_per_km == 0.0
+
+
+@pytest.mark.parametrize("body_id", ["venus", "earth", "mars", "titan"])
+def test_calibrated_climate_reproduces_the_mean(presets, body_id):
+
+    from systems.climate_system import climate_settings_for, compute_climate
+
+    parts = components_for(presets[body_id])
+
+    field, _ = compute_climate(
+        climate_settings_for(parts.climate, parts.planet, parts.body),
+        Terrain(terrain_settings_for(parts.planet))
+    )
+
+    assert field.global_mean_temperature == pytest.approx(presets[body_id].mean_temperature_c, abs=3.0)
+
+
+def test_greenhouse_depths(presets):
+
+    assert components_for(presets["venus"]).body.greenhouse_depth > 50.0
+    assert 0.5 < components_for(presets["earth"]).body.greenhouse_depth < 2.0
+    assert components_for(presets["moon"]).body.greenhouse_depth == 0.0
+
+
+def test_star_light():
+
+    from planet.bodies import star_color, sun_intensity
+
+    sun = star_color(5772.0)
+    red_dwarf = star_color(3200.0)
+
+    assert max(sun) == pytest.approx(1.0) and min(sun) > 0.7
+    assert red_dwarf[2] < 0.4 * red_dwarf[0]
+
+    # Compressed: dimmer far out, brighter close in, bounded.
+    assert sun_intensity(1.0) == pytest.approx(5.0)
+    assert sun_intensity(0.01) < sun_intensity(1.0) < sun_intensity(6.7)
+    assert sun_intensity(1e-6) >= 1.0

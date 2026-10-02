@@ -117,7 +117,7 @@ void main()
     {
         float cosAngle = dot(direction, uAtmosphereSunDirection.xyz);
 
-        float radius = uMieParams.w;
+        float radius = uMieAbsorption.w;
 
         // cos(x) ~ 1 - x^2/2: GPU cos() is too coarse at
         // a quarter of a degree (it returns ~1.0).

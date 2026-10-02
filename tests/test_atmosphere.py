@@ -156,23 +156,60 @@ def test_block_layout(earth):
 
     assert len(raw) == ATMOSPHERE_BLOCK.size
 
-    v = np.frombuffer(raw, dtype=np.float32).reshape(8, 4)
+    v = np.frombuffer(raw, dtype=np.float32).reshape(9, 4)
 
     np.testing.assert_allclose(v[0], (0.0, -6372.0, 0.0, 1.0))
     np.testing.assert_allclose(v[1], (6371.0, 6471.0, 0.8, 0.3), rtol=1e-6)
     np.testing.assert_allclose(v[2, :3], earth.rayleigh_scattering, rtol=1e-6)
-    assert v[3, 3] == pytest.approx(math.radians(SUN_ANGULAR_RADIUS))
-    assert v[5, 1] == 32.0
-    np.testing.assert_allclose(v[6], (0.0, 1.0, 0.0, 1.0))
-    np.testing.assert_allclose(v[7], (5.0, 4.0, 3.0, SUN_DISC_BRIGHTNESS))
+    np.testing.assert_allclose(v[3], (*earth.mie_scattering, 1.2), rtol=1e-6)
+    np.testing.assert_allclose(v[4, :3], earth.mie_absorption, rtol=1e-6)
+    assert v[4, 3] == pytest.approx(math.radians(SUN_ANGULAR_RADIUS))
+    assert v[6, 1] == 32.0
+    assert v[6, 3] == 0.0                   # Earth's air is thin
+    np.testing.assert_allclose(v[7], (0.0, 1.0, 0.0, 1.0))
+    np.testing.assert_allclose(v[8], (5.0, 4.0, 3.0, SUN_DISC_BRIGHTNESS))
 
 
 def test_block_without_sun(earth):
 
-    v = np.frombuffer(pack_atmosphere_block(earth), dtype=np.float32).reshape(8, 4)
+    v = np.frombuffer(pack_atmosphere_block(earth), dtype=np.float32).reshape(9, 4)
 
     assert v[0, 3] == 1.0
-    assert v[6, 3] == 0.0
+    assert v[7, 3] == 0.0
+
+
+def test_colored_aerosols():
+
+    dust = AtmosphereComponent(
+        mie_scattering=30.0,
+        mie_absorption=10.0,
+        mie_absorption_tint=(0.3, 0.8, 1.6)
+    )
+
+    p = AtmosphereParameters.from_components(RADIUS, dust)
+
+    assert p.mie_scattering == pytest.approx((0.03, 0.03, 0.03))
+    assert p.mie_absorption == pytest.approx((0.003, 0.008, 0.016))
+
+    # Blue dims fastest through the dust: reddened sunlight.
+    sun = p.transmittance_to_sun(RADIUS / 1000.0 + 0.01, 1.0)
+
+    assert sun[0] > sun[1] > sun[2]
+
+
+def test_thick_weight():
+
+    earth = AtmosphereParameters.from_components(RADIUS, AtmosphereComponent())
+
+    assert earth.thick_weight == 0.0
+
+    cloudy = AtmosphereParameters.from_components(
+        RADIUS,
+        AtmosphereComponent(mie_scattering=400.0, mie_scale_height=15_000.0)
+    )
+
+    assert cloudy.vertical_scattering_depth > 6.0
+    assert cloudy.thick_weight == 1.0
 
 
 # =========================================================

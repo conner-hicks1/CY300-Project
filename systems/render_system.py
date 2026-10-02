@@ -184,6 +184,7 @@ class RenderSystem:
             "atmosphere": self._load_engine_shader("atmosphere", "fullscreen"),
             "atmosphere_transmittance": self._load_engine_shader("atmosphere_transmittance", "fullscreen"),
             "atmosphere_multiscatter": self._load_engine_shader("atmosphere_multiscatter", "fullscreen"),
+            "atmosphere_diffuse": self._load_engine_shader("atmosphere_diffuse", "fullscreen"),
         }
 
         # -------------------------------------------------
@@ -969,17 +970,19 @@ class RenderSystem:
 
         shader.bind()
 
-        for name, (texture_id, _) in self._atmosphere_luts.textures().items():
+        luts = self._atmosphere_luts.textures()
 
-            unit = 0 if name == "uTransmittanceLut" else 1
+        for unit, (name, (texture_id, _)) in enumerate(luts.items()):
 
             RenderCommand.bind_texture(texture_id, unit)
 
             shader.set_int(name, unit)
 
-        RenderCommand.bind_texture(hdr.depth_texture_id, 2)
+        depth_unit = len(luts)
 
-        shader.set_int("uSceneDepth", 2)
+        RenderCommand.bind_texture(hdr.depth_texture_id, depth_unit)
+
+        shader.set_int("uSceneDepth", depth_unit)
 
         self._fullscreen_state(True)
 

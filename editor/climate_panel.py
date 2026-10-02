@@ -3,13 +3,15 @@ from typing import TYPE_CHECKING
 from imgui_bundle import imgui
 
 from ecs.components import (
+    BodyComponent,
     ClimateComponent,
     PlanetComponent,
     TransformComponent
 )
 from ecs.entity import Entity
 
-from planet.climate import BIOMES
+from planet.bodies import climate_physics
+from planet.climate import BIOMES, KELVIN, STEFAN_BOLTZMANN
 
 from systems.climate_system import ClimateSystem
 from systems.planet_system import TERRAIN_VIEWS, PlanetSystem
@@ -157,6 +159,8 @@ class ClimatePanel:
             "High tilt: the year's sunlight evens out."
         )
 
+        self._draw_physics(planet, component)
+
         # -------------------------------------------------
         # Views
         # -------------------------------------------------
@@ -192,6 +196,13 @@ class ClimatePanel:
         field = status.field
 
         if field is not None:
+
+            imgui.separator_text("Whole planet")
+
+            imgui.text(
+                f"Mean {field.global_mean_temperature:+.1f} C   "
+                f"range {field.min_temperature:+.0f} .. {field.max_temperature:+.0f} C"
+            )
 
             imgui.separator_text("Land")
 
@@ -235,6 +246,80 @@ class ClimatePanel:
             scene.remove_component(planet, ClimateComponent)
 
             editor.record("Disable climate")
+
+    # -----------------------------------------------------
+    # Physics
+    # -----------------------------------------------------
+
+    def _draw_physics(
+        self,
+        planet: Entity,
+        component: ClimateComponent
+    ):
+        """
+        What-if controls on the body itself: move it closer
+        to or farther from its star, brighten or darken it,
+        thicken or thin its greenhouse. The climate follows
+        from the energy balance.
+        """
+
+        scene = self._editor.scene
+
+        imgui.separator_text("Physics")
+
+        body = scene.try_get_component(planet, BodyComponent)
+
+        if body is None:
+
+            imgui.text_disabled("Earth's sunlight and air (no body profile).")
+
+            return
+
+        self._slider(
+            body, "orbit_distance_au", "Star distance", 0.1, 50.0, "%.3f AU",
+            "Distance from the star. Sunlight falls with its square.",
+            logarithmic=True
+        )
+
+        self._slider(
+            body, "bond_albedo", "Albedo", 0.0, 0.95, "%.3f",
+            "Fraction of sunlight reflected back to space "
+            "(clouds, ice, bright ground). Earth 0.31, Venus 0.76."
+        )
+
+        self._slider(
+            body, "greenhouse_depth", "Greenhouse", 0.0, 300.0, "%.2f",
+            "Infrared optical depth of the air: how well it "
+            "traps heat. Earth ~1, Venus ~150, airless 0.",
+            logarithmic=True
+        )
+
+        planet_component = scene.try_get_component(planet, PlanetComponent)
+
+        physics = climate_physics(
+            body,
+            planet_component.liquid if planet_component is not None else "water",
+            component.humidity
+        )
+
+        absorbed = physics["stellar_flux"] / 4.0 * (1.0 - physics["bond_albedo"])
+
+        equilibrium = (max(absorbed, 0.0) / STEFAN_BOLTZMANN) ** 0.25 - KELVIN
+
+        greenhouse = (1.0 + 0.75 * physics["greenhouse_depth"]) ** 0.25
+
+        imgui.text(f"Sunlight      {physics['stellar_flux']:,.0f} W/m^2")
+        imgui.set_item_tooltip("Starlight arriving at the body (Earth 1361).")
+
+        imgui.text(f"Equilibrium   {equilibrium:+.0f} C  (no greenhouse)")
+
+        imgui.text(
+            f"With greenhouse  {(equilibrium + KELVIN) * greenhouse - KELVIN:+.0f} C"
+        )
+        imgui.set_item_tooltip("Uniform-planet estimate; the map adds latitude and transport.")
+
+        imgui.text(f"Lapse rate    {physics['lapse_rate'] * 1000.0:.1f} C per km")
+        imgui.set_item_tooltip("From gravity and the air's heat capacity (g / cp), less in moist or thin air.")
 
     # -----------------------------------------------------
     # Widgets

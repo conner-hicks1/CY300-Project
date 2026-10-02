@@ -55,7 +55,14 @@ from math3d import quaternion
 from math3d.transform import Transform
 
 from planet import solar
-from planet.bodies import ProfileError, components_for, load_presets, preset_groups
+from planet.bodies import (
+    ProfileError,
+    components_for,
+    load_presets,
+    preset_groups,
+    star_color,
+    sun_intensity
+)
 from planet.spawn import find_spawn
 from planet.tectonics import TectonicField, TectonicSimulation
 from planet.terrain import Terrain
@@ -932,7 +939,7 @@ class Application:
         if parts.climate is not None:
 
             climate_field, _ = compute_climate(
-                climate_settings_for(parts.climate),
+                climate_settings_for(parts.climate, planet, parts.body),
                 Terrain(terrain_settings, tectonic_field)
             )
 
@@ -1055,9 +1062,12 @@ class Application:
             Transform(
                 orientation=sun_orientation(sun_world)
             ),
+            # The star's color from its temperature; intensity
+            # compressed from the real range (see
+            # planet/bodies.py sun_intensity).
             DirectionalLightComponent(
-                color=(1.0, 0.96, 0.9),
-                intensity=5.0
+                color=star_color(profile.star_temperature_k),
+                intensity=sun_intensity(profile.sunlight)
             )
         )
 
@@ -1084,7 +1094,8 @@ class Application:
                 planet,
                 parts.climate,
                 climate_field,
-                self.tectonics_system.field(planet_entity)
+                self.tectonics_system.field(planet_entity),
+                parts.body
             )
 
     # =====================================================

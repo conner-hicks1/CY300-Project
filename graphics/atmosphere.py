@@ -32,6 +32,11 @@ from graphics.uniform_blocks import ATMOSPHERE_BLOCK
 #   multi-scattering    32 x 32: light scattered more than
 #                       once, folded into one isotropic
 #                       term per (altitude, sun angle)
+#   diffuse             32 x 32: daylight that filters down
+#                       through an optically thick
+#                       atmosphere (Venus's clouds, Titan's
+#                       haze), where the multiple-scattering
+#                       approximation breaks down
 #
 # Both depend only on the atmosphere's parameters, so they
 # are rebuilt only when those change. The sky and aerial
@@ -63,8 +68,8 @@ class AtmosphereParameters:
     rayleigh_scattering: tuple[float, float, float]
     rayleigh_scale_height: float
 
-    mie_scattering: float
-    mie_absorption: float
+    mie_scattering: tuple[float, float, float]
+    mie_absorption: tuple[float, float, float]
     mie_scale_height: float
     mie_anisotropy: float
 
@@ -91,8 +96,8 @@ class AtmosphereParameters:
             top_radius=ground + 1.0,
             rayleigh_scattering=(0.0, 0.0, 0.0),
             rayleigh_scale_height=1.0,
-            mie_scattering=0.0,
-            mie_absorption=0.0,
+            mie_scattering=(0.0, 0.0, 0.0),
+            mie_absorption=(0.0, 0.0, 0.0),
             mie_scale_height=1.0,
             mie_anisotropy=0.0,
             ozone_absorption=(0.0, 0.0, 0.0),
@@ -122,8 +127,8 @@ class AtmosphereParameters:
                 for v in component.rayleigh_scattering
             ),
             rayleigh_scale_height=max(component.rayleigh_scale_height, 1.0) / 1000.0,
-            mie_scattering=max(component.mie_scattering, 0.0) * per_mm_to_per_km,
-            mie_absorption=max(component.mie_absorption, 0.0) * per_mm_to_per_km,
+            mie_scattering=_tinted(component.mie_scattering, component.mie_scattering_tint),
+            mie_absorption=_tinted(component.mie_absorption, component.mie_absorption_tint),
             mie_scale_height=max(component.mie_scale_height, 1.0) / 1000.0,
             mie_anisotropy=float(np.clip(component.mie_anisotropy, -0.99, 0.99)),
             ozone_absorption=tuple(
@@ -140,6 +145,34 @@ class AtmosphereParameters:
     # editor). Mirrors include/atmosphere.glsl.
     # -----------------------------------------------------
 
+    @property
+    def vertical_scattering_depth(
+        self
+    ) -> float:
+        """
+        Scattering optical depth (green) straight up from the
+        ground: Earth ~0.1, Mars ~0.3, Titan and Venus many.
+        """
+
+        return (
+            self.rayleigh_scattering[1] * self.rayleigh_scale_height
+            + self.mie_scattering[1] * self.mie_scale_height
+        )
+
+    @property
+    def thick_weight(
+        self
+    ) -> float:
+        """
+        0..1: how much of the sky's multiple scattering comes
+        from the thick-atmosphere diffuse model instead of
+        Hillaire's (exact for Earth-like air, too dark where
+        sunlight scatters many times before reaching the
+        ground).
+        """
+
+        return _smoothstep(1.5, 6.0, self.vertical_scattering_depth)
+
     def extinction(
         self,
         altitude_km
@@ -150,7 +183,9 @@ class AtmosphereParameters:
 
         rayleigh = np.exp(-altitude / self.rayleigh_scale_height) * self.rayleigh_scattering
 
-        mie = np.exp(-altitude / self.mie_scale_height) * (self.mie_scattering + self.mie_absorption)
+        mie = np.exp(-altitude / self.mie_scale_height) * (
+            np.asarray(self.mie_scattering) + np.asarray(self.mie_absorption)
+        )
 
         ozone = (
             np.maximum(0.0, 1.0 - np.abs(altitude - self.ozone_altitude) / self.ozone_half_width)
@@ -189,6 +224,29 @@ class AtmosphereParameters:
         return np.exp(-optical_depth)
 
 
+def _tinted(
+    value: float,
+    tint
+) -> tuple[float, float, float]:
+    """Coefficient (1/Mm) times a per-channel tint, in 1/km."""
+
+    return tuple(
+        max(float(value), 0.0) * max(float(t), 0.0) * 1e-3
+        for t in tint
+    )
+
+
+def _smoothstep(
+    edge0: float,
+    edge1: float,
+    x: float
+) -> float:
+
+    t = min(max((x - edge0) / (edge1 - edge0), 0.0), 1.0)
+
+    return t * t * (3.0 - 2.0 * t)
+
+
 def _ray_sphere(
     origin: np.ndarray,
     direction: np.ndarray,
@@ -221,11 +279,12 @@ def _ray_sphere(
 #     vec4 uAtmosphereRadii;         x ground radius, y top radius (km),
 #                                    z Mie anisotropy g, w ground albedo
 #     vec4 uRayleighScattering;      rgb 1/km, w scale height (km)
-#     vec4 uMieParams;               x scattering, y absorption (1/km),
-#                                    z scale height (km), w sun angular radius (rad)
+#     vec4 uMieScattering;           rgb 1/km, w scale height (km)
+#     vec4 uMieAbsorption;           rgb 1/km, w sun angular radius (rad)
 #     vec4 uOzoneAbsorption;         rgb 1/km, w center altitude (km)
 #     vec4 uOzoneParams;             x half width (km), y raymarch steps,
-#                                    z 1 = haze over geometry (aerial perspective)
+#                                    z 1 = haze over geometry (aerial perspective),
+#                                    w thick-atmosphere weight (diffuse LUT)
 #     vec4 uAtmosphereSunDirection;  xyz toward the sun, w 1 = sun present
 #     vec4 uSunIlluminance;          rgb sun color * intensity, w disc brightness
 
@@ -261,28 +320,28 @@ def pack_atmosphere_block(
     data[8:11] = p.rayleigh_scattering
     data[11] = p.rayleigh_scale_height
 
-    data[12:16] = (
-        p.mie_scattering,
-        p.mie_absorption,
-        p.mie_scale_height,
-        math.radians(sun_angular_radius)
-    )
+    data[12:15] = p.mie_scattering
+    data[15] = p.mie_scale_height
 
-    data[16:19] = p.ozone_absorption
-    data[19] = p.ozone_altitude
+    data[16:19] = p.mie_absorption
+    data[19] = math.radians(sun_angular_radius)
 
-    data[20] = p.ozone_half_width
-    data[21] = float(steps)
-    data[22] = 1.0 if aerial_perspective else 0.0
+    data[20:23] = p.ozone_absorption
+    data[23] = p.ozone_altitude
+
+    data[24] = p.ozone_half_width
+    data[25] = float(steps)
+    data[26] = 1.0 if aerial_perspective else 0.0
+    data[27] = p.thick_weight
 
     if sun_direction is not None:
 
-        data[24:27] = sun_direction
-        data[27] = 1.0
+        data[28:31] = sun_direction
+        data[31] = 1.0
 
-        data[28:31] = sun_illuminance
+        data[32:35] = sun_illuminance
 
-    data[31] = SUN_DISC_BRIGHTNESS
+    data[35] = SUN_DISC_BRIGHTNESS
 
     return data.tobytes()
 
@@ -295,6 +354,7 @@ class AtmosphereLuts:
 
     TRANSMITTANCE_SIZE = (256, 64)
     MULTI_SCATTERING_SIZE = (32, 32)
+    DIFFUSE_SIZE = (32, 32)
 
     def __init__(
         self,
@@ -302,8 +362,8 @@ class AtmosphereLuts:
         get_shader
     ):
         """
-        get_shader(name) -> Shader for
-        "atmosphere_transmittance" / "atmosphere_multiscatter".
+        get_shader(name) -> Shader for "atmosphere_transmittance",
+        "atmosphere_multiscatter" and "atmosphere_diffuse".
         The atmosphere block must be uploaded before update().
         """
 
@@ -321,6 +381,14 @@ class AtmosphereLuts:
         self._multi_scattering = Framebuffer(
             FramebufferSpec(
                 *self.MULTI_SCATTERING_SIZE,
+                color_format=ColorFormat.RGBA16F,
+                depth_mode=DepthMode.NONE
+            )
+        )
+
+        self._diffuse = Framebuffer(
+            FramebufferSpec(
+                *self.DIFFUSE_SIZE,
                 color_format=ColorFormat.RGBA16F,
                 depth_mode=DepthMode.NONE
             )
@@ -360,6 +428,10 @@ class AtmosphereLuts:
 
         self._renderer.draw_fullscreen(shader)
 
+        self._diffuse.bind()
+
+        self._renderer.draw_fullscreen(self._get_shader("atmosphere_diffuse"))
+
         self._baked = parameters
 
         self.bake_count += 1
@@ -375,12 +447,14 @@ class AtmosphereLuts:
         return {
             "uTransmittanceLut": (self._transmittance.color_texture_id, GL_TEXTURE_2D),
             "uMultiScatteringLut": (self._multi_scattering.color_texture_id, GL_TEXTURE_2D),
+            "uDiffuseLut": (self._diffuse.color_texture_id, GL_TEXTURE_2D),
         }
 
     def delete(self):
 
         self._transmittance.delete()
         self._multi_scattering.delete()
+        self._diffuse.delete()
 
 
 # =========================================================

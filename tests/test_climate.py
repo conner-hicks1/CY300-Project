@@ -281,3 +281,73 @@ def test_system_computes_and_follows_settings():
 
         system.shutdown()
         jobs.shutdown(wait=True)
+
+
+# =========================================================
+# Energy Balance
+# =========================================================
+
+def mean_sea_temperature(**physics) -> float:
+
+    model = ClimateModel(ClimateSettings(resolution=16, **physics))
+
+    return float(model.sea_level_temperatures(np.full(model.grid.cell_count, -1000.0)).mean())
+
+
+def test_greenhouse_warms_and_distance_cools():
+
+    earth = mean_sea_temperature()
+
+    assert mean_sea_temperature(greenhouse_depth=5.0) > earth + 30.0
+    assert mean_sea_temperature(stellar_flux=1361.0 / 1.524 ** 2) < earth - 30.0
+    assert mean_sea_temperature(bond_albedo=0.6) < earth - 30.0
+
+
+def test_airless_world_is_in_local_radiative_equilibrium():
+
+    model = ClimateModel(ClimateSettings(
+        resolution=16,
+        surface_pressure=0.0,
+        greenhouse_depth=0.0,
+        ocean=False,
+        eccentricity=0.0
+    ))
+
+    temperature = model.sea_level_temperatures(np.full(model.grid.cell_count, 100.0))
+
+    sunlight = 1361.0 / 4.0 * annual_sunlight(model.grid.directions[:, 1], 23.44) * (1.0 - 0.306)
+
+    expected = (sunlight / 5.670374e-8) ** 0.25 - 273.15
+
+    np.testing.assert_allclose(temperature, expected, atol=0.01)
+
+
+def test_thick_air_evens_out_temperatures():
+
+    def spread(pressure):
+
+        model = ClimateModel(ClimateSettings(resolution=16, surface_pressure=pressure, ocean=False))
+
+        temperature = model.sea_level_temperatures(np.full(model.grid.cell_count, 100.0))
+
+        return temperature.max() - temperature.min()
+
+    assert spread(90.0) < 0.5 * spread(1.0) < 0.5 * spread(0.0)
+
+
+def test_field_uses_the_planets_lapse_rate():
+
+    model = ClimateModel(ClimateSettings(resolution=16, lapse_rate=1.0e-3))
+
+    elevation = np.full(model.grid.cell_count, 2000.0)
+
+    state = model.compute(elevation)
+
+    field = ClimateField.from_state(model.grid, state, 1, lapse_rate=1.0e-3)
+
+    directions = np.array([[0.0, 1.0, 0.0]])
+
+    at_sea, _ = field.surface(directions, np.array([0.0]))
+    high, _ = field.surface(directions, np.array([3000.0]))
+
+    assert at_sea[0] - high[0] == pytest.approx(3.0, abs=0.01)

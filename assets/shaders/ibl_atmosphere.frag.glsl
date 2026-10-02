@@ -76,6 +76,12 @@ void main()
                 * cosine
                 * sunTransmittance(groundRadius(), cosine);
         }
+
+        color +=
+            transmittance
+            * uAtmosphereRadii.w / ATMOSPHERE_PI
+            * thickAtmosphereWeight()
+            * diffuseDaylight(groundRadius(), cosine);
     }
 
     FragColor = vec4(color * uSunIlluminance.rgb, 1.0);

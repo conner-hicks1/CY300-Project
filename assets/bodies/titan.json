@@ -55,7 +55,9 @@
       "scattering_per_Mm": 120.0,
       "absorption_per_Mm": 40.0,
       "scale_height_km": 60.0,
-      "anisotropy": 0.7
+      "anisotropy": 0.7,
+      "scattering_tint": [1.1, 1.0, 0.8],
+      "absorption_tint": [0.15, 0.6, 2.0]
     },
     "ozone": false
   },

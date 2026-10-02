@@ -320,11 +320,15 @@ class AtmosphereComponent:
     rayleigh_scattering: tuple[float, float, float] = (5.802, 13.558, 33.1)
     rayleigh_scale_height: float = 8_000.0
 
-    # Mie (aerosols, haze): grey, strongly forward.
+    # Mie (aerosols, haze): strongly forward. Grey by
+    # default; the tints color it per channel (Mars's
+    # butterscotch dust, Titan's orange haze absorb blue).
     mie_scattering: float = 3.996
     mie_absorption: float = 4.40
     mie_scale_height: float = 1_200.0
     mie_anisotropy: float = 0.8
+    mie_scattering_tint: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    mie_absorption_tint: tuple[float, float, float] = (1.0, 1.0, 1.0)
 
     # Ozone: absorbs orange-red, deepening twilight blue.
     ozone_absorption: tuple[float, float, float] = (0.650, 1.881, 0.085)
@@ -432,5 +436,14 @@ class BodyComponent:
     star_luminosity: float = 1.0                # Suns
     star_radius: float = 1.0                    # Suns
     surface_pressure_bar: float = 1.014
-    mean_temperature: float = 15.0              # C
+    mean_temperature: float = 15.0              # C (observed)
     oblateness: float = 0.0
+
+    # Climate physics (planet/climate.py energy balance):
+    # infrared optical depth (greenhouse), and how much
+    # colder the air gets per km of height.
+    greenhouse_depth: float = 0.85
+    lapse_rate: float = 6.5                     # C per km
+
+    # Star surface temperature (K): the color of its light.
+    star_temperature: float = 5772.0

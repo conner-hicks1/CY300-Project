@@ -635,6 +635,8 @@ def _edit_atmosphere(
     inspector.slider(component, "mie_absorption", "Absorption##m", 0.0, 100.0, "%.2f", logarithmic=True)
     inspector.slider(component, "mie_scale_height", "Scale height##m", 100.0, 20_000.0, "%.0f", logarithmic=True)
     inspector.slider(component, "mie_anisotropy", "Anisotropy (g)", 0.0, 0.99)
+    inspector.vec3(component, "mie_scattering_tint", "Scattering tint", 0.01)
+    inspector.vec3(component, "mie_absorption_tint", "Absorption tint", 0.01)
 
     imgui.separator_text("Ozone")
 

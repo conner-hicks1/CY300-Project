@@ -58,22 +58,32 @@ REGIMES = (
     "none",
 )
 
-# Molar mass (g / mol) and refractivity (n - 1 at STP, visible)
-# of common atmospheric gases. Rayleigh scattering per
+# Molar mass (g / mol), refractivity (n - 1 at STP, visible)
+# and specific heat (J / kg K, near room temperature) of
+# common atmospheric gases. Rayleigh scattering per
 # molecule goes with refractivity squared.
-GASES: dict[str, tuple[float, float]] = {
-    "N2": (28.014, 2.98e-4),
-    "O2": (31.998, 2.72e-4),
-    "Ar": (39.948, 2.81e-4),
-    "CO2": (44.009, 4.50e-4),
-    "CH4": (16.043, 4.44e-4),
-    "H2": (2.016, 1.39e-4),
-    "He": (4.003, 3.50e-5),
-    "CO": (28.010, 3.38e-4),
-    "SO2": (64.066, 6.86e-4),
-    "H2O": (18.015, 2.56e-4),
-    "Ne": (20.180, 6.70e-5),
+GASES: dict[str, tuple[float, float, float]] = {
+    "N2": (28.014, 2.98e-4, 1040.0),
+    "O2": (31.998, 2.72e-4, 918.0),
+    "Ar": (39.948, 2.81e-4, 520.0),
+    "CO2": (44.009, 4.50e-4, 844.0),
+    "CH4": (16.043, 4.44e-4, 2220.0),
+    "H2": (2.016, 1.39e-4, 14300.0),
+    "He": (4.003, 3.50e-5, 5193.0),
+    "CO": (28.010, 3.38e-4, 1040.0),
+    "SO2": (64.066, 6.86e-4, 640.0),
+    "H2O": (18.015, 2.56e-4, 1860.0),
+    "Ne": (20.180, 6.70e-5, 1030.0),
 }
+
+# Latent heat of condensing water makes rising moist air
+# cool slower than dry air (Earth: 6.5 vs 9.8 C per km).
+MOIST_LAPSE_FACTOR = 0.66
+
+# Below ~this pressure (bar) the air barely sets the ground
+# temperature (it is set by sunlight and the ground's own
+# radiation), so the lapse rate fades out: P / (P + this).
+LAPSE_PRESSURE_SCALE = 0.02
 
 _AIR_REFRACTIVITY = 2.93e-4
 
@@ -102,6 +112,11 @@ class Aerosols:
     absorption_per_Mm: float
     scale_height_km: float
     anisotropy: float
+
+    # Per-channel (red, green, blue) multipliers: colored
+    # dust and haze absorb and scatter blue differently.
+    scattering_tint: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    absorption_tint: tuple[float, float, float] = (1.0, 1.0, 1.0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +154,23 @@ class AtmosphereProfile:
         ) / total
 
         return refractivity_squared / _AIR_REFRACTIVITY ** 2
+
+    def specific_heat(
+        self,
+        temperature_k: float = 300.0
+    ) -> float:
+        """
+        Mass-weighted heat capacity, J / kg K. Heavy molecules
+        (CO2) gain heat capacity when hot: ~(T / 300)^0.3.
+        """
+
+        mass = [(GASES[gas][0] * fraction, gas) for gas, fraction in self.composition]
+
+        total = sum(m for m, _ in mass)
+
+        heat = sum(m * GASES[gas][2] for m, gas in mass) / total
+
+        return heat * (max(temperature_k, 50.0) / 300.0) ** (0.3 if self.molar_mass > 35.0 else 0.0)
 
 
 @dataclass(frozen=True, slots=True)
@@ -266,6 +298,47 @@ class BodyProfile:
         ) / 1000.0
 
     @property
+    def lapse_rate_k_per_km(
+        self
+    ) -> float:
+        """
+        How much colder per km of height near the ground:
+        the dry adiabatic rate g / cp, slowed by condensing
+        water on wet worlds, fading out in thin air (0 in
+        vacuum). Earth ~6.4, Venus ~8, Mars ~1, Titan ~1.3.
+        """
+
+        air = self.atmosphere
+
+        if air is None or air.surface_pressure_bar <= 0.0:
+            return 0.0
+
+        dry = self.surface_gravity / air.specific_heat(self.mean_temperature_c + 273.15) * 1000.0
+
+        moist = MOIST_LAPSE_FACTOR if self.liquid == "water" and self.humidity > 0.0 else 1.0
+
+        pressure = air.surface_pressure_bar
+
+        return dry * moist * pressure / (pressure + LAPSE_PRESSURE_SCALE)
+
+    @property
+    def greenhouse_depth_estimate(
+        self
+    ) -> float:
+        """
+        Infrared optical depth that warms the equilibrium
+        temperature to the observed mean, for a uniform
+        planet: T^4 = Teq^4 (1 + 0.75 tau). 0 without air.
+        """
+
+        if self.atmosphere is None or self.atmosphere.surface_pressure_bar < VISIBLE_ATMOSPHERE_BAR:
+            return 0.0
+
+        ratio = (self.mean_temperature_c + 273.15) / self.equilibrium_temperature_k
+
+        return max(0.0, (ratio ** 4 - 1.0) / 0.75)
+
+    @property
     def sun_angular_radius_deg(
         self
     ) -> float:
@@ -340,6 +413,22 @@ def parse_profile(
             fail(f"'{name}' must be one of {', '.join(options)}")
 
         return value
+
+    def tint(parent, name):
+
+        value = parent.get(name, [1.0, 1.0, 1.0])
+
+        if (
+            not isinstance(value, list)
+            or len(value) != 3
+            or not all(
+                isinstance(v, (int, float)) and not isinstance(v, bool) and 0.0 <= v <= 10.0
+                for v in value
+            )
+        ):
+            fail(f"'{name}' must be three numbers in 0..10")
+
+        return tuple(float(v) for v in value)
 
     def color(value, name):
 
@@ -423,7 +512,9 @@ def parse_profile(
                 scattering_per_Mm=number(raw_aerosols, "scattering_per_Mm", 0.0),
                 absorption_per_Mm=number(raw_aerosols, "absorption_per_Mm", 0.0),
                 scale_height_km=number(raw_aerosols, "scale_height_km", 0.01),
-                anisotropy=number(raw_aerosols, "anisotropy", -0.99)
+                anisotropy=number(raw_aerosols, "anisotropy", -0.99),
+                scattering_tint=tint(raw_aerosols, "scattering_tint"),
+                absorption_tint=tint(raw_aerosols, "absorption_tint")
             )
 
         atmosphere = AtmosphereProfile(
@@ -637,7 +728,10 @@ def components_for(
             else 0.0
         ),
         mean_temperature=profile.mean_temperature_c,
-        oblateness=profile.oblateness
+        oblateness=profile.oblateness,
+        greenhouse_depth=calibrated_greenhouse(profile, planet),
+        lapse_rate=profile.lapse_rate_k_per_km,
+        star_temperature=profile.star_temperature_k
     )
 
     climate = None
@@ -646,7 +740,7 @@ def components_for(
 
         climate = ClimateComponent(
             axial_tilt=min(profile.axial_tilt_deg, 180.0 - profile.axial_tilt_deg),
-            temperature_offset=profile.mean_temperature_c - CLIMATE_MODEL_MEAN_C,
+            temperature_offset=0.0,
             humidity=profile.humidity
         )
 
@@ -666,6 +760,182 @@ def components_for(
         climate=climate,
         tectonics=tectonics
     )
+
+
+def climate_physics(
+    body: BodyComponent,
+    liquid: str,
+    humidity: float
+) -> dict:
+    """ClimateSettings physics fields for a body."""
+
+    return dict(
+        stellar_flux=SOLAR_CONSTANT * body.star_luminosity / max(body.orbit_distance_au, 1e-6) ** 2,
+        bond_albedo=body.bond_albedo,
+        greenhouse_depth=body.greenhouse_depth,
+        surface_pressure=body.surface_pressure_bar,
+        lapse_rate=body.lapse_rate / 1000.0,
+        eccentricity=body.eccentricity,
+        ocean=liquid == "water" and humidity > 0.0
+    )
+
+
+_GREENHOUSE_CACHE: dict[str, float] = {}
+
+
+def calibrated_greenhouse(
+    profile: BodyProfile,
+    planet: PlanetComponent | None = None
+) -> float:
+    """
+    Greenhouse optical depth at which the energy-balance
+    climate (planet/climate.py) reproduces the body's
+    observed global mean temperature. Starts from the
+    uniform-planet estimate and corrects it with a few
+    secant steps on a coarse grid (~0.1 s, cached).
+    Airless bodies: 0 (their temperatures follow from
+    sunlight alone).
+
+    planet: the body's planet component; its terrain (land,
+    heights) is used so mountains and continents count.
+    """
+
+    if profile.id in _GREENHOUSE_CACHE:
+        return _GREENHOUSE_CACHE[profile.id]
+
+    estimate = profile.greenhouse_depth_estimate
+
+    if estimate <= 0.0 or not profile.has_solid_surface:
+
+        _GREENHOUSE_CACHE[profile.id] = estimate
+
+        return estimate
+
+    # Deferred: planet.climate is heavier and imports nothing
+    # from here, but keep body loading light.
+    from planet.climate import ClimateModel, ClimateSettings
+
+    body = BodyComponent(
+        orbit_distance_au=profile.distance_au,
+        star_luminosity=profile.star_luminosity,
+        bond_albedo=profile.bond_albedo,
+        surface_pressure_bar=profile.atmosphere.surface_pressure_bar,
+        eccentricity=profile.eccentricity,
+        lapse_rate=profile.lapse_rate_k_per_km
+    )
+
+    target = profile.mean_temperature_c
+
+    elevation = None
+
+    def mean_for(tau):
+
+        settings = ClimateSettings(
+            axial_tilt=min(profile.axial_tilt_deg, 180.0 - profile.axial_tilt_deg),
+            resolution=16,
+            **{
+                **climate_physics(body, profile.liquid, profile.humidity),
+                "greenhouse_depth": tau,
+            }
+        )
+
+        model = ClimateModel(settings)
+
+        nonlocal elevation
+
+        if elevation is None:
+            elevation = _calibration_terrain(model.grid, planet, profile)
+
+        return float(model.compute(elevation).temperature.mean())
+
+    low, high = estimate, estimate * 1.3 + 0.05
+
+    f_low, f_high = mean_for(low) - target, mean_for(high) - target
+
+    tau = estimate
+
+    for _ in range(6):
+
+        if abs(f_high - f_low) < 1e-9:
+            break
+
+        tau = max(0.0, high - f_high * (high - low) / (f_high - f_low))
+
+        f = mean_for(tau) - target
+
+        if abs(f) < 0.2:
+            break
+
+        low, f_low, high, f_high = high, f_high, tau, f
+
+    _GREENHOUSE_CACHE[profile.id] = tau
+
+    return tau
+
+
+def _calibration_terrain(grid, planet, profile):
+    """Ground heights on the climate grid for calibration."""
+
+    import numpy as np
+
+    if planet is None:
+        return np.full(grid.cell_count, -1000.0 if profile.liquid == "water" else 100.0)
+
+    from planet.terrain import Terrain
+    from systems.planet_system import terrain_settings_for
+
+    terrain = Terrain(terrain_settings_for(planet))
+
+    return terrain.elevation(grid.directions, grid.cell_angle * planet.radius)
+
+
+def star_color(
+    temperature_k: float
+) -> tuple[float, float, float]:
+    """
+    Approximate linear RGB of a blackbody (normalized so the
+    brightest channel is 1): red dwarfs orange, the Sun
+    white, hot stars blue-white.
+    """
+
+    t = max(1000.0, min(temperature_k, 40000.0)) / 100.0
+
+    if t <= 66.0:
+        red = 1.0
+        green = 0.390081579 * math.log(t) - 0.631841444
+    else:
+        red = 1.292936186 * (t - 60.0) ** -0.1332047592
+        green = 1.129890861 * (t - 60.0) ** -0.0755148492
+
+    if t >= 66.0:
+        blue = 1.0
+    elif t <= 19.0:
+        blue = 0.0
+    else:
+        blue = 0.543206789 * math.log(t - 10.0) - 1.196254089
+
+    srgb = [min(max(c, 0.0), 1.0) for c in (red, green, blue)]
+
+    # sRGB -> linear, then normalize.
+    linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in srgb]
+
+    peak = max(linear)
+
+    return tuple(c / peak for c in linear)
+
+
+def sun_intensity(
+    sunlight: float
+) -> float:
+    """
+    Directional light intensity for a body's sunlight
+    (relative to Earth's). Real sunlight ranges 1000x across
+    the solar system; this compresses it (like the eye
+    adapting) so Neptune is dim but visible and Mercury
+    bright, with Earth at the engine's usual 5.
+    """
+
+    return 5.0 * min(max(max(sunlight, 1e-9) ** 0.3, 0.2), 2.5)
 
 
 def atmosphere_for(
@@ -718,6 +988,8 @@ def atmosphere_for(
         mie_absorption=aerosols.absorption_per_Mm if aerosols else 0.0,
         mie_scale_height=(aerosols.scale_height_km if aerosols else 1.0) * 1000.0,
         mie_anisotropy=aerosols.anisotropy if aerosols else 0.8,
+        mie_scattering_tint=aerosols.scattering_tint if aerosols else (1.0, 1.0, 1.0),
+        mie_absorption_tint=aerosols.absorption_tint if aerosols else (1.0, 1.0, 1.0),
         ozone_absorption=EARTH_OZONE if air.ozone else (0.0, 0.0, 0.0),
         ground_albedo=profile.bond_albedo
     )

@@ -41,7 +41,18 @@ from planet.sphere_grid import SphereGrid, sphere_grid
 # Units: C, mm / year, meters. The planet's rotation axis
 # is +Y in planet space (as everywhere in planet/).
 
-LAPSE_RATE = 6.5e-3                     # C per m of altitude
+LAPSE_RATE = 6.5e-3                     # C per m of altitude (Earth)
+
+STEFAN_BOLTZMANN = 5.670374e-8
+KELVIN = 273.15
+
+# Heat transport as a diffusivity on the unit sphere
+# (W / m^2 per K, as in North's energy-balance models):
+# Earth's air and ocean each carry about half. Air scales
+# with sqrt(pressure): Venus's thick air evens its
+# temperatures out, Mars's thin air barely moves heat.
+_AIR_DIFFUSIVITY = 0.08
+_OCEAN_DIFFUSIVITY = 0.10
 
 # Sea-level temperature (C) from annual sunlight S
 # (1 = global mean): ~32 C at Earth's equator before heat transport (S = 1.24),
@@ -79,6 +90,32 @@ class ClimateSettings:
     # Grid cells per cube-face edge (climate is smooth; a
     # coarse grid is plenty).
     resolution: int = 64
+
+    # ---- Physics (Earth by default; planet/bodies.py
+    # derives them for other bodies) ----
+
+    # Starlight arriving at the body, W / m^2 (Earth: 1361).
+    stellar_flux: float = 1361.0
+
+    # Fraction of sunlight reflected (clouds, ice, ground).
+    bond_albedo: float = 0.306
+
+    # Infrared optical depth of the atmosphere (greenhouse):
+    # the surface radiates through it with emissivity
+    # 1 / (1 + 0.75 tau). Earth ~0.85, Venus ~140, Moon 0.
+    greenhouse_depth: float = 0.85
+
+    # Surface pressure, bar: how well the air carries heat
+    # around the planet (0 = airless: no transport).
+    surface_pressure: float = 1.014
+
+    # How much colder per meter of height (Earth 6.5e-3).
+    lapse_rate: float = 6.5e-3
+
+    eccentricity: float = 0.0167
+
+    # A liquid ocean carries heat too (and evaporates).
+    ocean: bool = True
 
 
 @dataclass(slots=True)
@@ -239,28 +276,19 @@ class ClimateModel:
         # Temperature
         # -------------------------------------------------
 
-        sea = sea_level_temperature(sin_latitude, s)
-
-        # Heat transport: everything mixes a little, oceans
-        # a lot (currents carry heat poleward and keep
-        # coasts mild).
-        for _ in range(self.LAND_DIFFUSION_PASSES):
-            sea = sea + 0.5 * (sea[neighbors].mean(axis=1) - sea)
-
-        for _ in range(self.OCEAN_DIFFUSION_PASSES):
-
-            mixed = sea + 0.5 * (sea[neighbors].mean(axis=1) - sea)
-
-            sea = np.where(ocean, mixed, sea)
+        sea = self._energy_balance(sin_latitude, ocean)
 
         # Continental interiors far from the sea run colder
         # (in the annual mean, mostly through cold winters
         # at high latitudes).
         continentality = self._distance_inland(ocean)
 
-        sea = sea - 4.0 * np.clip(continentality / 15.0, 0.0, 1.0) * np.abs(sin_latitude)
+        if s.ocean:
+            sea = sea - 4.0 * np.clip(continentality / 15.0, 0.0, 1.0) * np.abs(sin_latitude)
 
-        temperature = sea - LAPSE_RATE * height
+        sea = sea + s.temperature_offset
+
+        temperature = sea - s.lapse_rate * height
 
         # -------------------------------------------------
         # Wind
@@ -301,7 +329,7 @@ class ClimateModel:
         capacity = water_capacity(temperature)
 
         evaporation = np.where(
-            ocean,
+            ocean & s.ocean,
             capacity,
             0.6 * capacity                          # plants, lakes, soil (recycling)
         ) * s.humidity
@@ -344,6 +372,110 @@ class ClimateModel:
             compute_seconds=time.perf_counter() - started
         )
 
+    def sea_level_temperatures(
+        self,
+        elevation: np.ndarray
+    ) -> np.ndarray:
+        """Energy-balance temperatures only (C per cell; for calibration)."""
+
+        elevation = np.asarray(elevation, dtype=np.float64)
+
+        return self._energy_balance(self.grid.directions[:, 1], elevation < 0.0)
+
+    def _energy_balance(
+        self,
+        sin_latitude: np.ndarray,
+        ocean: np.ndarray
+    ) -> np.ndarray:
+        """
+        Annual-mean sea-level temperature (C) per cell from
+        radiative balance:
+
+            absorbed sunlight  Q (1 - A)
+            = emitted heat     e sigma T^4,  e = 1 / (1 + 0.75 tau)
+              - heat brought in by transport  D (mean(T_neighbors) - T)
+
+        solved to a steady state by damped Newton steps.
+        Q is the annual mean by latitude for the tilt, with
+        a 1 / sqrt(1 - e^2) boost for an eccentric orbit.
+        """
+
+        s = self.settings
+        grid = self.grid
+        neighbors = grid.neighbors
+
+        eccentricity = min(max(s.eccentricity, 0.0), 0.99)
+
+        sunlight = (
+            s.stellar_flux / 4.0
+            * annual_sunlight(sin_latitude, s.axial_tilt)
+            / math.sqrt(1.0 - eccentricity ** 2)
+        )
+
+        absorbed = sunlight * (1.0 - min(max(s.bond_albedo, 0.0), 0.99))
+
+        emissivity = 1.0 / (1.0 + 0.75 * max(s.greenhouse_depth, 0.0))
+
+        # Transport: air (none in vacuum) plus ocean currents
+        # over water, as a diffusivity; per cell it is the
+        # discrete Laplacian's 4 / h^2 (h: cell spacing).
+        grid_scale = 4.0 / grid.cell_angle ** 2
+
+        transport = (
+            _AIR_DIFFUSIVITY * math.sqrt(max(s.surface_pressure, 0.0))
+            + (_OCEAN_DIFFUSIVITY * ocean if s.ocean else 0.0)
+        ) * grid_scale
+
+        transport = np.broadcast_to(np.asarray(transport, dtype=np.float64), absorbed.shape)
+
+        # Without transport every cell is in local radiative
+        # equilibrium.
+        if not np.any(transport > 0.0):
+            return np.maximum((absorbed / (emissivity * STEFAN_BOLTZMANN)) ** 0.25, 3.0) - KELVIN
+
+        # Heat flows between neighbors through each shared
+        # edge (symmetric, so the linear solves below can use
+        # conjugate gradients).
+        conductance = (transport[:, None] + transport[neighbors]) * 0.125
+
+        total_conductance = conductance.sum(axis=1)
+
+        def laplacian(values):
+            return total_conductance * values - (conductance * values[neighbors]).sum(axis=1)
+
+        # Newton's method from the planet-wide equilibrium;
+        # each step solves the linearized balance exactly
+        # (a relaxation would take thousands of sweeps to
+        # spread heat across a thick atmosphere).
+        kelvin = np.full(
+            absorbed.shape,
+            max((absorbed.mean() / (emissivity * STEFAN_BOLTZMANN)) ** 0.25, 3.0)
+        )
+
+        for _ in range(40):
+
+            emitted = emissivity * STEFAN_BOLTZMANN * kelvin ** 4
+
+            residual = absorbed - emitted - laplacian(kelvin)
+
+            radiative_slope = 4.0 * emitted / kelvin
+
+            step = _conjugate_gradient(
+                lambda v: radiative_slope * v + laplacian(v),
+                residual,
+                radiative_slope + total_conductance
+            )
+
+            # Keep far-off first guesses from overshooting.
+            step = np.clip(step, -0.5 * kelvin, kelvin)
+
+            kelvin = np.maximum(kelvin + step, 3.0)
+
+            if np.abs(step).max() < 0.01:
+                break
+
+        return kelvin - KELVIN
+
     def _distance_inland(
         self,
         ocean: np.ndarray
@@ -378,6 +510,50 @@ BIOMES = (
     "Savanna",
     "Tropical rainforest",
 )
+
+
+def _conjugate_gradient(
+    apply,
+    rhs: np.ndarray,
+    diagonal: np.ndarray,
+    tolerance: float = 1e-4,
+    absolute_tolerance: float = 0.01,
+    max_iterations: int = 2000
+) -> np.ndarray:
+    """
+    Solve A x = rhs for a symmetric positive-definite A
+    (given as a function), Jacobi-preconditioned.
+    """
+
+    x = np.zeros_like(rhs)
+    r = rhs.copy()
+    z = r / diagonal
+    d = z.copy()
+    rz = float(r @ z)
+
+    limit = max(tolerance * float(np.abs(rhs).max()), absolute_tolerance)
+
+    for _ in range(max_iterations):
+
+        if np.abs(r).max() < limit:
+            break
+
+        ad = apply(d)
+
+        alpha = rz / float(d @ ad)
+
+        x += alpha * d
+        r -= alpha * ad
+
+        z = r / diagonal
+
+        rz_next = float(r @ z)
+
+        d = z + (rz_next / rz) * d
+
+        rz = rz_next
+
+    return x
 
 
 def wetness(
@@ -421,10 +597,18 @@ class ClimateField:
 
     version: int
 
+    # C per m of height (the planet's, from ClimateSettings).
+    lapse_rate: float = LAPSE_RATE
+
     # Summary for the editor (over land).
     mean_temperature: float = 0.0
     mean_precipitation: float = 0.0
     biome_fractions: tuple[float, ...] = ()
+
+    # Whole planet (land and sea), C.
+    min_temperature: float = 0.0
+    max_temperature: float = 0.0
+    global_mean_temperature: float = 0.0
 
     @classmethod
     def from_state(
@@ -432,7 +616,8 @@ class ClimateField:
         grid: SphereGrid,
         state: ClimateState,
         version: int,
-        land: np.ndarray | None = None
+        land: np.ndarray | None = None,
+        lapse_rate: float = LAPSE_RATE
     ) -> "ClimateField":
         """land: per-cell mask for the land statistics."""
 
@@ -450,7 +635,11 @@ class ClimateField:
             version=version,
             mean_temperature=float(state.temperature[land].mean()),
             mean_precipitation=float(state.precipitation[land].mean()),
-            biome_fractions=tuple(float(f) for f in fractions)
+            biome_fractions=tuple(float(f) for f in fractions),
+            lapse_rate=lapse_rate,
+            min_temperature=float(state.temperature.min()),
+            max_temperature=float(state.temperature.max()),
+            global_mean_temperature=float(state.temperature.mean())
         )
 
     def surface(
@@ -467,7 +656,7 @@ class ClimateField:
 
         sea = self.grid.sample(self.sea_temperature, directions)
 
-        temperature = sea - LAPSE_RATE * np.maximum(elevation, 0.0)
+        temperature = sea - self.lapse_rate * np.maximum(elevation, 0.0)
 
         return temperature, np.maximum(self.grid.sample(self.precipitation, directions), 0.0)
 
