@@ -363,7 +363,18 @@ class AtmosphereComponent:
 @dataclass(slots=True)
 class TectonicsComponent:
 
+    # How the outer shell moves (planet/regimes.py):
+    #   plate_tectonics       Earth: plates, ridges, collisions
+    #   stagnant_lid          Mars, Mercury, the Moon: one
+    #                         rigid shell, ancient relief
+    #   episodic_resurfacing  Venus: global lava floods
+    #   heat_pipe             Io: constant volcanism
+    #   ice_shell             Europa: tidal cracks in ice
+    regime: str = "plate_tectonics"
+
     seed: int = 1
+
+    # Plates only.
     plate_count: int = 12
 
     # Fraction of the surface that starts as continent.
@@ -374,6 +385,10 @@ class TectonicsComponent:
 
     # Simulated time per step (million years).
     time_step: float = 5.0
+
+    # Other regimes: relief multiplier (weaker gravity
+    # holds up taller mountains).
+    relief_scale: float = 1.0
 
     # Grid cells per cube-face edge (6 * n^2 cells).
     resolution: int = 128

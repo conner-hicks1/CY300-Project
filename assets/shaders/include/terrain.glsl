@@ -70,12 +70,23 @@ float terrainWetness(
 vec3 mineralLand(
     float elevation,
     float slope,
-    float temperature
+    float temperature,
+    float crust
 )
 {
     // Basins dark, highlands light (the Moon's maria and
     // highlands), cliffs their own color, frost where cold.
-    vec3 land = mix(uColorLow, uColorHigh, smoothstep(-3000.0, 4000.0, elevation));
+    float bright = smoothstep(-3000.0, 4000.0, elevation);
+
+    // With a tectonic regime (planet/regimes.py), mostly
+    // its crust type: dark maria and lava, Europa's
+    // reddish lineae, bright ice and sulfur plains.
+    if (crust >= 0.0)
+    {
+        bright = mix(bright, crust, 0.75);
+    }
+
+    vec3 land = mix(uColorLow, uColorHigh, bright);
 
     land = mix(land, uColorSteep, 1.0 - smoothstep(0.75, 0.9, slope));
 
@@ -86,11 +97,14 @@ vec3 mineralLand(
     return mix(land, uColorIce, frost);
 }
 
+// crust: 0 dark .. 1 bright crust from a tectonic regime
+// (the tectonic data's "continental" channel), -1 without.
 TerrainSurface terrainSurface(
     float elevation,
     float slope,
     float precipitation,
-    float temperature
+    float temperature,
+    float crust
 )
 {
     TerrainSurface surface;
@@ -125,7 +139,7 @@ TerrainSurface terrainSurface(
 
     if (palette == 1)
     {
-        land = mineralLand(elevation, slope, temperature);
+        land = mineralLand(elevation, slope, temperature, crust);
     }
     else
     {

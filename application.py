@@ -64,7 +64,7 @@ from planet.bodies import (
     sun_intensity
 )
 from planet.spawn import find_spawn
-from planet.tectonics import TectonicField, TectonicSimulation
+from planet.tectonics import TectonicField, simulation_for
 from planet.terrain import Terrain
 
 from resources.resources import Resources
@@ -926,7 +926,7 @@ class Application:
 
         if parts.tectonics is not None:
 
-            simulation = TectonicSimulation(
+            simulation = simulation_for(
                 tectonic_settings_for(planet, parts.tectonics)
             )
 

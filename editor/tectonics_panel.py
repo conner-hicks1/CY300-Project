@@ -12,6 +12,8 @@ from ecs.components import (
 )
 from ecs.entity import Entity
 
+from planet.regimes import DEFAULT_TIME_STEPS
+
 from systems.planet_system import TERRAIN_VIEWS, PlanetSystem
 from systems.tectonics_system import TectonicsSystem
 
@@ -24,6 +26,40 @@ if TYPE_CHECKING:
 # Data views most useful while watching plates move.
 _TECTONIC_VIEWS = ("Natural", "Plates", "Crust age", "Boundaries", "Elevation")
 
+# Regime -> (name, what it does).
+_REGIMES = {
+    "plate_tectonics": (
+        "Plate tectonics",
+        "Plates drift, collide into mountain ranges and pull apart into "
+        "new oceans (Earth)."
+    ),
+    "stagnant_lid": (
+        "Stagnant lid",
+        "One rigid shell: ancient highlands and impact basins, volcanic "
+        "provinces over mantle plumes, lava-flooded lowlands; activity "
+        "fades as the planet cools (Mars, Mercury, the Moon)."
+    ),
+    "episodic_resurfacing": (
+        "Episodic resurfacing",
+        "Heat builds under a rigid lid until lava floods nearly the whole "
+        "surface at once; only high plateaus (tesserae) survive. Rifts and "
+        "coronae form in between (Venus)."
+    ),
+    "heat_pipe": (
+        "Heat-pipe volcanism",
+        "Heat escapes through countless volcanoes: lava buries the surface "
+        "within a few Myr; calderas glow and tall mountain blocks rise and "
+        "slump (Io)."
+    ),
+    "ice_shell": (
+        "Ice shell",
+        "A thin ice shell over an ocean, cracked by tides into ridges, "
+        "spreading bands and chaos terrain (Europa)."
+    ),
+}
+
+_REGIME_KEYS = tuple(_REGIMES)
+
 
 class TectonicsPanel:
 
@@ -31,9 +67,11 @@ class TectonicsPanel:
     # Tectonics Panel
     # =====================================================
     #
-    # Plays the plate simulation of the selected (or first)
-    # planet: play / pause / step / reset, speed, plate
-    # settings, and what the plates are doing right now.
+    # Plays the tectonic simulation of the selected (or
+    # first) planet, whatever its regime (plates, stagnant
+    # lid, resurfacing, heat-pipe, ice shell): play / pause
+    # / step / reset, speed, settings, and what it is doing
+    # right now.
     # Docks as a tab next to the Planet panel.
 
     def __init__(
@@ -47,10 +85,13 @@ class TectonicsPanel:
         self._tectonics = tectonics
         self._planets = planets
 
+        # Regime picked for "Enable tectonics".
+        self._new_regime = "plate_tectonics"
+
         editor.panels.register(
             "Tectonics",
             DockSlot.LEFT_BOTTOM,
-            description="Plate tectonics: continents, ocean basins and mountain belts over time."
+            description="How the planet's shell shapes its surface over time: plates, stagnant lid, resurfacing, volcanism, ice shell."
         )
 
     def draw(self):
@@ -109,18 +150,41 @@ class TectonicsPanel:
         if component is None:
 
             imgui.text_wrapped(
-                "Plate tectonics replaces the planet's noise continents with "
-                "a simulation: plates drift, collide into mountain ranges, "
-                "and pull apart into new oceans."
+                "A tectonic simulation replaces the planet's noise "
+                "continents. Pick how its outer shell behaves:"
             )
 
-            if imgui.button("Enable plate tectonics"):
+            changed, index = imgui.combo(
+                "Regime",
+                _REGIME_KEYS.index(self._new_regime),
+                [name for name, _ in _REGIMES.values()]
+            )
 
-                scene.add_component(planet, TectonicsComponent())
+            if changed:
+                self._new_regime = _REGIME_KEYS[index]
 
-                editor.record("Enable plate tectonics")
+            imgui.text_wrapped(_REGIMES[self._new_regime][1])
+
+            if imgui.button("Enable tectonics"):
+
+                scene.add_component(
+                    planet,
+                    TectonicsComponent(
+                        regime=self._new_regime,
+                        time_step=DEFAULT_TIME_STEPS[self._new_regime]
+                    )
+                )
+
+                editor.record("Enable tectonics")
 
             return
+
+        plates = component.regime == "plate_tectonics"
+
+        name, description = _REGIMES.get(component.regime, (component.regime, ""))
+
+        imgui.text(name)
+        imgui.set_item_tooltip(description)
 
         status = self._tectonics.status(planet, component)
 
@@ -130,7 +194,7 @@ class TectonicsPanel:
 
         if not status.ready:
 
-            imgui.text_colored((0.95, 0.8, 0.35, 1.0), "Setting up plates...")
+            imgui.text_colored((0.95, 0.8, 0.35, 1.0), "Setting up..." if not plates else "Setting up plates...")
 
         elif status.catching_up:
 
@@ -139,7 +203,10 @@ class TectonicsPanel:
                 f"Re-simulating: {status.time:,.0f} / {status.target_time:,.0f} Myr"
             )
 
-        imgui.text(f"Planet age: {status.time:,.0f} million years")
+        if plates:
+            imgui.text(f"Planet age: {status.time:,.0f} million years")
+        else:
+            imgui.text(f"Today + {status.time:,.1f} million years")
 
         width = (imgui.get_content_region_avail().x - 2 * imgui.get_style().item_spacing.x) / 3.0
 
@@ -180,14 +247,17 @@ class TectonicsPanel:
 
             editor.record("Reset tectonics")
 
-        imgui.set_item_tooltip("Back to the starting continents (same seed).")
+        imgui.set_item_tooltip(
+            "Back to the starting continents (same seed)." if plates
+            else "Back to today's surface (same seed)."
+        )
 
         changed, rate = imgui.slider_float(
             "Speed",
             self._tectonics.rate,
-            5.0,
-            500.0,
-            "%.0f Myr/s",
+            0.1,
+            1000.0,
+            "%.1f Myr/s",
             imgui.SliderFlags_.logarithmic.value
         )
 
@@ -231,7 +301,23 @@ class TectonicsPanel:
         # Now
         # -------------------------------------------------
 
-        if status.ready:
+        if status.ready and not plates:
+
+            imgui.separator_text("Now")
+
+            imgui.text_wrapped(description)
+
+            imgui.text(
+                f"{status.continental_fraction * 100.0:.0f}% "
+                + {
+                    "stagnant_lid": "highland crust",
+                    "episodic_resurfacing": "tesserae (survived resurfacing)",
+                    "heat_pipe": "frosted plains (the rest: fresh lava)",
+                    "ice_shell": "bright ice plains",
+                }.get(component.regime, "bright crust")
+            )
+
+        if status.ready and plates:
 
             imgui.separator_text("Now")
 
@@ -282,6 +368,20 @@ class TectonicsPanel:
 
             imgui.text_disabled("Changing these restarts from 0 Myr.")
 
+            changed, index = imgui.combo(
+                "Regime",
+                _REGIME_KEYS.index(component.regime) if component.regime in _REGIMES else 0,
+                [regime_name for regime_name, _ in _REGIMES.values()]
+            )
+
+            if changed:
+
+                component.regime = _REGIME_KEYS[index]
+                component.time_step = DEFAULT_TIME_STEPS[component.regime]
+                component.simulated_time = 0.0
+
+                editor.record("Tectonic regime")
+
             changed, seed = imgui.input_int("Seed", component.seed)
 
             if changed:
@@ -294,21 +394,30 @@ class TectonicsPanel:
                 component.seed = random.randint(1, 999_999)
                 editor.record("Random tectonics seed")
 
-            changed, count = imgui.slider_int("Plates", component.plate_count, 3, 30)
+            if plates:
 
-            if changed:
-                component.plate_count = count
+                changed, count = imgui.slider_int("Plates", component.plate_count, 3, 30)
 
-            self._record_on_release("Plate count")
+                if changed:
+                    component.plate_count = count
 
-            self._slider(component, "land_fraction", "Continents", 0.05, 0.7, "%.2f",
-                         "Fraction of the surface that starts as continent.")
+                self._record_on_release("Plate count")
 
-            self._slider(component, "plate_speed", "Plate speed", 1.0, 20.0, "%.1f cm/yr",
-                         "Earth's plates move 2-10 cm per year.")
+                self._slider(component, "land_fraction", "Continents", 0.05, 0.7, "%.2f",
+                             "Fraction of the surface that starts as continent.")
 
-            self._slider(component, "time_step", "Time step", 1.0, 20.0, "%.0f Myr",
-                         "Simulated time per step. Larger = faster but coarser.")
+                self._slider(component, "plate_speed", "Plate speed", 1.0, 20.0, "%.1f cm/yr",
+                             "Earth's plates move 2-10 cm per year.")
+
+            else:
+
+                self._slider(component, "relief_scale", "Relief", 0.25, 3.0, "%.2f x",
+                             "Height of mountains and depth of basins (weaker "
+                             "gravity holds up taller relief).")
+
+            self._slider(component, "time_step", "Time step", 0.1, 100.0, "%.1f Myr",
+                         "Simulated time per step. Larger = faster but coarser.",
+                         logarithmic=True)
 
             changed, resolution = imgui.slider_int("Grid", component.resolution, 48, 192)
 
@@ -324,11 +433,11 @@ class TectonicsPanel:
                 f"~{spacing / 1000.0:.0f} km apart. Higher is sharper but slower."
             )
 
-        if imgui.button("Disable plate tectonics"):
+        if imgui.button("Disable tectonics"):
 
             scene.remove_component(planet, TectonicsComponent)
 
-            editor.record("Disable plate tectonics")
+            editor.record("Disable tectonics")
 
     # -----------------------------------------------------
     # Widgets
@@ -342,10 +451,13 @@ class TectonicsPanel:
         low: float,
         high: float,
         fmt: str,
-        tooltip: str
+        tooltip: str,
+        logarithmic: bool = False
     ):
 
-        changed, value = imgui.slider_float(label, float(getattr(component, field)), low, high, fmt)
+        flags = imgui.SliderFlags_.logarithmic.value if logarithmic else 0
+
+        changed, value = imgui.slider_float(label, float(getattr(component, field)), low, high, fmt, flags)
 
         if changed:
             setattr(component, field, value)

@@ -71,6 +71,28 @@ building and saving scenes.
 - Deterministic: a saved scene stores the seed and simulated time and
   re-simulates to the same planet on load
 
+**Tectonic regimes**
+
+![The Moon, Mars, Venus (without its clouds), Io and Europa](docs/images/regimes.png)
+
+- Plate tectonics is one of five regimes, each its own simulation on the same
+  grid (the terrain, data views and Tectonics panel work with all of them):
+  - **Stagnant lid** (Mars, Mercury, the Moon): one rigid shell with
+    ancient relief: a crustal dichotomy, giant impact basins, volcanic
+    provinces over mantle plumes, lowlands flooded by dark lava (the maria);
+    volcanism fades as the planet cools
+  - **Episodic resurfacing** (Venus): lava floods nearly the whole surface
+    every 400-800 Myr; only high tesserae plateaus survive, and rifts,
+    volcanic rises and coronae form in between
+  - **Heat-pipe volcanism** (Io): constant eruptions keep the surface a few
+    Myr old: sulfur plains, glowing lava lakes in calderas that open and
+    fill, tall mountain blocks that rise and slump
+  - **Ice shell** (Europa, Ganymede, Triton): tidal cracks become wandering
+    dark ridges and spreading bands, with chaos terrain, on young, low-relief
+    ice
+- Relief scales with gravity; the mineral palette colors each regime's crust
+  (dark maria and lava, bright highlands and ice)
+
 **Climate and biomes**
 
 ![Natural colors, biomes, temperature and rainfall](docs/images/climate.png)
@@ -163,7 +185,7 @@ building and saving scenes.
   under a per-frame time budget
 - Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
   output routed to the log
-- 430 unit tests for everything that does not need a GPU
+- 464 unit tests for everything that does not need a GPU
 
 ## Getting Started
 
@@ -232,7 +254,7 @@ The planet streams in over the first few seconds.
 | `core/` | Window, input, events, timer, logging, profiler, job system |
 | `ecs/` | Entity registry and components |
 | `systems/` | Transform, camera controller, rotator, tectonics, climate, planet streaming and render systems |
-| `planet/` | Body profiles, noise, cube-sphere mapping and simulation grid, plate tectonics, climate, terrain, chunk building, level of detail, solar time |
+| `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping and simulation grid, plate tectonics and other tectonic regimes, climate, terrain, chunk building, level of detail, solar time |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, bloom |
 | `editor/` | Scene editor, hierarchy / inspector / planet panels, picking, undo history |
 | `scene/` | Scene container and scene file (de)serialization |

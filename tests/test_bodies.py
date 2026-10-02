@@ -167,7 +167,7 @@ def test_airless_moon(presets):
     parts = components_for(presets["moon"])
 
     assert parts.atmosphere is None
-    assert parts.tectonics is None
+    assert parts.tectonics.regime == "stagnant_lid"
     assert parts.planet.liquid == "none"
     assert parts.planet.palette == "mineral"
     assert parts.planet.radius == pytest.approx(1_737_400.0)

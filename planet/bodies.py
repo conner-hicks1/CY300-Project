@@ -40,6 +40,7 @@ PROFILE_FORMAT = 1
 BODIES_DIRECTORY = Path("assets/bodies")
 
 from planet.phases import ICES, SUBSTANCES, frost_point
+from planet.regimes import DEFAULT_TIME_STEPS
 
 GRAVITATIONAL_CONSTANT = 6.674e-11
 GAS_CONSTANT = 8.314                            # J / (mol K)
@@ -799,6 +800,15 @@ def components_for(
             plate_count=max(2, profile.plate_count or 12)
         )
 
+    elif profile.regime in DEFAULT_TIME_STEPS and profile.has_solid_surface:
+
+        tectonics = TectonicsComponent(
+            regime=profile.regime,
+            seed=seed,
+            time_step=DEFAULT_TIME_STEPS[profile.regime],
+            relief_scale=relief_scale(profile.surface_gravity)
+        )
+
     return BodyComponents(
         planet=planet,
         body=body,
@@ -806,6 +816,18 @@ def components_for(
         climate=climate,
         tectonics=tectonics
     )
+
+
+def relief_scale(
+    surface_gravity: float
+) -> float:
+    """
+    Relief relative to Earth's: weaker gravity holds up
+    taller mountains and deeper basins (roughly ~1/sqrt(g)
+    for the planets; capped for small moons).
+    """
+
+    return float(min(max((9.81 / max(surface_gravity, 0.1)) ** 0.5, 0.5), 2.2))
 
 
 def climate_physics(

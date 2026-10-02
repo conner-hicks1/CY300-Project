@@ -13,8 +13,8 @@ from planet.tectonics import (
     PlateInfo,
     TectonicField,
     TectonicSettings,
-    TectonicSimulation,
-    TectonicState
+    TectonicState,
+    simulation_for
 )
 
 from scene.scene import Scene
@@ -51,7 +51,7 @@ class _Run:
 
         self.settings = settings
 
-        self.simulation = TectonicSimulation(settings)
+        self.simulation = simulation_for(settings)
 
         self.state: TectonicState | None = None
         self.field: TectonicField | None = None
@@ -78,7 +78,8 @@ class TectonicsSystem:
     # Plate Tectonics Runner
     # =====================================================
     #
-    # Runs each planet's TectonicSimulation on the job
+    # Runs each planet's simulation (plates, or another
+    # regime: planet/regimes.py) on the job
     # system, one step per job, and publishes an immutable
     # TectonicField after every step. The planet's terrain
     # (PlanetSystem, via field()) rebuilds from new fields.
@@ -452,7 +453,9 @@ def tectonic_settings_for(
         plate_count=max(2, int(component.plate_count)),
         land_fraction=float(component.land_fraction),
         plate_speed=float(component.plate_speed),
-        time_step=max(0.5, float(component.time_step)),
+        time_step=max(0.01, float(component.time_step)),
         resolution=max(16, int(component.resolution)),
-        radius=float(planet.radius)
+        radius=float(planet.radius),
+        regime=component.regime,
+        relief_scale=float(component.relief_scale)
     )

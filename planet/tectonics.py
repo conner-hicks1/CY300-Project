@@ -67,6 +67,15 @@ class TectonicSettings:
     # A large plate rifts apart about this often (Myr).
     rift_interval: float = 150.0
 
+    # How the outer shell moves (planet/regimes.py):
+    # plate_tectonics, stagnant_lid, episodic_resurfacing,
+    # heat_pipe or ice_shell.
+    regime: str = "plate_tectonics"
+
+    # Relief multiplier for the other regimes (weaker
+    # gravity holds up taller mountains).
+    relief_scale: float = 1.0
+
 
 # Uplift per 5 Myr at convergent boundaries (m).
 UPLIFT_COLLISION = 700.0
@@ -142,6 +151,14 @@ class TectonicState:
     # Wall-clock seconds of the last step (diagnostics).
     step_seconds: float = 0.0
 
+    # Regimes other than plates (planet/regimes.py): the
+    # surface height per cell (m) directly, and whatever
+    # they need to remember between steps.
+    height: np.ndarray | None = None
+    memory: dict = field(default_factory=dict)
+
+    regime: str = "plate_tectonics"
+
     @property
     def plate_total(
         self
@@ -177,6 +194,9 @@ def surface_elevation(
     state: TectonicState
 ) -> np.ndarray:
     """Elevation (m) per cell: ocean floor blended into land."""
+
+    if state.height is not None:
+        return state.height
 
     land = _smoothstep(0.35, 0.65, state.continental)
 
@@ -789,6 +809,11 @@ class TectonicField:
     time: float
     version: int
 
+    regime: str = "plate_tectonics"
+
+    # Crust age shown as "old" in the Crust age view (Myr).
+    age_scale: float = 400.0
+
     @classmethod
     def from_state(
         cls,
@@ -797,18 +822,24 @@ class TectonicField:
         version: int
     ) -> "TectonicField":
 
+        from planet.regimes import AGE_SCALES
+
         pad = grid.pad
+
+        age_scale = AGE_SCALES.get(state.regime, 400.0)
 
         return cls(
             grid=grid,
             elevation=pad(surface_elevation(state).astype(np.float32)),
             continental=pad(state.continental),
-            age=pad(np.minimum(state.age, 400.0)),
+            age=pad(np.minimum(state.age, age_scale)),
             orogeny=pad(state.orogeny),
             activity=pad(state.activity),
             plate=state.plate.copy(),
             time=state.time,
-            version=version
+            version=version,
+            regime=state.regime,
+            age_scale=age_scale
         )
 
     def sample(
@@ -825,6 +856,24 @@ class TectonicField:
     ) -> np.ndarray:
 
         return self.plate[self.grid.cell_of(directions)]
+
+
+def simulation_for(
+    settings: TectonicSettings
+):
+    """
+    The simulation for the settings' regime: plates
+    (TectonicSimulation) or one of planet/regimes.py.
+    """
+
+    from planet.regimes import REGIME_SIMULATIONS
+
+    kind = REGIME_SIMULATIONS.get(settings.regime)
+
+    if kind is None:
+        return TectonicSimulation(settings)
+
+    return kind(settings)
 
 
 # =========================================================

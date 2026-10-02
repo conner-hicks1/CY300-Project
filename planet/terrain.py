@@ -89,11 +89,9 @@ _RANGE_FREQUENCY_SCALE = 5.0
 # well under 1) so peaks approach mountain_height.
 _RIDGE_GAIN = 1.6
 
-# With a tectonic field: the simulation's highest crust
-# (planet/tectonics.py MAX_CONTINENT_ELEVATION), the share
-# of the noise mountains added on top (the field already
-# raises the belts), and the coastline roughening.
-TECTONIC_MAX_ELEVATION = 7_500.0
+# With a tectonic field: the share of the noise mountains
+# added on top (the field already raises the belts), and the
+# coastline roughening.
 _TECTONIC_RIDGE_SHARE = 0.85
 _TECTONIC_COAST_FREQUENCY = 14.0
 _TECTONIC_COAST_NOISE = 450.0
@@ -132,6 +130,20 @@ class Terrain:
         self.field = field
         self.climate = climate
 
+        # The field's height range (culling bounds), and the
+        # coastline roughening (plate worlds only: elsewhere
+        # it would swamp low relief such as Europa's).
+        if field is not None:
+
+            self._field_max = float(field.elevation.max())
+            self._field_min = float(field.elevation.min())
+
+            self._coast_noise = (
+                _TECTONIC_COAST_NOISE
+                if getattr(field, "regime", "plate_tectonics") == "plate_tectonics"
+                else 0.0
+            )
+
         seed = settings.seed * 7919
 
         self._continents = Perlin(seed)
@@ -152,11 +164,24 @@ class Terrain:
         s = self.settings
 
         return (
-            TECTONIC_MAX_ELEVATION
+            max(self._field_max, 0.0)
             + _RIDGE_GAIN * s.mountain_height * _TECTONIC_RIDGE_SHARE
             + s.detail_height
-            + _TECTONIC_COAST_NOISE
+            + self._coast_noise
         )
+
+    @property
+    def min_elevation(
+        self
+    ) -> float:
+        """Lower bound of the visible surface (0 under a liquid)."""
+
+        s = self.settings
+
+        if self.field is None or s.has_liquid or s.bands:
+            return s.min_elevation
+
+        return min(self._field_min, 0.0) - s.detail_height - self._coast_noise - 200.0
 
     def elevation(
         self,
@@ -284,11 +309,13 @@ class Terrain:
         elevation = field.sample("elevation", directions)
 
         # Coastlines and shelves finer than the grid.
-        elevation = elevation + fbm(
-            self._continents,
-            directions * _TECTONIC_COAST_FREQUENCY,
-            min(octaves(_TECTONIC_COAST_FREQUENCY), 6)
-        ) * _TECTONIC_COAST_NOISE
+        if self._coast_noise > 0.0:
+
+            elevation = elevation + fbm(
+                self._continents,
+                directions * _TECTONIC_COAST_FREQUENCY,
+                min(octaves(_TECTONIC_COAST_FREQUENCY), 6)
+            ) * self._coast_noise
 
         land = _smoothstep(-100.0, 200.0, elevation)
 
@@ -325,7 +352,7 @@ class Terrain:
             return data
 
         data[:, 0] = field.plate_at(directions)
-        data[:, 1] = field.sample("age", directions) / 400.0
+        data[:, 1] = field.sample("age", directions) / getattr(field, "age_scale", 400.0)
         data[:, 2] = field.sample("continental", directions)
         data[:, 3] = field.sample("activity", directions)
 

@@ -114,7 +114,7 @@ class _Planet:
             max_elevation=self.terrain.max_elevation,
             max_depth=component.max_depth,
             split_factor=component.split_factor,
-            min_elevation=settings.min_elevation
+            min_elevation=self.terrain.min_elevation
         )
 
         self.chunks: dict[ChunkKey, _Chunk] = {}
