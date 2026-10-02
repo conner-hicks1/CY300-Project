@@ -162,10 +162,13 @@ class Framebuffer:
     @staticmethod
     def bind_default(
         width: int,
-        height: int
+        height: int,
+        x: int = 0,
+        y: int = 0
     ):
         """
-        Bind the window's framebuffer.
+        Bind the window's framebuffer, drawing into the
+        width x height rectangle at (x, y) (bottom-left).
         """
 
         glBindFramebuffer(
@@ -174,8 +177,8 @@ class Framebuffer:
         )
 
         RenderCommand.set_viewport(
-            0,
-            0,
+            x,
+            y,
             width,
             height
         )

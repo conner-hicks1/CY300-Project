@@ -94,6 +94,16 @@ void main()
         ) * uSunIlluminance.rgb * uAtmosphereSunDirection.w;
     }
 
+    if (geometry && uOzoneParams.z < 0.5)
+    {
+        // Haze over geometry switched off (terrain data
+        // views): show the surface as is.
+        outInScattered = vec4(0.0);
+        outTransmittance = vec4(1.0);
+
+        return;
+    }
+
     if (geometry)
     {
         outInScattered = vec4(inScattered, 0.0);

@@ -56,7 +56,7 @@ def draw_inspector_panel(
         imgui.Cond_.first_use_ever
     )
 
-    imgui.begin("Inspector")
+    editor.panels.begin("Inspector")
 
     keep_window_on_screen()
 
@@ -74,7 +74,13 @@ def draw_inspector_panel(
 
         return
 
-    _Inspector(editor, entity).draw()
+    # Leave room for the field labels on the right.
+    imgui.push_item_width(-125.0)
+
+    try:
+        _Inspector(editor, entity).draw()
+    finally:
+        imgui.pop_item_width()
 
     imgui.end()
 
@@ -566,7 +572,7 @@ def _edit_planet(
 
     imgui.text_disabled(
         "Terrain changes rebuild the planet.\n"
-        "Chunk counts: Engine window."
+        "Chunk counts: Stats panel."
     )
 
 
@@ -616,7 +622,7 @@ def _edit_directional_light(
     imgui.text_disabled(
         "Direction = the entity's forward (-Z).\n"
         "Also places the sun in the sky; ambient light\n"
-        "comes from the sky (Engine > Sky & IBL)."
+        "comes from the sky (Render > Sky & IBL)."
     )
 
 

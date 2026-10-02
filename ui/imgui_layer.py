@@ -1,3 +1,7 @@
+from pathlib import Path
+
+import imgui_bundle
+
 from imgui_bundle import imgui
 from imgui_bundle.python_backends.glfw_backend import GlfwRenderer
 
@@ -43,8 +47,19 @@ class ImGuiLayer:
 
         io = imgui.get_io()
 
-        # Window layout persistence (gitignored).
-        io.set_ini_filename("editor_layout.ini")
+        # Docked layout persistence (gitignored). Named apart
+        # from the pre-docking floating layout so stale
+        # window positions are not reused.
+        io.set_ini_filename("editor_layout_docked.ini")
+
+        io.config_flags |= imgui.ConfigFlags_.docking_enable.value
+
+        # Panels only dock when dragged by their title bar
+        # (holding Shift is not required).
+        io.config_docking_with_shift = False
+
+        self._load_font(io)
+        self._apply_style()
 
         self._backend = GlfwRenderer(
             window.handle,
@@ -61,6 +76,68 @@ class ImGuiLayer:
             "[ImGui] Initialized (imgui %s).",
             imgui.get_version()
         )
+
+    # =====================================================
+    # Appearance
+    # =====================================================
+
+    FONT_SIZE = 16.0
+
+    @classmethod
+    def _load_font(
+        cls,
+        io
+    ):
+        """
+        Roboto (shipped with imgui_bundle) instead of the
+        tiny built-in bitmap font. Falls back silently if
+        the file is missing.
+        """
+
+        path = (
+            Path(imgui_bundle.__file__).parent
+            / "assets" / "fonts" / "Roboto" / "Roboto-Regular.ttf"
+        )
+
+        if not path.is_file():
+
+            Logger.warning("[ImGui] UI font not found: %s", path)
+
+            return
+
+        io.fonts.add_font_from_file_ttf(str(path), cls.FONT_SIZE)
+
+    @staticmethod
+    def _apply_style():
+
+        imgui.style_colors_dark()
+
+        style = imgui.get_style()
+
+        style.window_rounding = 4.0
+        style.frame_rounding = 3.0
+        style.grab_rounding = 3.0
+        style.tab_rounding = 3.0
+        style.popup_rounding = 4.0
+        style.scrollbar_rounding = 6.0
+
+        style.window_padding = (8.0, 8.0)
+        style.frame_padding = (6.0, 4.0)
+        style.item_spacing = (8.0, 5.0)
+
+        style.window_border_size = 0.0
+
+        # Slightly cooler, less saturated accents.
+        accent = (0.26, 0.47, 0.74, 1.0)
+        accent_hover = (0.33, 0.56, 0.86, 1.0)
+
+        style.set_color_(imgui.Col_.header, (0.22, 0.36, 0.56, 0.75))
+        style.set_color_(imgui.Col_.header_hovered, accent_hover)
+        style.set_color_(imgui.Col_.header_active, accent)
+        style.set_color_(imgui.Col_.button, (0.22, 0.36, 0.56, 0.75))
+        style.set_color_(imgui.Col_.button_hovered, accent_hover)
+        style.set_color_(imgui.Col_.button_active, accent)
+        style.set_color_(imgui.Col_.window_bg, (0.10, 0.105, 0.115, 1.0))
 
     # =====================================================
     # Frame

@@ -7,6 +7,7 @@ from imgui_bundle import imgui
 
 from core.cprofile_capture import CProfileCapture
 from core.jobs import JobSystem
+from ui.panels import DockSlot, PanelRegistry
 from core.profiler import Profiler
 from core.timer import Timer
 from core.window import Window
@@ -22,7 +23,6 @@ from graphics.renderer import (
 )
 
 from resources.resources import Resources
-from ui.window_utils import keep_window_on_screen
 from systems.planet_system import PlanetStats
 
 
@@ -58,9 +58,32 @@ class DebugPanel:
     # Construction
     # =====================================================
 
-    def __init__(self):
+    def __init__(
+        self,
+        panels: PanelRegistry
+    ):
 
         self.visible = True
+
+        self._panels = panels
+
+        panels.register(
+            "Stats",
+            DockSlot.BOTTOM,
+            description="Frame rate, draw calls, streaming."
+        )
+
+        panels.register(
+            "Render",
+            DockSlot.BOTTOM,
+            description="Exposure, bloom, sky, shadows, materials."
+        )
+
+        panels.register(
+            "Profiler",
+            DockSlot.BOTTOM,
+            description="CPU / GPU time per frame stage."
+        )
 
         self._last_reload_message = ""
 
@@ -78,13 +101,14 @@ class DebugPanel:
         if not self.visible:
             return
 
-        self._draw_engine_window(
-            context
-        )
+        if self._panels.is_visible("Stats"):
+            self._draw_stats_window(context)
 
-        self._draw_profiler_window(
-            context
-        )
+        if self._panels.is_visible("Render"):
+            self._draw_engine_window(context)
+
+        if self._panels.is_visible("Profiler"):
+            self._draw_profiler_window(context)
 
     # =====================================================
     # Profiler Window
@@ -98,28 +122,8 @@ class DebugPanel:
         context: DebugContext
     ):
 
-        display = imgui.get_io().display_size
+        self._panels.begin("Profiler")
 
-        imgui.set_next_window_pos(
-            (350, max(10.0, display.y - 310)),
-            imgui.Cond_.first_use_ever
-        )
-
-        imgui.set_next_window_size(
-            (max(460.0, display.x - 700), 300),
-            imgui.Cond_.first_use_ever
-        )
-
-        # Starts collapsed so it does not cover the middle
-        # of the viewport; the layout file remembers it.
-        imgui.set_next_window_collapsed(
-            True,
-            imgui.Cond_.first_use_ever
-        )
-
-        imgui.begin("Profiler")
-
-        keep_window_on_screen()
 
         profiler = context.profiler
 
@@ -365,31 +369,18 @@ class DebugPanel:
         imgui.end_table()
 
     # =====================================================
-    # Engine Window
+    # Stats and Render Windows
     # =====================================================
 
-    def _draw_engine_window(
+    def _draw_stats_window(
         self,
         context: DebugContext
     ):
 
-        imgui.set_next_window_pos(
-            (10, imgui.get_frame_height() + 4.0),
-            imgui.Cond_.first_use_ever
-        )
-
-        imgui.set_next_window_size(
-            (330, 0),
-            imgui.Cond_.first_use_ever
-        )
-
-        imgui.begin("Engine")
-
-        keep_window_on_screen()
+        self._panels.begin("Stats")
 
         timer = context.timer
         stats = context.stats
-        settings = context.settings
 
         fps = timer.fps
 
@@ -400,13 +391,16 @@ class DebugPanel:
 
         imgui.text(
             f"Draw calls: {stats.draw_calls}   "
-            f"Triangles: {stats.triangles}\n"
+            f"Triangles: {stats.triangles:,}"
+        )
+
+        imgui.text(
             f"Objects drawn: {stats.objects_drawn} / {stats.objects_total} "
             f"(after culling)"
         )
 
         imgui.text(
-            f"Jobs pending: {context.jobs.pending}  "
+            f"Background jobs: {context.jobs.pending} pending "
             f"({context.jobs.workers} workers)"
         )
 
@@ -414,20 +408,35 @@ class DebugPanel:
 
         if planet.planets:
 
+            imgui.separator_text("Planet streaming")
+
             imgui.text(
-                f"Planet chunks: {planet.chunks_drawn} drawn, "
-                f"{planet.chunks_loaded} loaded, "
-                f"{planet.chunks_building} building, "
-                f"{planet.chunks_queued} queued"
+                f"Chunks: {planet.chunks_drawn} drawn, "
+                f"{planet.chunks_loaded} in memory"
             )
 
-        imgui.text_disabled(
-            "Hold RMB + WASD: fly, Space/Shift: up/down\n"
-            "Click: select  |  "
-            "Q/W/E/R: select/move/rotate/scale  |  F: focus\n"
-            "Ctrl+Z/Y: undo/redo  |  Ctrl+S: save  |  Ctrl+P: play\n"
-            "F1: UI  |  F5: reload shaders"
-        )
+            if planet.chunks_building or planet.chunks_queued:
+
+                imgui.text_colored(
+                    (0.95, 0.8, 0.35, 1.0),
+                    f"Building {planet.chunks_building}, "
+                    f"{planet.chunks_queued} waiting"
+                )
+
+            else:
+
+                imgui.text_disabled("Up to date")
+
+        imgui.end()
+
+    def _draw_engine_window(
+        self,
+        context: DebugContext
+    ):
+
+        self._panels.begin("Render")
+
+        settings = context.settings
 
         # -------------------------------------------------
         # Output
@@ -494,6 +503,7 @@ class DebugPanel:
             imgui.separator_text("Atmosphere")
 
             _checkbox(settings, "atmosphere_enabled", "Enabled##atmosphere")
+            _checkbox(settings, "aerial_perspective", "Haze over terrain")
 
             changed, samples = imgui.slider_int(
                 "Samples##atmosphere",
@@ -593,7 +603,7 @@ class DebugPanel:
         context: DebugContext
     ):
 
-        # A section of the Engine window rather than its own
+        # A section of the Render panel rather than its own
         # window, so it never overlaps the other panels.
 
         if not imgui.collapsing_header("Materials"):

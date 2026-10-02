@@ -55,7 +55,7 @@ def draw_hierarchy_panel(
         imgui.Cond_.first_use_ever
     )
 
-    imgui.begin("Hierarchy")
+    editor.panels.begin("Hierarchy")
 
     keep_window_on_screen()
 

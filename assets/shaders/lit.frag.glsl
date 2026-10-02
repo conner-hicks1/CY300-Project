@@ -54,6 +54,10 @@ uniform vec3 uEmissive;                    // HDR: color * strength
 // include/terrain.glsl.
 uniform float uTerrainShading;
 
+// Planet terrain data view (0 = natural colors); see
+// terrainOverlay() in include/terrain.glsl.
+uniform float uTerrainView;
+
 
 // =========================================================
 // Image-Based Lighting (baked from the sky)
@@ -125,6 +129,22 @@ void main()
 
         baseColor = terrain.albedo * uBaseColor;
         roughness = terrain.roughness;
+
+        int view = int(uTerrainView + 0.5);
+
+        if (view > 0)
+        {
+            baseColor = terrainOverlay(
+                view,
+                vColor.r,
+                vColor.g,
+                vColor.b,
+                vTexCoord.x,
+                vTexCoord.y
+            );
+
+            roughness = 0.9;
+        }
     }
 
     float occlusion = mix(

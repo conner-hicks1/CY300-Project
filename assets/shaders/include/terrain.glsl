@@ -102,3 +102,152 @@ TerrainSurface terrainSurface(
 
     return surface;
 }
+
+
+// =========================================================
+// Data Views
+// =========================================================
+//
+// Alternative colorings for inspecting the terrain data
+// (Planet panel > View). Mode numbers match TERRAIN_VIEWS
+// in systems/planet_system.py:
+//
+//   1 elevation (hypsometric tint, 500 m contours, coast)
+//   2 slope      3 moisture      4 latitude bands
+//   5 detail level (quadtree depth, from aTexCoord.y)
+//
+// New data layers (plates, crust age, temperature...) are
+// added here as further modes.
+
+vec3 elevationTint(
+    float elevation
+)
+{
+    if (elevation < 0.0)
+    {
+        return mix(
+            vec3(0.55, 0.75, 0.95),
+            vec3(0.02, 0.08, 0.35),
+            clamp(-elevation / 5000.0, 0.0, 1.0)
+        );
+    }
+
+    const vec3 stops[6] = vec3[](
+        vec3(0.15, 0.45, 0.20),     //    0 m
+        vec3(0.55, 0.70, 0.30),     //  500 m
+        vec3(0.85, 0.75, 0.40),     // 1500 m
+        vec3(0.55, 0.38, 0.22),     // 3000 m
+        vec3(0.55, 0.52, 0.50),     // 4500 m
+        vec3(0.95, 0.95, 0.97)      // 6000 m
+    );
+
+    const float heights[6] = float[](0.0, 500.0, 1500.0, 3000.0, 4500.0, 6000.0);
+
+    vec3 color = stops[5];
+
+    for (int i = 0; i < 5; ++i)
+    {
+        if (elevation < heights[i + 1])
+        {
+            color = mix(
+                stops[i],
+                stops[i + 1],
+                (elevation - heights[i]) / (heights[i + 1] - heights[i])
+            );
+
+            break;
+        }
+    }
+
+    return color;
+}
+
+// 1 on a line every `spacing` units of `value`, about a
+// pixel wide.
+float contourLine(
+    float value,
+    float spacing
+)
+{
+    float scaled = value / spacing;
+
+    float width = max(fwidth(scaled), 1e-4);
+
+    float distance = abs(fract(scaled + 0.5) - 0.5);
+
+    return 1.0 - smoothstep(0.5 * width, 1.5 * width, distance);
+}
+
+vec3 terrainOverlayColor(
+    int mode,
+    float elevation,
+    float slope,
+    float moisture,
+    float latitude,
+    float detail
+)
+{
+    if (mode == 1)
+    {
+        vec3 color = elevationTint(elevation);
+
+        color *= 1.0 - 0.35 * contourLine(elevation, 500.0);
+
+        // Coastline: a one-pixel line where elevation = 0.
+        float width = max(fwidth(elevation), 1e-3);
+
+        color *= smoothstep(0.5 * width, 1.5 * width, abs(elevation));
+
+        return color;
+    }
+
+    if (mode == 2)
+    {
+        float steepness = clamp((1.0 - slope) / 0.4, 0.0, 1.0);
+
+        return mix(vec3(0.9), vec3(0.08, 0.05, 0.05), steepness);
+    }
+
+    if (mode == 3)
+    {
+        return mix(vec3(0.55, 0.38, 0.18), vec3(0.10, 0.35, 0.85), moisture);
+    }
+
+    if (mode == 4)
+    {
+        float degrees_ = degrees(asin(clamp(latitude, 0.0, 1.0)));
+
+        float band = mod(floor(degrees_ / 10.0), 2.0);
+
+        vec3 color = mix(vec3(0.25, 0.55, 0.85), vec3(0.85, 0.85, 0.85), degrees_ / 90.0);
+
+        return color * (0.8 + 0.2 * band);
+    }
+
+    if (mode == 5)
+    {
+        // A distinct hue per level (golden-ratio steps
+        // around the color wheel, so neighbors differ).
+        float level = floor(detail * 20.0 + 0.5);
+
+        vec3 hue = 0.5 + 0.5 * cos(6.2831853 * (level * 0.618034 + vec3(0.0, 0.33, 0.67)));
+
+        return mix(hue, vec3(0.9), 0.15);
+    }
+
+    return vec3(1.0, 0.0, 1.0);
+}
+
+// Data view albedo, scaled to natural ground brightness so
+// sunlight does not wash the colors out.
+vec3 terrainOverlay(
+    int mode,
+    float elevation,
+    float slope,
+    float moisture,
+    float latitude,
+    float detail
+)
+{
+    return 0.45 * terrainOverlayColor(mode, elevation, slope, moisture, latitude, detail);
+}

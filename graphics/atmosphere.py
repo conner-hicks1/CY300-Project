@@ -197,7 +197,8 @@ def _ray_sphere(
 #     vec4 uMieParams;               x scattering, y absorption (1/km),
 #                                    z scale height (km), w sun angular radius (rad)
 #     vec4 uOzoneAbsorption;         rgb 1/km, w center altitude (km)
-#     vec4 uOzoneParams;             x half width (km), y raymarch steps
+#     vec4 uOzoneParams;             x half width (km), y raymarch steps,
+#                                    z 1 = haze over geometry (aerial perspective)
 #     vec4 uAtmosphereSunDirection;  xyz toward the sun, w 1 = sun present
 #     vec4 uSunIlluminance;          rgb sun color * intensity, w disc brightness
 
@@ -206,7 +207,8 @@ def pack_atmosphere_block(
     planet_center_relative=(0.0, 0.0, 0.0),
     sun_direction=None,
     sun_illuminance=(0.0, 0.0, 0.0),
-    steps: int = 24
+    steps: int = 24,
+    aerial_perspective: bool = True
 ) -> bytes:
     """
     parameters None packs a disabled atmosphere.
@@ -241,6 +243,7 @@ def pack_atmosphere_block(
 
     data[20] = p.ozone_half_width
     data[21] = float(steps)
+    data[22] = 1.0 if aerial_perspective else 0.0
 
     if sun_direction is not None:
 

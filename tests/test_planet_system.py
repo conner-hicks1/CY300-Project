@@ -44,11 +44,25 @@ class FakeMesh:
         FakeMesh.live -= 1
 
 
+class FakeMaterial:
+
+    def __init__(self):
+
+        self.values = {}
+
+    def set_float(self, name, value):
+
+        self.values[name] = value
+
+
+PLANET_MATERIAL = FakeMaterial()
+
+
 class FakeMaterials:
 
     def get(self, handle):
 
-        return "planet-material"
+        return PLANET_MATERIAL
 
 
 class FakeResources:
@@ -116,7 +130,7 @@ def test_streams_until_complete(world):
     items = system.draw_items
 
     assert len(items) == stats.chunks_drawn
-    assert all(item.material == "planet-material" for item in items)
+    assert all(item.material is PLANET_MATERIAL for item in items)
 
     # Chunk world matrices include the planet's position.
     centers = np.array([item.world_matrix[:3, 3] for item in items])
@@ -135,6 +149,9 @@ def test_settings_change_rebuilds(world):
     stream(scene, system, jobs, camera)
 
     scene.get_component(planet, PlanetComponent).seed = 2
+
+    # Rebuilds wait for settings to settle; none here.
+    system.REBUILD_DELAY = 0.0
 
     system.update(scene, camera)
 
@@ -179,3 +196,42 @@ def test_camera_follows_ground(world):
 
     assert controller.planet_center == pytest.approx((0.0, -RADIUS, 0.0))
     assert controller.planet_radius >= RADIUS
+
+
+def test_rebuild_waits_for_settings_to_settle(world):
+
+    scene, system, jobs, planet = world
+
+    camera = np.array([0.0, 500.0, 0.0])
+
+    stream(scene, system, jobs, camera)
+
+    loaded = FakeMesh.live
+
+    system.REBUILD_DELAY = 10.0
+
+    component = scene.get_component(planet, PlanetComponent)
+
+    # Dragging a slider: a new value every frame.
+    for height in (600.0, 700.0, 800.0):
+
+        component.mountain_height = height
+
+        system.update(scene, camera)
+
+        assert system.rebuild_pending(planet)
+
+    # The old planet keeps drawing meanwhile.
+    assert FakeMesh.live == loaded
+    assert system.stats.chunks_drawn > 0
+
+
+def test_view_mode_reaches_material(world):
+
+    scene, system, _, _ = world
+
+    system.view_mode = 3
+
+    system.update(scene, np.array([0.0, 500.0, 0.0]))
+
+    assert PLANET_MATERIAL.values["uTerrainView"] == 3.0

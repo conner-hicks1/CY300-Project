@@ -19,6 +19,7 @@ from ecs.components import (
     HierarchyComponent,
     MeshRendererComponent,
     NameComponent,
+    PlanetComponent,
     PointLightComponent,
     SpotLightComponent,
     TransformComponent
@@ -27,6 +28,7 @@ from ecs.entity import Entity
 
 from graphics.lighting import MAX_POINT_LIGHTS, MAX_SPOT_LIGHTS
 
+from math3d import quaternion
 from math3d.matrices import decompose_trs_quaternion
 from math3d.transform import Transform
 
@@ -44,6 +46,9 @@ from editor.hierarchy_panel import draw_hierarchy_panel
 from editor.history import Snapshot, UndoHistory
 from editor.inspector_panel import draw_inspector_panel
 from editor.picking import PickCandidate, pick, screen_ray
+
+from ui.editor_layout import EditorLayout, ScreenRect
+from ui.panels import DockSlot, PanelRegistry
 
 
 gizmo = imguizmo.im_guizmo
@@ -101,7 +106,8 @@ class SceneEditor:
         serializer: SceneSerializer,
         populate_demo_scene: Callable[[Scene], None],
         load_model: Callable[[str], object],
-        load_model_material: Callable[[str], object] | None = None
+        load_model_material: Callable[[str], object] | None = None,
+        panels: PanelRegistry | None = None
     ):
         """
         load_model_material: model path -> Material handle
@@ -121,6 +127,32 @@ class SceneEditor:
         self._load_model_material = load_model_material
 
         self.visible = True
+
+        # Tool windows and the docked layout around the 3D
+        # viewport (ui/panels.py, ui/editor_layout.py).
+        self.panels = panels or PanelRegistry()
+
+        self.panels.register(
+            "Hierarchy",
+            DockSlot.LEFT_TOP,
+            description="Entities in the scene; drag to parent."
+        )
+
+        self.panels.register(
+            "Inspector",
+            DockSlot.RIGHT,
+            description="Components of the selected entity."
+        )
+
+        self.layout = EditorLayout(self.panels)
+
+        # Overlay with altitude / speed / FPS in the viewport.
+        self.show_hud = True
+
+        # Set from the View menu; Application acts on it.
+        self.ui_hidden_requested = False
+
+        self._show_controls = False
 
         self.selected: Entity | None = None
 
@@ -184,12 +216,21 @@ class SceneEditor:
         if self.visible:
 
             self._draw_menu_bar()
+
+            # After the menu bar, which it must not cover.
+            self.layout.begin()
+
             self._draw_toolbar()
 
-            draw_hierarchy_panel(self)
-            draw_inspector_panel(self)
+            if self.panels.is_visible("Hierarchy"):
+                draw_hierarchy_panel(self)
+
+            if self.panels.is_visible("Inspector"):
+                draw_inspector_panel(self)
 
             self._draw_gizmo()
+
+            self._draw_controls_window()
 
             if not looking:
 
@@ -201,6 +242,36 @@ class SceneEditor:
         self._commit_record()
 
         self._update_title()
+
+    # =====================================================
+    # Viewport
+    # =====================================================
+
+    @property
+    def viewport_rect(
+        self
+    ) -> ScreenRect:
+        """
+        Where the 3D view is on screen: the dockspace's
+        central area, or the whole window with the UI hidden.
+        """
+
+        io = imgui.get_io()
+
+        rect = self.layout.viewport_rect
+
+        if not self.visible or rect is None or rect.width < 1 or rect.height < 1:
+            return ScreenRect(0.0, 0.0, io.display_size.x, io.display_size.y)
+
+        return rect
+
+    def mouse_in_viewport(
+        self
+    ) -> bool:
+
+        position = imgui.get_io().mouse_pos
+
+        return self.viewport_rect.contains(position.x, position.y)
 
     # =====================================================
     # Selection
@@ -300,7 +371,7 @@ class SceneEditor:
     ) -> Snapshot:
 
         # Render settings are not part of undo: they are
-        # tweaked live in the Engine panel, and undoing a
+        # tweaked live in the Render panel, and undoing a
         # transform should not also revert exposure.
 
         text = json.dumps(
@@ -799,6 +870,14 @@ class SceneEditor:
 
         target = target_transform.world_position
 
+        planet = scene.try_get_component(self.selected, PlanetComponent)
+
+        if planet is not None:
+
+            self.frame_planet(camera_entity, target, planet.radius)
+
+            return
+
         # Distance from the selection's size, if it has a mesh.
 
         radius = 0.5
@@ -841,6 +920,39 @@ class SceneEditor:
             target
             - forward * (radius * 3.0)
         )
+
+    def frame_planet(
+        self,
+        camera_entity: Entity,
+        center: np.ndarray,
+        radius: float
+    ):
+        """Back the camera off until the whole planet is in view."""
+
+        transform = self.scene.get_component(camera_entity, TransformComponent)
+
+        camera = self.scene.get_component(camera_entity, CameraComponent)
+
+        offset = transform.world_position - center
+
+        length = float(np.linalg.norm(offset))
+
+        direction = offset / length if length > 0.0 else np.array([0.0, 0.0, 1.0])
+
+        # Fits the sphere in the vertical field of view,
+        # with a margin.
+        half_fov = np.radians(camera.fov) * 0.5
+
+        distance = radius / np.sin(half_fov) * 1.25
+
+        transform.transform.position = center + direction * distance
+
+        transform.transform.orientation = quaternion.look_rotation(
+            -direction,
+            np.array([0.0, 1.0, 0.0]) if abs(direction[1]) < 0.99 else np.array([0.0, 0.0, -1.0])
+        )
+
+        self.set_status("Whole planet in view. Hold RMB + W A S D to orbit.")
 
     # =====================================================
     # Files
@@ -1308,6 +1420,35 @@ class SceneEditor:
 
             imgui.end_menu()
 
+        if imgui.begin_menu("View"):
+
+            self.panels.draw_menu_items()
+
+            imgui.separator()
+
+            _, self.show_hud = imgui.menu_item("Viewport HUD", "", self.show_hud)
+
+            imgui.separator()
+
+            if imgui.menu_item("Reset Layout", "", False)[0]:
+
+                self.layout.request_reset()
+
+                for panel in self.panels:
+                    panel.visible = True
+
+            if imgui.menu_item("Hide UI", "F1", False)[0]:
+                self.ui_hidden_requested = True
+
+            imgui.end_menu()
+
+        if imgui.begin_menu("Help"):
+
+            if imgui.menu_item("Controls", "", False)[0]:
+                self._show_controls = True
+
+            imgui.end_menu()
+
         imgui.end_main_menu_bar()
 
     def draw_create_menu_items(
@@ -1368,11 +1509,16 @@ class SceneEditor:
 
         io = imgui.get_io()
 
+        rect = self.viewport_rect
+
+        # Top-center of the 3D viewport.
         imgui.set_next_window_pos(
-            (io.display_size.x * 0.5, imgui.get_frame_height() + 6.0),
+            (rect.x + rect.width * 0.5, rect.y + 6.0),
             imgui.Cond_.always,
             (0.5, 0.0)
         )
+
+        imgui.set_next_window_bg_alpha(0.85)
 
         flags = (
             imgui.WindowFlags_.no_title_bar.value
@@ -1381,6 +1527,7 @@ class SceneEditor:
             | imgui.WindowFlags_.always_auto_resize.value
             | imgui.WindowFlags_.no_saved_settings.value
             | imgui.WindowFlags_.no_focus_on_appearing.value
+            | imgui.WindowFlags_.no_docking.value
         )
 
         imgui.begin("##toolbar", None, flags)
@@ -1451,11 +1598,13 @@ class SceneEditor:
             imgui.get_background_draw_list()
         )
 
+        rect = self.viewport_rect
+
         gizmo.set_rect(
-            0.0,
-            0.0,
-            io.display_size.x,
-            io.display_size.y
+            rect.x,
+            rect.y,
+            rect.width,
+            rect.height
         )
 
         camera = self.render_system.last_camera
@@ -1643,6 +1792,7 @@ class SceneEditor:
             io.want_capture_mouse
             or gizmo.is_over()
             or gizmo.is_using()
+            or not self.mouse_in_viewport()
         ):
             return
 
@@ -1651,11 +1801,13 @@ class SceneEditor:
         if camera is None:
             return
 
+        rect = self.viewport_rect
+
         ray = screen_ray(
-            io.mouse_pos.x,
-            io.mouse_pos.y,
-            io.display_size.x,
-            io.display_size.y,
+            io.mouse_pos.x - rect.x,
+            io.mouse_pos.y - rect.y,
+            rect.width,
+            rect.height,
             camera.view_matrix,
             camera.projection_matrix
         )
@@ -1802,6 +1954,63 @@ class SceneEditor:
             self.delete(self.selected)
 
     # =====================================================
+    # Help
+    # =====================================================
+
+    CONTROLS = (
+        ("Look around", "Hold right mouse button, move the mouse"),
+        ("Fly", "Hold RMB + W A S D"),
+        ("Up / down", "Hold RMB + Space / Shift"),
+        ("On a planet", "W A S D move along the ground (around the\n"
+                        "planet from orbit); Space / Shift move away\n"
+                        "from / toward it. Speed grows with altitude."),
+        ("Select", "Left click in the viewport or the Hierarchy"),
+        ("Tools", "Q select, W move, E rotate, R scale"),
+        ("Frame selection", "F (on a planet: whole-planet view)"),
+        ("Undo / redo", "Ctrl+Z / Ctrl+Y"),
+        ("Duplicate / delete", "Ctrl+D / Delete"),
+        ("Save / open", "Ctrl+S / Ctrl+O"),
+        ("Play / stop", "Ctrl+P"),
+        ("Hide UI", "F1"),
+        ("Reload shaders", "F5"),
+    )
+
+    def _draw_controls_window(self):
+
+        if not self._show_controls:
+            return
+
+        io = imgui.get_io()
+
+        imgui.set_next_window_pos(
+            (io.display_size.x * 0.5, io.display_size.y * 0.5),
+            imgui.Cond_.appearing,
+            (0.5, 0.5)
+        )
+
+        flags = (
+            imgui.WindowFlags_.always_auto_resize.value
+            | imgui.WindowFlags_.no_docking.value
+            | imgui.WindowFlags_.no_collapse.value
+        )
+
+        expanded, self._show_controls = imgui.begin("Controls", True, flags)
+
+        if expanded and imgui.begin_table("controls", 2, imgui.TableFlags_.row_bg.value):
+
+            for action, keys in self.CONTROLS:
+
+                imgui.table_next_row()
+                imgui.table_next_column()
+                imgui.text(action)
+                imgui.table_next_column()
+                imgui.text_disabled(keys)
+
+            imgui.end_table()
+
+        imgui.end()
+
+    # =====================================================
     # Status / Title
     # =====================================================
 
@@ -1836,8 +2045,10 @@ class SceneEditor:
 
         draw_list = imgui.get_foreground_draw_list()
 
-        x = io.display_size.x - size.x - 16.0
-        y = io.display_size.y - size.y - 12.0
+        rect = self.viewport_rect
+
+        x = rect.x + rect.width - size.x - 16.0
+        y = rect.y + rect.height - size.y - 12.0
 
         draw_list.add_rect_filled(
             (x - 8.0, y - 4.0),

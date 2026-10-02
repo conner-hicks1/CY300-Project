@@ -83,6 +83,10 @@ class RenderSettings:
     atmosphere_enabled: bool = True
     atmosphere_samples: int = 24
 
+    # Haze over distant geometry. (Also suppressed while a
+    # planet data view is shown, so its colors read true.)
+    aerial_perspective: bool = True
+
     # -----------------------------------------------------
     # Shadows
     # -----------------------------------------------------

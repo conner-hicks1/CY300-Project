@@ -4,6 +4,8 @@ from pathlib import Path
 
 import numpy as np
 
+from imgui_bundle import imgui
+
 from core.assertions import engine_assert
 from core.cprofile_capture import CProfileCapture
 from core.events import (
@@ -36,6 +38,7 @@ from ecs.components import (
 )
 from ecs.entity import Entity
 
+from graphics.framebuffer import Framebuffer
 from graphics.gpu_timer import GpuTimer
 from graphics.material import Material
 from graphics.mesh_factory import MeshFactory
@@ -48,6 +51,7 @@ from graphics.texture import Texture2D
 from math3d import quaternion
 from math3d.transform import Transform
 
+from planet import solar
 from planet.spawn import find_spawn
 from planet.terrain import Terrain, TerrainSettings
 
@@ -67,10 +71,12 @@ from scene.scene_serializer import (
     model_material_key
 )
 
+from editor.planet_panel import PlanetPanel, sun_orientation
 from editor.scene_editor import SceneEditor
 
 from ui.debug_panel import DebugContext, DebugPanel
 from ui.imgui_layer import ImGuiLayer
+from ui.panels import PanelRegistry
 
 
 class Application:
@@ -155,6 +161,7 @@ class Application:
 
         self.imgui_layer: ImGuiLayer | None = None
         self.debug_panel: DebugPanel | None = None
+        self.planet_panel: PlanetPanel | None = None
 
         # -------------------------------------------------
         # Resources
@@ -290,8 +297,6 @@ class Application:
             self.window
         )
 
-        self.debug_panel = DebugPanel()
-
         # -------------------------------------------------
         # Content
         # -------------------------------------------------
@@ -317,7 +322,19 @@ class Application:
             self.serializer,
             populate_demo_scene=self._populate_demo_scene,
             load_model=MeshFactory.load_model,
-            load_model_material=self._load_model_material_handle
+            load_model_material=self._load_model_material_handle,
+            panels=PanelRegistry()
+        )
+
+        # Tool windows, in View-menu order after the
+        # editor's Hierarchy / Inspector.
+        self.planet_panel = PlanetPanel(
+            self.editor,
+            self.planet_system
+        )
+
+        self.debug_panel = DebugPanel(
+            self.editor.panels
         )
 
         self._load_initial_scene(
@@ -798,10 +815,20 @@ class Application:
         # Sun
         # -------------------------------------------------
 
+        # Mid-morning in late spring at the spawn point.
+        sun_world = quaternion.rotate_vector(
+            orientation,
+            solar.sun_direction(
+                spawn.direction,
+                hour=10.5,
+                declination=math.radians(15.0)
+            )
+        )
+
         self._create_entity(
             "Sun",
             Transform(
-                rotation=(-35.0, 150.0, 0.0)
+                orientation=sun_orientation(sun_world)
             ),
             DirectionalLightComponent(
                 color=(1.0, 0.96, 0.9),
@@ -990,6 +1017,12 @@ class Application:
             and not self._looking
         )
 
+        if self.editor.ui_hidden_requested:
+
+            self.editor.ui_hidden_requested = False
+
+            self.set_ui_visible(False)
+
         if not ui_wants_keyboard:
 
             if Input.is_key_pressed(Key.F1):
@@ -1108,6 +1141,11 @@ class Application:
         # Planet Streaming
         # -------------------------------------------------
 
+        # Data views show the terrain without haze.
+        self.render_system.suppress_haze = (
+            self.planet_system.view_mode != 0
+        )
+
         with profiler.scope("Planet"):
 
             self.planet_system.update(
@@ -1153,13 +1191,30 @@ class Application:
             return
 
         # -------------------------------------------------
-        # Scene
+        # Scene, into the editor's viewport
         # -------------------------------------------------
+        #
+        # With the editor visible the 3D view is the docked
+        # layout's central area (last frame's rectangle; the
+        # UI is built after rendering); otherwise the whole
+        # window. Clear first so nothing stale shows around
+        # it.
+
+        Framebuffer.bind_default(width, height)
+
+        RenderCommand.set_clear_color((0.06, 0.065, 0.075, 1.0))
+        RenderCommand.clear(depth=False)
+
+        view_x, view_y, view_width, view_height = self._viewport_pixels(
+            width,
+            height
+        )
 
         self.render_system.render(
             self.scene,
-            width,
-            height,
+            view_width,
+            view_height,
+            output_origin=(view_x, view_y),
             extra_items=self.planet_system.draw_items,
             selected=(
                 self.editor.selected
@@ -1184,6 +1239,11 @@ class Application:
                     looking=self._looking
                 )
 
+                self.planet_panel.draw(
+                    self.timer.delta_time,
+                    self.timer.fps
+                )
+
                 self.debug_panel.draw(
                     DebugContext(
                         resources=self.resources,
@@ -1204,6 +1264,33 @@ class Application:
             with profiler.scope("Draw", gpu=True):
 
                 self.imgui_layer.end_frame()
+
+    def _viewport_pixels(
+        self,
+        width: int,
+        height: int
+    ) -> tuple[int, int, int, int]:
+        """
+        The editor viewport in framebuffer pixels
+        (x, y from the bottom-left, width, height).
+        """
+
+        rect = self.editor.viewport_rect
+
+        io = imgui.get_io()
+
+        scale_x = io.display_framebuffer_scale.x or 1.0
+        scale_y = io.display_framebuffer_scale.y or 1.0
+
+        x = int(round(rect.x * scale_x))
+        top = int(round(rect.y * scale_y))
+
+        view_width = max(1, min(width - x, int(round(rect.width * scale_x))))
+        view_height = max(1, min(height - top, int(round(rect.height * scale_y))))
+
+        y = max(0, height - top - view_height)
+
+        return x, y, view_width, view_height
 
     # =====================================================
     # Screenshot

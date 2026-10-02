@@ -148,6 +148,10 @@ class RenderSystem:
         # picking / gizmos); None before the first render.
         self.last_camera: Camera | None = None
 
+        # Set per frame by the application: no haze over
+        # geometry (planet data views).
+        self.suppress_haze = False
+
         # Messages already logged by _warn_once().
         self._warnings: set[str] = set()
 
@@ -303,9 +307,14 @@ class RenderSystem:
         width: int,
         height: int,
         selected: Entity | None = None,
-        extra_items: list[DrawItem] | None = None
+        extra_items: list[DrawItem] | None = None,
+        output_origin: tuple[int, int] = (0, 0)
     ):
         """
+        width, height: size of the image (the editor's 3D
+            viewport, or the whole window).
+        output_origin: where the image goes in the window's
+            framebuffer (pixels, bottom-left origin).
         selected: entity to outline (editor selection).
         extra_items: draws that are not entities (planet
             terrain chunks), rendered and shadowed like
@@ -536,7 +545,7 @@ class RenderSystem:
 
             else:
 
-                Framebuffer.bind_default(width, height)
+                Framebuffer.bind_default(width, height, *output_origin)
 
             self._render_post(
                 hdr,
@@ -545,7 +554,7 @@ class RenderSystem:
 
             if settings.fxaa_enabled:
 
-                Framebuffer.bind_default(width, height)
+                Framebuffer.bind_default(width, height, *output_origin)
 
                 self._render_fxaa(
                     ldr,
@@ -871,7 +880,11 @@ class RenderSystem:
                 planet_center_relative=-camera_offset,
                 sun_direction=sun_direction,
                 sun_illuminance=sun_illuminance,
-                steps=self.settings.atmosphere_samples
+                steps=self.settings.atmosphere_samples,
+                aerial_perspective=(
+                    self.settings.aerial_perspective
+                    and not self.suppress_haze
+                )
             )
         )
 

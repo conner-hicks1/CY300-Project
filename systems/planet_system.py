@@ -1,3 +1,5 @@
+import time
+
 from dataclasses import dataclass
 
 import numpy as np
@@ -21,10 +23,23 @@ from math3d.matrices import translation
 from planet.chunk import ChunkData, build_chunk
 from planet.cube_sphere import ChunkKey, edge_length
 from planet.lod import LodSelector
+from planet.spawn import SpawnPoint, find_spawn
 from planet.terrain import Terrain, TerrainSettings
 
 from resources.resources import Resources
 from scene.scene import Scene
+
+
+# Terrain view modes (assets/shaders/include/terrain.glsl
+# terrainOverlay; index = uTerrainView).
+TERRAIN_VIEWS: tuple[tuple[str, str], ...] = (
+    ("Natural", "Biome colors."),
+    ("Elevation", "Height map with 500 m contour lines; coast in black."),
+    ("Slope", "Flat ground bright, cliffs dark."),
+    ("Moisture", "Dry (brown) to wet (blue)."),
+    ("Latitude", "10-degree bands from the equator."),
+    ("Detail level", "Quadtree depth of each chunk."),
+)
 
 
 @dataclass(slots=True)
@@ -39,14 +54,16 @@ class PlanetStats:
 
 class _Chunk:
 
-    __slots__ = ("mesh", "offset", "job", "last_used")
+    __slots__ = ("mesh", "offset", "local_matrix", "job", "last_used")
 
     def __init__(self):
 
         self.mesh: Mesh | None = None
 
-        # Translation from planet center to vertex origin.
+        # Translation from planet center to vertex origin,
+        # and as a matrix (built once).
         self.offset: np.ndarray | None = None
+        self.local_matrix: np.ndarray | None = None
 
         self.job: Job | None = None
 
@@ -81,6 +98,13 @@ class _Planet:
         self.draw: list[ChunkKey] = []
         self.wanted: list[ChunkKey] = []
 
+        # Bumped whenever `draw` is replaced.
+        self.draw_version = 0
+
+        # Draw items for `draw`, and what they were built for.
+        self.items: list[DrawItem] = []
+        self.items_key: tuple | None = None
+
         # Built chunks the last selection relied on (drawn,
         # or covering a split); never evicted while in use.
         self.in_use: set[ChunkKey] = set()
@@ -98,6 +122,8 @@ class _Planet:
         self.dirty = True
 
         self.ground_cache: tuple[np.ndarray, float] | None = None
+
+        self.spawn: SpawnPoint | None = None
 
         self.alive = True
 
@@ -171,6 +197,11 @@ class PlanetSystem:
 
     MATERIAL_KEY = "planet"
 
+    # Terrain settings must be unchanged this long before
+    # the planet rebuilds, so dragging a slider does not
+    # restart the whole build every frame.
+    REBUILD_DELAY = 0.35
+
     def __init__(
         self,
         resources: Resources,
@@ -190,6 +221,12 @@ class PlanetSystem:
 
         self.stats = PlanetStats()
 
+        # Index into TERRAIN_VIEWS.
+        self.view_mode = 0
+
+        # entity -> (config waiting to be applied, since).
+        self._pending_config: dict[Entity, tuple[tuple, float]] = {}
+
     # =====================================================
     # Update
     # =====================================================
@@ -206,6 +243,8 @@ class PlanetSystem:
         camera_position = np.asarray(camera_position, dtype=np.float64)
 
         material = self._resources.materials.get(self._material)
+
+        material.set_float("uTerrainView", float(self.view_mode))
 
         items: list[DrawItem] = []
 
@@ -229,13 +268,19 @@ class PlanetSystem:
 
             planet = self._planets.get(entity)
 
-            if planet is None or planet.config != _config_of(component):
+            config = _config_of(component)
 
-                if planet is not None:
+            if planet is None:
 
-                    Logger.info("[Planet] Settings changed; rebuilding.")
+                planet = _Planet(component)
 
-                    building -= self._release(planet)
+                self._planets[entity] = planet
+
+            elif planet.config != config and self._settled(entity, config):
+
+                Logger.info("[Planet] Settings changed; rebuilding.")
+
+                building -= self._release(planet)
 
                 planet = _Planet(component)
 
@@ -280,18 +325,25 @@ class PlanetSystem:
             for key in planet.in_use:
                 planet.chunks[key].last_used = frame
 
-            for key in planet.draw:
+            # Rebuilt only when the drawn set or the planet's
+            # placement changes (selection is cached too).
+            cache_key = (planet.draw_version, world.tobytes(), id(material))
 
-                chunk = planet.chunks[key]
+            if planet.items_key != cache_key:
 
-                items.append(
+                planet.items = [
                     DrawItem(
-                        mesh=chunk.mesh,
+                        mesh=planet.chunks[key].mesh,
                         material=material,
-                        world_matrix=world @ translation(chunk.offset),
+                        world_matrix=world @ planet.chunks[key].local_matrix,
                         casts_shadows=True
                     )
-                )
+                    for key in planet.draw
+                ]
+
+                planet.items_key = cache_key
+
+            items.extend(planet.items)
 
             self._evict(planet)
 
@@ -299,6 +351,8 @@ class PlanetSystem:
         for entity in [e for e in self._planets if e not in seen]:
 
             self._release(self._planets.pop(entity))
+
+            self._pending_config.pop(entity, None)
 
         self._items = items
 
@@ -321,6 +375,88 @@ class PlanetSystem:
     ) -> list[DrawItem]:
 
         return self._items
+
+    def _settled(
+        self,
+        entity: Entity,
+        config: tuple
+    ) -> bool:
+        """True once `config` has been unchanged for REBUILD_DELAY."""
+
+        now = time.monotonic()
+
+        pending = self._pending_config.get(entity)
+
+        if pending is None or pending[0] != config:
+
+            self._pending_config[entity] = (config, now)
+
+            return self.REBUILD_DELAY <= 0.0
+
+        if now - pending[1] >= self.REBUILD_DELAY:
+
+            del self._pending_config[entity]
+
+            return True
+
+        return False
+
+    def rebuild_pending(
+        self,
+        entity: Entity
+    ) -> bool:
+        """Settings changed and a rebuild is about to start."""
+
+        return entity in self._pending_config
+
+    # =====================================================
+    # Queries (editor)
+    # =====================================================
+
+    def terrain(
+        self,
+        entity: Entity
+    ) -> Terrain | None:
+
+        planet = self._planets.get(entity)
+
+        return planet.terrain if planet is not None else None
+
+    def spawn_point(
+        self,
+        entity: Entity
+    ) -> SpawnPoint | None:
+        """
+        A scenic starting place on the planet (planet/spawn.py),
+        computed once per terrain (~0.1 s).
+        """
+
+        planet = self._planets.get(entity)
+
+        if planet is None:
+            return None
+
+        if planet.spawn is None:
+            planet.spawn = find_spawn(planet.terrain)
+
+        return planet.spawn
+
+    def ground_elevation(
+        self,
+        entity: Entity,
+        direction
+    ) -> float | None:
+        """Terrain elevation (m) under a planet-space direction."""
+
+        planet = self._planets.get(entity)
+
+        if planet is None:
+            return None
+
+        direction = np.asarray(direction, dtype=np.float64)
+
+        # Shares the camera-ground cache.
+        return planet.ground_elevation(direction / np.linalg.norm(direction))
 
     # =====================================================
     # Selection
@@ -359,6 +495,7 @@ class PlanetSystem:
         )
 
         planet.draw = selection.draw
+        planet.draw_version += 1
         planet.wanted = selection.wanted
         planet.in_use = in_use
 
@@ -391,6 +528,7 @@ class PlanetSystem:
 
             chunk.mesh = Mesh.from_data(data.mesh)
             chunk.offset = data.center
+            chunk.local_matrix = translation(data.center)
 
             planet.dirty = True
 

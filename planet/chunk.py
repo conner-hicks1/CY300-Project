@@ -117,7 +117,7 @@ def build_chunk(
 
     # Terrain inputs for the per-pixel biome shading
     # (assets/shaders/include/terrain.glsl): color = (elevation,
-    # slope, moisture), uv.x = latitude.
+    # slope, moisture), uv.x = latitude, uv.y = depth / 20.
     colors = np.stack(
         (elevation, slope, terrain.moisture(directions)),
         axis=1
@@ -146,7 +146,8 @@ def build_chunk(
 
     all_positions = np.vstack((positions, skirt_positions)) - center
 
-    uv = np.stack((latitude, np.zeros(n * n)), axis=1)
+    # uv.y: quadtree depth, for the "Detail level" view.
+    uv = np.stack((latitude, np.full(n * n, key.depth / 20.0)), axis=1)
 
     mesh = MeshData.from_attributes(
         positions=all_positions,

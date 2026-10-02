@@ -119,6 +119,7 @@ class Renderer:
         "uEmissive": (0.0, 0.0, 0.0),
         "uUVScale": (1.0, 1.0),
         "uTerrainShading": 0.0,
+        "uTerrainView": 0.0,
     }
 
     # =====================================================

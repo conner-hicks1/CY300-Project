@@ -55,11 +55,22 @@ building and saving scenes.
 
 ![The scene editor](docs/images/editor.png)
 
+- Docked layout around the 3D viewport (drag panels to rearrange; View menu to
+  show / hide them or reset the layout; Help > Controls lists every shortcut)
+- **Planet panel**: jump to the surface / low orbit / whole-planet view, fly
+  speed, local **time of day and season** (moves the sun; optional day cycle),
+  terrain presets and sliders (the planet rebuilds when you release), seed,
+  atmosphere density and haze, and **data views**: elevation with contour
+  lines, slope, moisture, latitude, level of detail
+- Viewport HUD: altitude above ground and sea level, speed, latitude /
+  longitude, local time, frame rate
 - Hierarchy with drag-and-drop parenting, inspector for every component
 - Click-to-select in the viewport, move / rotate / scale gizmos with snapping
-- Undo / redo, scene files (JSON) with native open / save dialogs, model import
+- Undo / redo (including planet and sun edits), scene files (JSON) with native
+  open / save dialogs, model import
 - Play / Stop: run the simulation, then restore the scene exactly
-- Live render settings, material editing and a frame profiler (CPU + GPU timings)
+- Render settings, material editing, stats and a frame profiler (CPU + GPU
+  timings) in the bottom panel
 
 **Engine**
 
@@ -120,7 +131,7 @@ The planet streams in over the first few seconds.
 | Hold right mouse button | Look around; **W A S D** move, **Space** up, **Shift** down. On a planet, W A S D move along the ground (around the planet when in orbit) and Space / Shift move straight away from / toward it; speed grows with altitude |
 | Left click | Select an object |
 | **Q / W / E / R** | Select / move / rotate / scale tool |
-| **F** | Focus the camera on the selection |
+| **F** | Focus the camera on the selection (a planet: fit the whole planet in view) |
 | **Delete**, **Ctrl+D** | Delete / duplicate the selection |
 | **Ctrl+Z**, **Ctrl+Y** | Undo / redo |
 | **Ctrl+S**, **Ctrl+O** | Save / open a scene |
@@ -139,11 +150,11 @@ The planet streams in over the first few seconds.
 | `systems/` | Transform, camera controller, rotator, planet streaming and render systems |
 | `planet/` | Noise, cube-sphere mapping, terrain, chunk building, level of detail |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, bloom |
-| `editor/` | Scene editor panels, picking, undo history |
+| `editor/` | Scene editor, hierarchy / inspector / planet panels, picking, undo history |
 | `scene/` | Scene container and scene file (de)serialization |
 | `resources/` | Handle-based resource managers |
 | `math3d/` | Transforms, camera, matrix helpers |
-| `ui/` | ImGui integration and engine / profiler panels |
+| `ui/` | ImGui integration, docked layout and panel registry, render / stats / profiler panels |
 | `assets/` | Shaders, textures, scenes |
 | `tools/` | Asset generator and micro-benchmarks |
 | `tests/` | pytest suite (`tests/fixtures/` holds the OBJ / glTF test models) |

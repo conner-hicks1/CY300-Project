@@ -18,7 +18,8 @@ layout(std140) uniform AtmosphereBlock
     vec4 uMieParams;                // x scattering, y absorption (1/km),
                                     // z scale height (km), w sun angular radius
     vec4 uOzoneAbsorption;          // rgb 1/km, w center altitude (km)
-    vec4 uOzoneParams;              // x half width (km), y raymarch steps
+    vec4 uOzoneParams;              // x half width (km), y raymarch steps,
+                                    // z 1 = haze over geometry
     vec4 uAtmosphereSunDirection;   // xyz toward the sun, w 1 = present
     vec4 uSunIlluminance;           // rgb sun color * intensity, w disc brightness
 };
