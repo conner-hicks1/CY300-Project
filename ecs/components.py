@@ -293,9 +293,16 @@ class PlanetComponent:
     color_steep: tuple[float, float, float] = (0.16, 0.14, 0.12)
     color_ice: tuple[float, float, float] = (0.80, 0.82, 0.86)
 
-    # Below this annual mean temperature (C) the ground is
-    # frosted / iced over (mineral palette).
-    frost_point: float = -2.0
+    # Ice caps: what they are made of (planet/phases.py:
+    # water, carbon_dioxide, nitrogen, methane or none), and
+    # the annual mean temperature (C) below which the ground
+    # frosts over (derived from the body's air; editable).
+    ice: str = "water"
+    frost_point: float = -1.9
+
+    # Earth-like life: vegetation on the biomes palette
+    # (without it, the same climate zones are bare ground).
+    life: bool = True
 
     # Number of cloud bands ("bands" palette).
     bands: int = 0

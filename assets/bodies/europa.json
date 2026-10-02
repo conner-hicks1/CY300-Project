@@ -27,7 +27,7 @@
   "surface": {
     "mean_temperature_c": -171.0,
     "liquid": "none",
-    "frost_point_c": -1000.0,
+    "ice": "none",
     "palette": "mineral",
     "colors": {
       "low": [0.48, 0.36, 0.26],

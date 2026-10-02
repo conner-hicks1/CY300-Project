@@ -39,6 +39,8 @@ PROFILE_FORMAT = 1
 
 BODIES_DIRECTORY = Path("assets/bodies")
 
+from planet.phases import ICES, SUBSTANCES, frost_point
+
 GRAVITATIONAL_CONSTANT = 6.674e-11
 GAS_CONSTANT = 8.314                            # J / (mol K)
 STEFAN_BOLTZMANN = 5.670374e-8
@@ -47,6 +49,11 @@ SOLAR_RADIUS_M = 6.957e8
 AU_M = 1.495978707e11
 
 KINDS = ("terrestrial", "moon", "dwarf", "gas_giant", "ice_giant")
+
+KELVIN = 273.15
+
+# Frost point of a body without ice caps (C).
+NO_FROST_C = -1000.0
 LIQUIDS = ("none", "water", "methane", "lava")
 PALETTES = ("biomes", "mineral", "bands")
 REGIMES = (
@@ -201,7 +208,20 @@ class BodyProfile:
 
     mean_temperature_c: float
     liquid: str
+
+    # What the ice caps are made of (planet/phases.py; "none"
+    # = no frost), and the temperature below which they form
+    # (C): the liquid's freezing point when the ice is the
+    # body's own liquid (Earth's snow), otherwise where the
+    # gas's vapor pressure drops below its partial pressure
+    # in the air (Mars's water ice at ~-76 C, Pluto's
+    # nitrogen at ~-236 C).
+    ice: str
     frost_point_c: float
+
+    # Earth-like life (vegetation on the biomes palette).
+    life: bool
+
     palette: str
     colors: dict[str, tuple[float, float, float]] = field(hash=False)
 
@@ -559,6 +579,28 @@ def parse_profile(
 
         ring_extent = (number(rings, "inner_km", 0.0), number(rings, "outer_km", 0.0))
 
+    # Ice caps and life.
+    ice = surface.get("ice", "none")
+
+    if ice not in ICES:
+        fail(f"'ice' must be one of {', '.join(ICES)}")
+
+    life = surface.get("life", False)
+
+    if not isinstance(life, bool):
+        fail("'life' must be true or false")
+
+    frost = number(surface, "frost_point_c", -KELVIN, optional=True)
+
+    if frost is None:
+
+        frost = derived_frost_point(
+            ice,
+            choice(surface, "liquid", LIQUIDS),
+            atmosphere,
+            number(surface, "ice_vapor_bar", 0.0, optional=True)
+        )
+
     profile = BodyProfile(
         id=profile_id,
         name=data["name"],
@@ -581,7 +623,9 @@ def parse_profile(
         star_radius=number(star, "radius_solar", 0.0, default=1.0),
         mean_temperature_c=number(surface, "mean_temperature_c", -273.15),
         liquid=choice(surface, "liquid", LIQUIDS),
-        frost_point_c=number(surface, "frost_point_c"),
+        ice=ice,
+        frost_point_c=frost,
+        life=life,
         palette=choice(surface, "palette", PALETTES),
         colors=parsed_colors,
         terrain=terrain_values,
@@ -703,7 +747,9 @@ def components_for(
         color_high=high,
         color_steep=colors["steep"],
         color_ice=colors["ice"],
+        ice=profile.ice,
         frost_point=profile.frost_point_c,
+        life=profile.life,
         bands=profile.band_count if bands else 0
     )
 
@@ -887,6 +933,45 @@ def _calibration_terrain(grid, planet, profile):
     terrain = Terrain(terrain_settings_for(planet))
 
     return terrain.elevation(grid.directions, grid.cell_angle * planet.radius)
+
+
+def derived_frost_point(
+    ice: str,
+    liquid: str,
+    atmosphere: "AtmosphereProfile | None",
+    vapor_bar: float | None = None
+) -> float:
+    """
+    Frost point (C) of a body's ice (see BodyProfile.ice).
+    vapor_bar: the ice's gas partial pressure, for trace
+    gases the composition leaves out (water on Mars).
+    """
+
+    s = SUBSTANCES.get(ice)
+
+    if s is None:
+        return NO_FROST_C
+
+    pressure = atmosphere.surface_pressure_bar if atmosphere is not None else 0.0
+
+    # Snow of the body's own liquid: freezes where it falls.
+    if ice == liquid and pressure >= s.triple_bar:
+        return s.freezing_c
+
+    partial = vapor_bar
+
+    if partial is None and atmosphere is not None:
+
+        partial = pressure * sum(
+            fraction
+            for gas, fraction in atmosphere.composition
+            if gas == s.gas
+        ) / max(sum(fraction for _, fraction in atmosphere.composition), 1e-12)
+
+    if not partial:
+        return NO_FROST_C
+
+    return frost_point(s, partial)
 
 
 def star_color(

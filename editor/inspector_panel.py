@@ -20,6 +20,9 @@ from ecs.components import (
     TransformComponent
 )
 from ecs.entity import Entity
+
+from planet.phases import ICES
+
 from ui.window_utils import keep_window_on_screen
 
 from scene.scene_serializer import (
@@ -578,6 +581,7 @@ def _edit_planet(
     for field, label, options in (
         ("liquid", "Liquid", ("water", "methane", "lava", "none")),
         ("palette", "Palette", ("biomes", "mineral", "bands")),
+        ("ice", "Ice caps", ICES),
     ):
 
         current = getattr(component, field)
@@ -600,7 +604,15 @@ def _edit_planet(
 
         inspector.color(component, "color_steep", "Cliffs")
         inspector.color(component, "color_ice", "Frost / ice")
-        inspector.slider(component, "frost_point", "Frost point (C)", -250.0, 50.0, "%.0f")
+
+    if component.palette != "bands":
+
+        inspector.slider(component, "frost_point", "Frost point (C)", -250.0, 50.0, "%.1f")
+        imgui.set_item_tooltip("Below this annual mean temperature the ground ices over.")
+
+    if component.palette == "biomes":
+
+        inspector.checkbox(component, "life", "Life (vegetation)")
 
     if component.palette == "bands":
 

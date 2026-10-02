@@ -117,6 +117,14 @@ class ClimateSettings:
     # A liquid ocean carries heat too (and evaporates).
     ocean: bool = True
 
+    # Where the seas' liquid freezes and boils (C) at this
+    # pressure (planet/phases.py liquid_range); None without
+    # a liquid (or for lava, molten from volcanic heat).
+    # Seas boil away when they average hotter than boiling
+    # (a runaway greenhouse: the basins dry out).
+    liquid_freezing: float | None = -1.9
+    liquid_boiling: float | None = 100.0
+
 
 @dataclass(slots=True)
 class ClimateState:
@@ -126,6 +134,12 @@ class ClimateState:
     temperature: np.ndarray         # C at the surface
     precipitation: np.ndarray       # mm / year
     wind: np.ndarray                # (cells, 3) unit-ish surface wind
+
+    # The seas: "none", "liquid", "partly frozen", "frozen"
+    # or "boiled away"; and the share of sea cells colder
+    # than the freezing point.
+    liquid_state: str = "none"
+    frozen_fraction: float = 0.0
 
     compute_seconds: float = 0.0
 
@@ -276,17 +290,38 @@ class ClimateModel:
         # Temperature
         # -------------------------------------------------
 
-        sea = self._energy_balance(sin_latitude, ocean)
+        sea = self._sea_temperatures(sin_latitude, ocean, s.ocean)
 
-        # Continental interiors far from the sea run colder
-        # (in the annual mean, mostly through cold winters
-        # at high latitudes).
-        continentality = self._distance_inland(ocean)
+        # -------------------------------------------------
+        # The seas' phase
+        # -------------------------------------------------
 
-        if s.ocean:
-            sea = sea - 4.0 * np.clip(continentality / 15.0, 0.0, 1.0) * np.abs(sin_latitude)
+        liquid_state = "none"
+        frozen_fraction = 0.0
 
-        sea = sea + s.temperature_offset
+        if s.liquid_boiling is not None and np.any(ocean):
+
+            if float(sea[ocean].mean()) > s.liquid_boiling:
+
+                # Boiled away: no seas, no ocean heat transport
+                # or evaporation; the basins are dry ground.
+                liquid_state = "boiled away"
+
+                ocean = np.zeros_like(ocean)
+
+                sea = self._sea_temperatures(sin_latitude, ocean, False)
+
+            else:
+
+                freezing = s.liquid_freezing if s.liquid_freezing is not None else -np.inf
+
+                frozen_fraction = float(np.mean(sea[ocean] < freezing))
+
+                liquid_state = (
+                    "frozen" if frozen_fraction > 0.98
+                    else "partly frozen" if frozen_fraction > 0.02
+                    else "liquid"
+                )
 
         temperature = sea - s.lapse_rate * height
 
@@ -369,8 +404,31 @@ class ClimateModel:
             temperature=temperature.astype(np.float32),
             precipitation=precipitation.astype(np.float32),
             wind=wind.astype(np.float32),
+            liquid_state=liquid_state,
+            frozen_fraction=frozen_fraction,
             compute_seconds=time.perf_counter() - started
         )
+
+    def _sea_temperatures(
+        self,
+        sin_latitude: np.ndarray,
+        ocean: np.ndarray,
+        has_ocean: bool
+    ) -> np.ndarray:
+        """Sea-level temperature (C) per cell."""
+
+        sea = self._energy_balance(sin_latitude, ocean)
+
+        # Continental interiors far from the sea run colder
+        # (in the annual mean, mostly through cold winters
+        # at high latitudes).
+        if has_ocean and np.any(ocean):
+
+            continentality = self._distance_inland(ocean)
+
+            sea = sea - 4.0 * np.clip(continentality / 15.0, 0.0, 1.0) * np.abs(sin_latitude)
+
+        return sea + self.settings.temperature_offset
 
     def sea_level_temperatures(
         self,
@@ -423,7 +481,7 @@ class ClimateModel:
 
         transport = (
             _AIR_DIFFUSIVITY * math.sqrt(max(s.surface_pressure, 0.0))
-            + (_OCEAN_DIFFUSIVITY * ocean if s.ocean else 0.0)
+            + (_OCEAN_DIFFUSIVITY * np.asarray(ocean, dtype=np.float64) if s.ocean else 0.0)
         ) * grid_scale
 
         transport = np.broadcast_to(np.asarray(transport, dtype=np.float64), absorbed.shape)
@@ -610,6 +668,17 @@ class ClimateField:
     max_temperature: float = 0.0
     global_mean_temperature: float = 0.0
 
+    # The seas (see ClimateState).
+    liquid_state: str = "none"
+    frozen_fraction: float = 0.0
+
+    @property
+    def liquid_boiled(
+        self
+    ) -> bool:
+
+        return self.liquid_state == "boiled away"
+
     @classmethod
     def from_state(
         cls,
@@ -639,7 +708,9 @@ class ClimateField:
             lapse_rate=lapse_rate,
             min_temperature=float(state.temperature.min()),
             max_temperature=float(state.temperature.max()),
-            global_mean_temperature=float(state.temperature.mean())
+            global_mean_temperature=float(state.temperature.mean()),
+            liquid_state=state.liquid_state,
+            frozen_fraction=state.frozen_fraction
         )
 
     def surface(

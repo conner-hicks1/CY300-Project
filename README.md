@@ -35,6 +35,14 @@ building and saving scenes.
   (g / cp, less in moist or thin air), light scattering from pressure and gas
   mix, colored dust and haze, the star's color from its temperature, the
   sun's apparent size and (compressed) brightness
+- Liquids and ices from phase physics (triple and critical points, vapor
+  pressure curves): seas of water or methane freeze where colder than their
+  freezing point and boil away (leaving dry basins) when hotter than their
+  boiling point at the surface pressure; no liquid at all below the triple
+  point (water on Mars). Ice caps of water, carbon dioxide, nitrogen or
+  methane form below the frost point set by the gas's partial pressure
+  (Mars's water-ice caps at ~-76 C, Pluto's and Triton's nitrogen ice).
+  Life is a switch: without it, the same climate zones are bare ground
 - File > New Planet builds any of them; Planet panel > Body shows its facts
   and turns the planet into another body (undoable)
 - Dry worlds keep their basins, methane seas (Titan), glowing lava lakes
@@ -155,7 +163,7 @@ building and saving scenes.
   under a per-frame time budget
 - Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
   output routed to the log
-- 416 unit tests for everything that does not need a GPU
+- 430 unit tests for everything that does not need a GPU
 
 ## Getting Started
 

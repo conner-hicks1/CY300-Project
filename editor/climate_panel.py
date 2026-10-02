@@ -12,6 +12,7 @@ from ecs.entity import Entity
 
 from planet.bodies import climate_physics
 from planet.climate import BIOMES, KELVIN, STEFAN_BOLTZMANN
+from planet.phases import liquid_range
 
 from systems.climate_system import ClimateSystem
 from systems.planet_system import TERRAIN_VIEWS, PlanetSystem
@@ -195,6 +196,8 @@ class ClimatePanel:
 
         field = status.field
 
+        self._draw_liquid(planet, field)
+
         if field is not None:
 
             imgui.separator_text("Whole planet")
@@ -246,6 +249,99 @@ class ClimatePanel:
             scene.remove_component(planet, ClimateComponent)
 
             editor.record("Disable climate")
+
+    # -----------------------------------------------------
+    # Liquid and Ice
+    # -----------------------------------------------------
+
+    def _draw_liquid(
+        self,
+        planet: Entity,
+        field
+    ):
+        """
+        The seas' phase at this pressure and temperature
+        (planet/phases.py), the ice caps, and life.
+        """
+
+        scene = self._editor.scene
+
+        component = scene.try_get_component(planet, PlanetComponent)
+
+        if component is None:
+            return
+
+        body = scene.try_get_component(planet, BodyComponent)
+
+        pressure = body.surface_pressure_bar if body is not None else 1.014
+
+        imgui.separator_text("Liquid and ice")
+
+        phase = liquid_range(component.liquid, pressure)
+
+        if component.liquid == "none":
+
+            imgui.text("No liquid: basins stay dry.")
+
+        elif phase is None:
+
+            imgui.text(f"Liquid  {component.liquid} (molten by volcanic heat)")
+
+        elif not phase.can_be_liquid:
+
+            imgui.text_wrapped(
+                f"No liquid {component.liquid} at {pressure:.3g} bar (below its "
+                f"triple point): seas are ice, sublimating above {phase.boiling:+.0f} C."
+            )
+
+        else:
+
+            imgui.text(
+                f"Liquid  {component.liquid}: freezes {phase.freezing:+.0f} C, "
+                f"boils {phase.boiling:+.0f} C"
+            )
+            imgui.set_item_tooltip(f"At the surface pressure ({pressure:.3g} bar).")
+
+        if field is not None and field.liquid_state != "none":
+
+            state = field.liquid_state
+
+            color = (
+                (0.95, 0.55, 0.3, 1.0) if state == "boiled away"
+                else (0.7, 0.85, 1.0, 1.0) if "frozen" in state
+                else (0.5, 0.8, 0.95, 1.0)
+            )
+
+            detail = f" ({field.frozen_fraction * 100.0:.0f}% iced over)" if state == "partly frozen" else ""
+
+            imgui.text_colored(color, f"Seas    {state}{detail}")
+
+            if state == "boiled away":
+                imgui.set_item_tooltip(
+                    "Hotter than boiling on average: the oceans evaporated "
+                    "and the basins are dry."
+                )
+
+        if component.ice == "none":
+
+            imgui.text_disabled("No ice caps.")
+
+        else:
+
+            imgui.text(f"Ice     {component.ice.replace('_', ' ')} below {component.frost_point:+.0f} C")
+            imgui.set_item_tooltip("Where the annual mean is colder, the ground ices over.")
+
+        if component.palette == "biomes":
+
+            changed, life = imgui.checkbox("Life", component.life)
+
+            if changed:
+
+                component.life = life
+
+                self._editor.record("Life")
+
+            imgui.set_item_tooltip("Vegetation; without it the same climate zones are bare ground.")
 
     # -----------------------------------------------------
     # Physics

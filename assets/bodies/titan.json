@@ -27,7 +27,7 @@
   "surface": {
     "mean_temperature_c": -179.5,
     "liquid": "methane",
-    "frost_point_c": -1000.0,
+    "ice": "methane",
     "palette": "mineral",
     "colors": {
       "low": [0.08, 0.06, 0.035],

@@ -27,7 +27,7 @@
   "surface": {
     "mean_temperature_c": -143.0,
     "liquid": "lava",
-    "frost_point_c": -1000.0,
+    "ice": "none",
     "palette": "mineral",
     "colors": {
       "low": [0.5, 0.42, 0.12],

@@ -83,6 +83,8 @@ def minimal_profile(**overrides) -> dict:
     ("surface.liquid", "milk", "'liquid' must be one of"),
     ("surface.colors.low", [2.0, 0.0, 0.0], "three numbers in 0..1"),
     ("surface.palette", "bands", "needs a 'bands' section"),
+    ("surface.ice", "cheese", "'ice' must be one of"),
+    ("surface.life", "yes", "'life' must be true or false"),
     ("atmosphere", {
         "surface_pressure_bar": 0.01,
         "composition": {"N2": 1.0},

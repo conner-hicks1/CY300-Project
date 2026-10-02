@@ -15,6 +15,7 @@ from planet.climate import (
     ClimateModel,
     ClimateSettings
 )
+from planet.phases import liquid_range
 from planet.terrain import Terrain
 
 from scene.scene import Scene
@@ -317,6 +318,27 @@ def _climate_settings(
     elif planet is not None and planet.liquid != "water":
 
         physics = {"ocean": False}
+
+    # Where the seas freeze and boil at this pressure.
+    liquid = planet.liquid if planet is not None else "water"
+
+    phase = liquid_range(liquid, physics.get("surface_pressure", 1.014))
+
+    if phase is None:
+
+        physics["liquid_freezing"] = None
+        physics["liquid_boiling"] = None
+
+    else:
+
+        physics["liquid_freezing"] = phase.freezing
+        physics["liquid_boiling"] = phase.boiling
+
+        # Ice that cannot melt (below the triple point
+        # pressure) neither evaporates into rain nor carries
+        # heat like an ocean.
+        if not phase.can_be_liquid:
+            physics["ocean"] = False
 
     return ClimateSettings(
         axial_tilt=float(np.clip(component.axial_tilt, 0.0, 90.0)),

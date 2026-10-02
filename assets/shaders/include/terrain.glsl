@@ -37,6 +37,8 @@ uniform vec3 uColorHigh;        // mineral: highlands / bands: zones
 uniform vec3 uColorSteep;       // mineral: cliffs
 uniform vec3 uColorIce;         // mineral: frost and ice caps
 uniform float uFrostPoint;      // C: below this the ground frosts over
+uniform float uLiquidFreezing;  // C: below this the seas ice over
+uniform float uLife;            // 1 = vegetation (biomes palette)
 
 // Linear-space albedos.
 const vec3 TERRAIN_SAND = vec3(0.42, 0.36, 0.22);
@@ -53,6 +55,7 @@ const vec3 TERRAIN_SNOW = vec3(0.80, 0.82, 0.86);
 const vec3 TERRAIN_SHALLOW_WATER = vec3(0.02, 0.10, 0.14);
 const vec3 TERRAIN_DEEP_WATER = vec3(0.004, 0.015, 0.05);
 const vec3 TERRAIN_ICE = vec3(0.65, 0.72, 0.78);
+const vec3 TERRAIN_DAMP_SOIL = vec3(0.13, 0.11, 0.08);
 
 // Rain relative to what the warmth evaporates: < 0.3
 // desert, ~0.5-1 grassland / savanna, > 1.2 forest.
@@ -134,13 +137,24 @@ TerrainSurface terrainSurface(
 
         forest = mix(forest, TERRAIN_TAIGA, boreal);
 
+        vec3 tundra = TERRAIN_TUNDRA;
+
+        // Lifeless: the same climate zones as bare ground,
+        // darker where it rains.
+        if (uLife < 0.5)
+        {
+            grass = mix(desert * 0.85, TERRAIN_DAMP_SOIL, smoothstep(0.5, 1.0, wetness));
+            forest = TERRAIN_DAMP_SOIL * 0.8;
+            tundra = TERRAIN_COLD_DESERT;
+        }
+
         land = mix(desert, grass, smoothstep(0.15, 0.45, wetness));
 
         land = mix(land, forest, smoothstep(0.9, 1.6, wetness) * smoothstep(0.9, 0.96, slope));
 
         // Too cold for trees: tundra (and the alpine zone above
         // the tree line, since temperature follows height).
-        land = mix(land, TERRAIN_TUNDRA, smoothstep(1.0, -3.0, temperature));
+        land = mix(land, tundra, smoothstep(1.0, -3.0, temperature));
 
         // Beaches.
         land = mix(TERRAIN_SAND, land, smoothstep(5.0, 60.0, elevation));
@@ -151,9 +165,9 @@ TerrainSurface terrainSurface(
         land = mix(land, TERRAIN_ROCK, smoothstep(-3.0, -7.0, temperature) * 0.6);
 
         // Lasting snow and ice where the year averages below
-        // freezing; snow does not stick to cliffs.
+        // the frost point; snow does not stick to cliffs.
         float snow =
-            smoothstep(-2.0, -7.0, temperature)
+            smoothstep(uFrostPoint - 0.1, uFrostPoint - 5.1, temperature)
             * smoothstep(0.7, 0.82, slope);
 
         land = mix(land, TERRAIN_SNOW, snow);
@@ -174,6 +188,10 @@ TerrainSurface terrainSurface(
 
     float depth = clamp(-elevation / 3000.0, 0.0, 1.0);
 
+    // Seas ice over where the sea surface averages below
+    // the liquid's freezing point (sea water about -2 C).
+    float frozen = smoothstep(uLiquidFreezing + 0.4, uLiquidFreezing - 3.1, temperature);
+
     vec3 sea;
     float seaRoughness;
     float ice = 0.0;
@@ -182,7 +200,12 @@ TerrainSurface terrainSurface(
     {
         // Liquid methane / ethane (Titan): dark and glassy.
         sea = mix(vec3(0.03, 0.025, 0.015), vec3(0.008, 0.006, 0.004), sqrt(depth));
-        seaRoughness = 0.06;
+
+        ice = frozen;
+
+        sea = mix(sea, uColorIce, ice);
+
+        seaRoughness = mix(0.06, 0.6, ice);
     }
     else if (liquid == 3)
     {
@@ -194,9 +217,7 @@ TerrainSurface terrainSurface(
     {
         sea = mix(TERRAIN_SHALLOW_WATER, TERRAIN_DEEP_WATER, sqrt(depth));
 
-        // Sea ice where the sea surface averages below
-        // freezing (sea water freezes at about -2 C).
-        ice = smoothstep(-1.5, -5.0, temperature);
+        ice = frozen;
 
         sea = mix(sea, TERRAIN_ICE, ice);
 

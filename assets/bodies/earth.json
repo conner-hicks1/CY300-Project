@@ -26,7 +26,8 @@
   "surface": {
     "mean_temperature_c": 15.0,
     "liquid": "water",
-    "frost_point_c": -2.0,
+    "ice": "water",
+    "life": true,
     "palette": "biomes",
     "colors": {
       "low": [0.3, 0.3, 0.3],

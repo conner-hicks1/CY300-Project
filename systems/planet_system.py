@@ -24,6 +24,7 @@ from math3d.matrices import translation
 from planet.chunk import ChunkData, build_chunk
 from planet.cube_sphere import ChunkKey, edge_length
 from planet.lod import LodSelector
+from planet.phases import SUBSTANCES
 from planet.spawn import SpawnPoint, find_spawn
 from planet.terrain import Terrain, TerrainSettings
 
@@ -96,7 +97,7 @@ class _Planet:
         self.climate = climate
         self.data_version = _data_version(field, climate)
 
-        settings = terrain_settings_for(component)
+        settings = terrain_settings_for(component, climate)
 
         self.terrain = Terrain(settings, field, climate)
 
@@ -336,7 +337,7 @@ class PlanetSystem:
 
                 planet = self._planets[entity]
 
-            material = self._material_for(entity, base_material, component)
+            material = self._material_for(entity, base_material, component, planet)
 
             world = _rigid(transform.world_matrix)
 
@@ -450,13 +451,22 @@ class PlanetSystem:
         self,
         entity: Entity,
         base,
-        component: PlanetComponent
+        component: PlanetComponent,
+        planet: "_Planet | None" = None
     ):
         """
         The planet's own copy of the terrain material, with
         its surface colors and liquid (planets can differ).
         Updated every frame, so color edits apply at once.
         """
+
+        liquid = component.liquid
+
+        # Seas boiled away (the terrain was built dry).
+        if planet is not None and not planet.terrain.settings.has_liquid:
+            liquid = "none"
+
+        phase = self._liquid_phase(component, planet)
 
         material = self._materials.get(entity)
 
@@ -468,7 +478,9 @@ class PlanetSystem:
 
         material.set_float("uTerrainView", float(self.view_mode))
         material.set_float("uSurfacePalette", self._PALETTE_CODES.get(component.palette, 0.0))
-        material.set_float("uLiquid", self._LIQUID_CODES.get(component.liquid, 1.0))
+        material.set_float("uLiquid", self._LIQUID_CODES.get(liquid, 1.0))
+        material.set_float("uLiquidFreezing", phase)
+        material.set_float("uLife", 1.0 if component.life else 0.0)
         material.set_vec3("uColorLow", component.color_low)
         material.set_vec3("uColorHigh", component.color_high)
         material.set_vec3("uColorSteep", component.color_steep)
@@ -476,6 +488,29 @@ class PlanetSystem:
         material.set_float("uFrostPoint", component.frost_point)
 
         return material
+
+    @staticmethod
+    def _liquid_phase(
+        component: PlanetComponent,
+        planet: "_Planet | None"
+    ) -> float:
+        """
+        Freezing point (C) of the planet's seas for the
+        shader: below it they ice over. Liquid that cannot
+        exist at the surface pressure is always ice.
+        """
+
+        climate = planet.climate if planet is not None else None
+
+        if climate is not None and climate.liquid_state == "frozen":
+            return 1.0e4
+
+        substance = SUBSTANCES.get(component.liquid)
+
+        if substance is None:
+            return -1.0e4
+
+        return substance.freezing_c
 
     def _settled(
         self,
@@ -865,8 +900,13 @@ class PlanetSystem:
 
 
 def terrain_settings_for(
-    component: PlanetComponent
+    component: PlanetComponent,
+    climate=None
 ) -> TerrainSettings:
+    """
+    climate: the planet's climate field, if any: seas that
+    have boiled away there leave dry basins.
+    """
 
     return TerrainSettings(
         seed=component.seed,
@@ -877,7 +917,10 @@ def terrain_settings_for(
         mountain_frequency=component.mountain_frequency,
         mountain_height=component.mountain_height,
         detail_height=component.detail_height,
-        has_liquid=component.liquid != "none",
+        has_liquid=(
+            component.liquid != "none"
+            and not getattr(climate, "liquid_boiled", False)
+        ),
         bands=max(0, int(component.bands)) if component.palette == "bands" else 0
     )
 
