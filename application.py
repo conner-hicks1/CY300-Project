@@ -28,14 +28,15 @@ from core.window import Window
 
 from ecs.components import (
     AtmosphereComponent,
+    BodyComponent,
     CameraComponent,
+    ClimateComponent,
+    PlanetComponent,
+    TectonicsComponent,
     CameraControllerComponent,
     DirectionalLightComponent,
     HierarchyComponent,
     NameComponent,
-    ClimateComponent,
-    PlanetComponent,
-    TectonicsComponent,
     TransformComponent
 )
 from ecs.entity import Entity
@@ -54,6 +55,7 @@ from math3d import quaternion
 from math3d.transform import Transform
 
 from planet import solar
+from planet.bodies import ProfileError, components_for, load_presets, preset_groups
 from planet.spawn import find_spawn
 from planet.tectonics import TectonicField, TectonicSimulation
 from planet.terrain import Terrain
@@ -336,6 +338,10 @@ class Application:
             load_material=self._create_model_material
         )
 
+        # Body profiles (assets/bodies/*.json) for File >
+        # New Planet.
+        self.body_presets = self._load_body_presets()
+
         self.editor = SceneEditor(
             self.scene,
             self.resources,
@@ -345,14 +351,24 @@ class Application:
             populate_demo_scene=self._populate_demo_scene,
             load_model=MeshFactory.load_model,
             load_model_material=self._load_model_material_handle,
-            panels=PanelRegistry()
+            panels=PanelRegistry(),
+            body_presets={
+                group: [(profile.id, profile.name) for profile in members]
+                for group, members in preset_groups(self.body_presets).items()
+            },
+            populate_body_scene=self._populate_body_scene
         )
 
         # Tool windows, in View-menu order after the
         # editor's Hierarchy / Inspector.
         self.planet_panel = PlanetPanel(
             self.editor,
-            self.planet_system
+            self.planet_system,
+            apply_preset=self.apply_body_preset,
+            descriptions={
+                profile.id: profile.description
+                for profile in self.body_presets.values()
+            }
         )
 
         self.tectonics_panel = TectonicsPanel(
@@ -621,6 +637,101 @@ class Application:
         )
 
     # =====================================================
+    # Body Profiles
+    # =====================================================
+
+    def _load_body_presets(
+        self
+    ):
+
+        try:
+
+            presets = load_presets()
+
+        except ProfileError as error:
+
+            # A broken profile must not stop the editor; the
+            # demo needs Earth though.
+            Logger.error("[Application] Body profiles: %s", error)
+
+            presets = {}
+
+        Logger.info(
+            "[Application] %d body profile(s): %s.",
+            len(presets),
+            ", ".join(profile.name for profile in presets.values())
+        )
+
+        engine_assert(
+            self.DEMO_BODY in presets,
+            f"assets/bodies/{self.DEMO_BODY}.json is missing or invalid."
+        )
+
+        return presets
+
+    def apply_body_preset(
+        self,
+        entity: Entity,
+        profile_id: str
+    ):
+        """
+        Turn an existing planet into another body: its
+        planet, body, atmosphere, climate and tectonics
+        components are replaced by the profile's (the
+        transform stays). The camera backs off to show the
+        whole new planet. One undo step.
+        """
+
+        profile = self.body_presets[profile_id]
+
+        scene = self.scene
+
+        seed = scene.get_component(entity, PlanetComponent).seed
+
+        for component_type in (
+            PlanetComponent,
+            BodyComponent,
+            AtmosphereComponent,
+            ClimateComponent,
+            TectonicsComponent,
+        ):
+
+            if scene.has_component(entity, component_type):
+                scene.remove_component(entity, component_type)
+
+        parts = components_for(profile, seed=seed)
+
+        for component in parts.all():
+            scene.add_component(entity, component)
+
+        name = scene.try_get_component(entity, NameComponent)
+
+        if name is not None:
+            name.name = profile.name
+
+        camera = next(
+            (
+                camera_entity
+                for camera_entity, camera in scene.registry.view_with(CameraComponent)
+                if camera.primary
+            ),
+            None
+        )
+
+        if camera is not None:
+
+            center = np.asarray(
+                scene.get_component(entity, TransformComponent).world_matrix,
+                dtype=np.float64
+            )[:3, 3]
+
+            self.editor.frame_planet(camera, center, parts.planet.radius)
+
+        self.editor.record(f"Become {profile.name}")
+
+        self.editor.set_status(f"The planet is now {profile.name}.")
+
+    # =====================================================
     # Model Materials
     # =====================================================
 
@@ -753,70 +864,113 @@ class Application:
 
         return entity
 
+    # The built-in demo and File > New Demo Scene.
+    DEMO_BODY = "earth"
+
     def _populate_demo_scene(
         self,
         scene: Scene
     ):
-        """
-        Fill `scene` with the built-in demo (used for
-        File > New Demo Scene and when no scene file
-        exists): an Earth-sized procedural planet, a sun,
-        and a camera standing on the surface.
+        """Earth (with tectonics, climate and atmosphere)."""
 
-        The planet is turned so a scenic spot (lowland with
-        mountains in view; planet/spawn.py) is on top, and
-        placed so that spot sits at the world origin. The
-        sky and editor grid assume +Y is up, which holds
-        there.
+        self._populate_body_scene(scene, self.DEMO_BODY)
+
+    def _populate_body_scene(
+        self,
+        scene: Scene,
+        body_id: str
+    ):
+        """
+        Fill `scene` with a planet built from a body profile
+        (assets/bodies/<body_id>.json; File > New Planet), a
+        sun, and a camera.
+
+        Solid bodies: the planet is turned so a scenic spot
+        (planet/spawn.py) is on top, and placed so that spot
+        sits at the world origin (the sky and editor grid
+        assume +Y is up there); the camera stands above it.
+        Gas giants: the camera starts in orbit.
+
+        Tectonics and climate, when the body has them, are
+        computed up front (~1 s) so the spawn point is
+        chosen on the real terrain and the first frame
+        already shows it.
         """
 
         engine_assert(
             scene is self.scene,
-            "The demo builder fills the application's scene."
+            "The planet builder fills the application's scene."
         )
 
-        planet = PlanetComponent()
+        profile = self.body_presets[body_id]
 
-        # Plate tectonics shapes the continents. The starting
-        # state is computed here (~1 s) rather than in the
-        # background, so the spawn point is chosen on the
-        # real terrain and the first frame already shows it.
-        tectonics = TectonicsComponent()
+        parts = components_for(profile)
 
-        simulation = TectonicSimulation(
-            tectonic_settings_for(planet, tectonics)
-        )
+        planet = parts.planet
 
-        initial = simulation.initial_state()
+        terrain_settings = terrain_settings_for(planet)
 
-        tectonic_field = TectonicField.from_state(simulation.grid, initial, version=0)
+        # -------------------------------------------------
+        # Simulations
+        # -------------------------------------------------
 
-        # The climate decides where forests, deserts and snow
-        # are; also computed up front (~0.5 s).
-        climate = ClimateComponent()
+        initial = None
+        tectonic_field = None
 
-        climate_field, _ = compute_climate(
-            climate_settings_for(climate),
-            Terrain(terrain_settings_for(planet), tectonic_field)
-        )
+        if parts.tectonics is not None:
 
-        terrain = Terrain(
-            terrain_settings_for(planet),
-            tectonic_field,
-            climate_field
-        )
+            simulation = TectonicSimulation(
+                tectonic_settings_for(planet, parts.tectonics)
+            )
 
-        spawn = find_spawn(terrain)
+            initial = simulation.initial_state()
+
+            tectonic_field = TectonicField.from_state(simulation.grid, initial, version=0)
+
+        climate_field = None
+
+        if parts.climate is not None:
+
+            climate_field, _ = compute_climate(
+                climate_settings_for(parts.climate),
+                Terrain(terrain_settings, tectonic_field)
+            )
+
+        terrain = Terrain(terrain_settings, tectonic_field, climate_field)
+
+        # -------------------------------------------------
+        # Where to stand
+        # -------------------------------------------------
 
         up = np.array([0.0, 1.0, 0.0])
 
+        if profile.has_solid_surface:
+
+            spawn = find_spawn(terrain)
+
+            spawn_direction = spawn.direction
+            view_direction = spawn.view_direction
+
+            ground_height = (
+                max(spawn.elevation, 0.0)
+                if terrain_settings.has_liquid
+                else spawn.elevation
+            )
+
+        else:
+
+            # Over the bands at mid latitude.
+            spawn_direction = np.array([0.0, np.sin(np.radians(20.0)), np.cos(np.radians(20.0))])
+            view_direction = np.array([1.0, 0.0, 0.0])
+            ground_height = 0.0
+
         # Rotation taking the spawn direction to +Y.
-        axis = np.cross(spawn.direction, up)
+        axis = np.cross(spawn_direction, up)
 
         axis_length = float(np.linalg.norm(axis))
 
         angle = math.degrees(
-            math.atan2(axis_length, float(np.dot(spawn.direction, up)))
+            math.atan2(axis_length, float(np.dot(spawn_direction, up)))
         )
 
         orientation = (
@@ -825,27 +979,47 @@ class Application:
             else quaternion.identity()
         )
 
-        ground = planet.radius + max(spawn.elevation, 0.0)
+        ground = planet.radius + ground_height
 
         center = (0.0, -ground, 0.0)
 
-        view = quaternion.rotate_vector(orientation, spawn.view_direction)
+        view = quaternion.rotate_vector(orientation, view_direction)
 
         # -------------------------------------------------
         # Camera
         # -------------------------------------------------
 
+        fov = 60.0
+
+        if profile.has_solid_surface:
+
+            camera_position = (0.0, 500.0, 0.0)
+
+            camera_orientation = quaternion.multiply(
+                quaternion.look_rotation(view, up),
+                quaternion.from_euler((-6.0, 0.0, 0.0))
+            )
+
+        else:
+
+            # Back far enough for the whole planet to fit.
+            distance = planet.radius / math.sin(math.radians(fov) * 0.5) * 1.25
+
+            camera_position = (0.0, distance - ground, 0.0)
+
+            camera_orientation = quaternion.look_rotation(
+                np.array([0.0, -1.0, 0.0]),
+                np.array([0.0, 0.0, -1.0])
+            )
+
         self._create_entity(
             "Camera",
             Transform(
-                position=(0.0, 500.0, 0.0),
-                orientation=quaternion.multiply(
-                    quaternion.look_rotation(view, up),
-                    quaternion.from_euler((-6.0, 0.0, 0.0))
-                )
+                position=camera_position,
+                orientation=camera_orientation
             ),
             CameraComponent(
-                fov=60.0,
+                fov=fov,
                 near=0.5,
                 far=2000.0,
                 primary=True
@@ -862,16 +1036,17 @@ class Application:
         )
 
         # -------------------------------------------------
-        # Sun
+        # Sun: mid-morning in the spawn point's spring
         # -------------------------------------------------
 
-        # Mid-morning in late spring at the spawn point.
+        tilt = min(profile.axial_tilt_deg, 180.0 - profile.axial_tilt_deg)
+
         sun_world = quaternion.rotate_vector(
             orientation,
             solar.sun_direction(
-                spawn.direction,
+                spawn_direction,
                 hour=10.5,
-                declination=math.radians(15.0)
+                declination=math.radians(min(15.0, tilt))
             )
         )
 
@@ -891,26 +1066,26 @@ class Application:
         # -------------------------------------------------
 
         planet_entity = self._create_entity(
-            "Planet",
+            profile.name,
             Transform(
                 position=center,
                 orientation=orientation
             ),
-            planet,
-            AtmosphereComponent(),
-            tectonics,
-            climate
+            *parts.all()
         )
 
-        self.tectonics_system.prime(planet_entity, planet, tectonics, initial)
+        if parts.tectonics is not None:
+            self.tectonics_system.prime(planet_entity, planet, parts.tectonics, initial)
 
-        self.climate_system.prime(
-            planet_entity,
-            planet,
-            climate,
-            climate_field,
-            self.tectonics_system.field(planet_entity)
-        )
+        if parts.climate is not None:
+
+            self.climate_system.prime(
+                planet_entity,
+                planet,
+                parts.climate,
+                climate_field,
+                self.tectonics_system.field(planet_entity)
+            )
 
     # =====================================================
     # Main Loop

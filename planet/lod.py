@@ -61,11 +61,18 @@ class LodSelector:
         radius: float,
         max_elevation: float,
         max_depth: int,
-        split_factor: float
+        split_factor: float,
+        min_elevation: float = 0.0
     ):
+        """
+        min_elevation: lowest possible surface (negative on dry
+            worlds whose basins lie below the reference radius);
+            the horizon test uses the sphere at that depth.
+        """
 
         self.radius = radius
         self.max_elevation = max_elevation
+        self.min_elevation = min(min_elevation, 0.0)
         self.max_depth = max_depth
         self.split_factor = split_factor
 
@@ -242,7 +249,7 @@ class LodSelector:
         visible = _above_horizon(
             samples,
             camera,
-            self.radius
+            self.radius + self.min_elevation
         ).any(axis=1)
 
         return distances, visible

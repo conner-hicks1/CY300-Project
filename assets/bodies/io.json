@@ -1,0 +1,55 @@
+{
+  "format": 1,
+  "name": "Io",
+  "kind": "moon",
+  "orbits": "Jupiter",
+  "description": "Most volcanic body known: sulfur-yellow plains, lava lakes and towering non-volcanic mountains.",
+  "physical": {
+    "radius_km": 1821.6,
+    "mass_kg": 8.932e+22,
+    "rotation_hours": 42.46,
+    "solar_day_hours": 42.46,
+    "axial_tilt_deg": 0.0,
+    "oblateness": 0.0,
+    "bond_albedo": 0.63
+  },
+  "orbit": {
+    "distance_au": 5.204,
+    "eccentricity": 0.0041,
+    "period_days": 1.769,
+    "parent_distance_km": 421700.0
+  },
+  "star": {
+    "luminosity_solar": 1.0,
+    "temperature_k": 5772,
+    "radius_solar": 1.0
+  },
+  "surface": {
+    "mean_temperature_c": -143.0,
+    "liquid": "lava",
+    "frost_point_c": -1000.0,
+    "palette": "mineral",
+    "colors": {
+      "low": [0.5, 0.42, 0.12],
+      "high": [0.62, 0.58, 0.38],
+      "steep": [0.22, 0.13, 0.07],
+      "ice": [0.8, 0.8, 0.7]
+    }
+  },
+  "terrain": {
+    "continent_frequency": 3.0,
+    "continent_height": 800.0,
+    "land_bias": 0.45,
+    "mountain_frequency": 50.0,
+    "mountain_height": 6000.0,
+    "detail_height": 150.0
+  },
+  "atmosphere": null,
+  "geology": {
+    "regime": "heat_pipe",
+    "plate_count": 0
+  },
+  "climate": {
+    "humidity": 0.0
+  }
+}

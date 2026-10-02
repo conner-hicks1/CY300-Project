@@ -112,7 +112,8 @@ class _Planet:
             radius=settings.radius,
             max_elevation=self.terrain.max_elevation,
             max_depth=component.max_depth,
-            split_factor=component.split_factor
+            split_factor=component.split_factor,
+            min_elevation=settings.min_elevation
         )
 
         self.chunks: dict[ChunkKey, _Chunk] = {}
@@ -259,6 +260,9 @@ class PlanetSystem:
 
         self._items: list[DrawItem] = []
 
+        # Per planet entity: its terrain material.
+        self._materials: dict[Entity, object] = {}
+
         self.stats = PlanetStats()
 
         # Index into TERRAIN_VIEWS.
@@ -282,9 +286,7 @@ class PlanetSystem:
 
         camera_position = np.asarray(camera_position, dtype=np.float64)
 
-        material = self._resources.materials.get(self._material)
-
-        material.set_float("uTerrainView", float(self.view_mode))
+        base_material = self._resources.materials.get(self._material)
 
         items: list[DrawItem] = []
 
@@ -333,6 +335,8 @@ class PlanetSystem:
                 building -= self._replace(entity, planet, component, field, climate)
 
                 planet = self._planets[entity]
+
+            material = self._material_for(entity, base_material, component)
 
             world = _rigid(transform.world_matrix)
 
@@ -413,6 +417,8 @@ class PlanetSystem:
 
             self._pending_config.pop(entity, None)
 
+            self._materials.pop(entity, None)
+
         self._items = items
 
         self.stats = PlanetStats(
@@ -434,6 +440,42 @@ class PlanetSystem:
     ) -> list[DrawItem]:
 
         return self._items
+
+    # Liquid / palette names -> shader codes
+    # (include/terrain.glsl).
+    _LIQUID_CODES = {"none": 0.0, "water": 1.0, "methane": 2.0, "lava": 3.0}
+    _PALETTE_CODES = {"biomes": 0.0, "mineral": 1.0, "bands": 2.0}
+
+    def _material_for(
+        self,
+        entity: Entity,
+        base,
+        component: PlanetComponent
+    ):
+        """
+        The planet's own copy of the terrain material, with
+        its surface colors and liquid (planets can differ).
+        Updated every frame, so color edits apply at once.
+        """
+
+        material = self._materials.get(entity)
+
+        if material is None:
+
+            material = base.copy()
+
+            self._materials[entity] = material
+
+        material.set_float("uTerrainView", float(self.view_mode))
+        material.set_float("uSurfacePalette", self._PALETTE_CODES.get(component.palette, 0.0))
+        material.set_float("uLiquid", self._LIQUID_CODES.get(component.liquid, 1.0))
+        material.set_vec3("uColorLow", component.color_low)
+        material.set_vec3("uColorHigh", component.color_high)
+        material.set_vec3("uColorSteep", component.color_steep)
+        material.set_vec3("uColorIce", component.color_ice)
+        material.set_float("uFrostPoint", component.frost_point)
+
+        return material
 
     def _settled(
         self,
@@ -801,10 +843,12 @@ class PlanetSystem:
 
             controller.planet_center = tuple(float(v) for v in world[:3, 3])
 
-            controller.planet_radius = (
-                planet.terrain.settings.radius
-                + max(elevation, 0.0)
-            )
+            # The ground: the liquid's surface over seas, the
+            # basin floor on dry worlds.
+            if planet.terrain.settings.has_liquid:
+                elevation = max(elevation, 0.0)
+
+            controller.planet_radius = planet.terrain.settings.radius + elevation
 
     # =====================================================
     # Shutdown
@@ -832,7 +876,9 @@ def terrain_settings_for(
         land_bias=component.land_bias,
         mountain_frequency=component.mountain_frequency,
         mountain_height=component.mountain_height,
-        detail_height=component.detail_height
+        detail_height=component.detail_height,
+        has_liquid=component.liquid != "none",
+        bands=max(0, int(component.bands)) if component.palette == "bands" else 0
     )
 
 

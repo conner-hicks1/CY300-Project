@@ -41,6 +41,25 @@ class TerrainSettings:
     # the vertex spacing.
     detail_height: float = 300.0
 
+    # A liquid fills everything below sea level (the mesh
+    # stops at its surface). Without one, basins stay dry.
+    has_liquid: bool = True
+
+    # Gas giants: cloud bands instead of a solid surface
+    # (no relief). 0 = solid surface.
+    bands: int = 0
+
+    @property
+    def min_elevation(
+        self
+    ) -> float:
+        """Lower bound of the visible surface (0 under a liquid)."""
+
+        if self.has_liquid or self.bands:
+            return 0.0
+
+        return -(2.0 * self.continent_height + self.detail_height + 7_000.0)
+
     @property
     def max_elevation(
         self
@@ -151,6 +170,11 @@ class Terrain:
         """
 
         s = self.settings
+
+        if s.bands:
+
+            # Cloud tops of a giant: a smooth sphere.
+            return np.zeros(len(directions))
 
         radius = s.radius
 
@@ -325,10 +349,36 @@ class Terrain:
         height, precipitation mm / year).
         """
 
+        if self.settings.bands:
+            return self._bands(directions)
+
         if self.climate is not None:
             return self.climate.surface(directions, elevation)
 
         return fallback_surface(directions, elevation, self.moisture(directions))
+
+    def _bands(
+        self,
+        directions: np.ndarray
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        Giant planet cloud belts: the "precipitation" slot
+        carries a band coordinate in [0, 1] (belt vs zone),
+        from latitude, wavy with stretched turbulence.
+        """
+
+        latitude = np.arcsin(np.clip(directions[:, 1], -1.0, 1.0))
+
+        # Turbulence stretched along the bands (east-west).
+        stretched = directions * np.array([2.0, 14.0, 2.0])
+
+        turbulence = fbm(self._detail, stretched, 5)
+
+        band = 0.5 + 0.5 * np.sin(latitude * self.settings.bands + 1.2 * turbulence)
+
+        temperature = np.full(len(directions), -120.0)
+
+        return temperature, band
 
     def moisture(
         self,

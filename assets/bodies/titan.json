@@ -1,0 +1,69 @@
+{
+  "format": 1,
+  "name": "Titan",
+  "kind": "moon",
+  "orbits": "Saturn",
+  "description": "Saturn's hazy giant moon: a thick nitrogen atmosphere, methane rain, rivers, and lakes of liquid hydrocarbons.",
+  "physical": {
+    "radius_km": 2574.7,
+    "mass_kg": 1.3452e+23,
+    "rotation_hours": 382.7,
+    "solar_day_hours": 382.7,
+    "axial_tilt_deg": 0.3,
+    "oblateness": 0.0,
+    "bond_albedo": 0.265
+  },
+  "orbit": {
+    "distance_au": 9.583,
+    "eccentricity": 0.0288,
+    "period_days": 15.95,
+    "parent_distance_km": 1221870.0
+  },
+  "star": {
+    "luminosity_solar": 1.0,
+    "temperature_k": 5772,
+    "radius_solar": 1.0
+  },
+  "surface": {
+    "mean_temperature_c": -179.5,
+    "liquid": "methane",
+    "frost_point_c": -1000.0,
+    "palette": "mineral",
+    "colors": {
+      "low": [0.08, 0.06, 0.035],
+      "high": [0.2, 0.15, 0.09],
+      "steep": [0.12, 0.09, 0.06],
+      "ice": [0.6, 0.6, 0.6]
+    }
+  },
+  "terrain": {
+    "continent_frequency": 1.5,
+    "continent_height": 600.0,
+    "land_bias": 0.3,
+    "mountain_frequency": 80.0,
+    "mountain_height": 1500.0,
+    "detail_height": 150.0
+  },
+  "atmosphere": {
+    "surface_pressure_bar": 1.467,
+    "composition": {
+      "N2": 0.984,
+      "CH4": 0.014,
+      "H2": 0.002
+    },
+    "aerosols": {
+      "scattering_per_Mm": 120.0,
+      "absorption_per_Mm": 40.0,
+      "scale_height_km": 60.0,
+      "anisotropy": 0.7
+    },
+    "ozone": false
+  },
+  "geology": {
+    "regime": "stagnant_lid",
+    "plate_count": 0
+  },
+  "climate": {
+    "humidity": 0.3
+  }
+}

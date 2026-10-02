@@ -1,0 +1,69 @@
+{
+  "format": 1,
+  "name": "Earth",
+  "kind": "terrestrial",
+  "orbits": "Sun",
+  "description": "The only known living world: oceans, plate tectonics and a nitrogen-oxygen atmosphere.",
+  "physical": {
+    "radius_km": 6371.0,
+    "mass_kg": 5.972e+24,
+    "rotation_hours": 23.934,
+    "solar_day_hours": 24.0,
+    "axial_tilt_deg": 23.44,
+    "oblateness": 0.00335,
+    "bond_albedo": 0.306
+  },
+  "orbit": {
+    "distance_au": 1.0,
+    "eccentricity": 0.0167,
+    "period_days": 365.256
+  },
+  "star": {
+    "luminosity_solar": 1.0,
+    "temperature_k": 5772,
+    "radius_solar": 1.0
+  },
+  "surface": {
+    "mean_temperature_c": 15.0,
+    "liquid": "water",
+    "frost_point_c": -2.0,
+    "palette": "biomes",
+    "colors": {
+      "low": [0.3, 0.3, 0.3],
+      "high": [0.4, 0.4, 0.4],
+      "steep": [0.16, 0.14, 0.12],
+      "ice": [0.8, 0.82, 0.86]
+    }
+  },
+  "terrain": {
+    "continent_frequency": 1.2,
+    "continent_height": 2500.0,
+    "land_bias": 0.05,
+    "mountain_frequency": 150.0,
+    "mountain_height": 5000.0,
+    "detail_height": 300.0
+  },
+  "atmosphere": {
+    "surface_pressure_bar": 1.014,
+    "composition": {
+      "N2": 0.7808,
+      "O2": 0.2095,
+      "Ar": 0.0093,
+      "CO2": 0.0004
+    },
+    "aerosols": {
+      "scattering_per_Mm": 3.996,
+      "absorption_per_Mm": 4.4,
+      "scale_height_km": 1.2,
+      "anisotropy": 0.8
+    },
+    "ozone": true
+  },
+  "geology": {
+    "regime": "plate_tectonics",
+    "plate_count": 12
+  },
+  "climate": {
+    "humidity": 1.0
+  }
+}

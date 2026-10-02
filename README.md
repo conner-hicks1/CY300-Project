@@ -21,6 +21,25 @@ building and saving scenes.
   the terrain
 - Terrain parameters editable live in the inspector (the planet rebuilds)
 
+**Bodies of the solar system**
+
+![Mars, the Moon, Io, Venus, Titan and Jupiter](docs/images/bodies.png)
+
+- Body profiles (`assets/bodies/*.json`, real data from NASA's fact sheets) for
+  Mercury, Venus, Earth, the Moon, Mars, Jupiter, Io, Europa, Ganymede,
+  Callisto, Saturn, Enceladus, Titan, Uranus, Neptune, Triton and Pluto:
+  size, mass, rotation, tilt, orbit, star, temperature, surface liquid and
+  colors, terrain relief, atmosphere (pressure, gases, aerosols), geology
+- Physics derived from them: surface gravity, sunlight, equilibrium and
+  greenhouse temperature, atmospheric scale height (H = RT / Mg), light
+  scattering from pressure and gas mix, the sun's apparent size
+- File > New Planet builds any of them; Planet panel > Body shows its facts
+  and turns the planet into another body (undoable)
+- Dry worlds keep their basins, methane seas (Titan), glowing lava lakes
+  (Io), mineral surface palettes, gas-giant cloud bands, and a black sky with
+  hard shadows where there is no air
+- Add a body by writing a new profile file; the loader validates it
+
 **Plate tectonics**
 
 ![Crust-age view after a few hundred million years: young sea floor (red) at the ridges, older floor (blue), continents (tan)](docs/images/tectonics.png)
@@ -119,7 +138,7 @@ building and saving scenes.
   under a per-frame time budget
 - Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
   output routed to the log
-- 380 unit tests for everything that does not need a GPU
+- 400 unit tests for everything that does not need a GPU
 
 ## Getting Started
 
@@ -188,14 +207,14 @@ The planet streams in over the first few seconds.
 | `core/` | Window, input, events, timer, logging, profiler, job system |
 | `ecs/` | Entity registry and components |
 | `systems/` | Transform, camera controller, rotator, tectonics, climate, planet streaming and render systems |
-| `planet/` | Noise, cube-sphere mapping and simulation grid, plate tectonics, climate, terrain, chunk building, level of detail, solar time |
+| `planet/` | Body profiles, noise, cube-sphere mapping and simulation grid, plate tectonics, climate, terrain, chunk building, level of detail, solar time |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, bloom |
 | `editor/` | Scene editor, hierarchy / inspector / planet panels, picking, undo history |
 | `scene/` | Scene container and scene file (de)serialization |
 | `resources/` | Handle-based resource managers |
 | `math3d/` | Transforms, camera, matrix helpers |
 | `ui/` | ImGui integration, docked layout and panel registry, render / stats / profiler panels |
-| `assets/` | Shaders, textures, scenes |
+| `assets/` | Shaders, textures, scenes, body profiles (`bodies/`) |
 | `tools/` | Asset generator and micro-benchmarks |
 | `tests/` | pytest suite (`tests/fixtures/` holds the OBJ / glTF test models) |
 

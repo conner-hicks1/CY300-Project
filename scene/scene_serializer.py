@@ -10,6 +10,7 @@ from core.logger import Logger
 
 from ecs.components import (
     AtmosphereComponent,
+    BodyComponent,
     CameraComponent,
     CameraControllerComponent,
     ClimateComponent,
@@ -651,6 +652,12 @@ COMPONENT_CODECS: tuple[ComponentCodec, ...] = (
         "Climate",
         ClimateComponent,
         create_default=lambda _: ClimateComponent()
+    ),
+
+    _dataclass_codec(
+        "Body",
+        BodyComponent,
+        create_default=lambda _: BodyComponent()
     ),
 
     _dataclass_codec(

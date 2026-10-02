@@ -75,6 +75,33 @@ class AtmosphereParameters:
     ground_albedo: float
 
     @classmethod
+    def vacuum(
+        cls,
+        planet_radius: float
+    ) -> "AtmosphereParameters":
+        """
+        No air (Mercury, the Moon): nothing scatters, so the
+        sky is black and the sun a sharp disc.
+        """
+
+        ground = planet_radius / 1000.0
+
+        return cls(
+            ground_radius=ground,
+            top_radius=ground + 1.0,
+            rayleigh_scattering=(0.0, 0.0, 0.0),
+            rayleigh_scale_height=1.0,
+            mie_scattering=0.0,
+            mie_absorption=0.0,
+            mie_scale_height=1.0,
+            mie_anisotropy=0.0,
+            ozone_absorption=(0.0, 0.0, 0.0),
+            ozone_altitude=25.0,
+            ozone_half_width=15.0,
+            ground_albedo=0.1
+        )
+
+    @classmethod
     def from_components(
         cls,
         planet_radius: float,
@@ -208,12 +235,15 @@ def pack_atmosphere_block(
     sun_direction=None,
     sun_illuminance=(0.0, 0.0, 0.0),
     steps: int = 24,
-    aerial_perspective: bool = True
+    aerial_perspective: bool = True,
+    sun_angular_radius: float = SUN_ANGULAR_RADIUS
 ) -> bytes:
     """
     parameters None packs a disabled atmosphere.
     planet_center_relative: planet center minus camera (m).
     sun_direction: unit vector toward the sun (None = none).
+    sun_angular_radius: apparent radius of the sun (degrees;
+        smaller farther from the star).
     """
 
     data = np.zeros(ATMOSPHERE_BLOCK.size // 4, dtype=np.float32)
@@ -235,7 +265,7 @@ def pack_atmosphere_block(
         p.mie_scattering,
         p.mie_absorption,
         p.mie_scale_height,
-        math.radians(SUN_ANGULAR_RADIUS)
+        math.radians(sun_angular_radius)
     )
 
     data[16:19] = p.ozone_absorption

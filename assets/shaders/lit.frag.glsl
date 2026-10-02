@@ -124,6 +124,8 @@ void main()
     float roughness = clamp(uRoughness * metallicRoughness.g, 0.04, 1.0);
     float metallic = clamp(uMetallic * metallicRoughness.b, 0.0, 1.0);
 
+    vec3 terrainEmissive = vec3(0.0);
+
     if (uTerrainShading > 0.5)
     {
         TerrainSurface terrain = terrainSurface(
@@ -135,6 +137,7 @@ void main()
 
         baseColor = terrain.albedo * uBaseColor;
         roughness = terrain.roughness;
+        terrainEmissive = terrain.emissive;
 
         int view = int(uTerrainView + 0.5);
 
@@ -162,7 +165,8 @@ void main()
 
     vec3 emissive =
         texture(uEmissiveMap, vTexCoord).rgb
-        * uEmissive;
+        * uEmissive
+        + terrainEmissive;
 
     vec3 geometricNormal = normalize(vNormal);
 

@@ -1,0 +1,55 @@
+{
+  "format": 1,
+  "name": "Enceladus",
+  "kind": "moon",
+  "orbits": "Saturn",
+  "description": "Small, brilliant-white ice moon whose south-pole geysers feed Saturn's E ring.",
+  "physical": {
+    "radius_km": 252.1,
+    "mass_kg": 1.08e+20,
+    "rotation_hours": 32.9,
+    "solar_day_hours": 32.9,
+    "axial_tilt_deg": 0.0,
+    "oblateness": 0.0,
+    "bond_albedo": 0.81
+  },
+  "orbit": {
+    "distance_au": 9.583,
+    "eccentricity": 0.0047,
+    "period_days": 1.37,
+    "parent_distance_km": 237948.0
+  },
+  "star": {
+    "luminosity_solar": 1.0,
+    "temperature_k": 5772,
+    "radius_solar": 1.0
+  },
+  "surface": {
+    "mean_temperature_c": -198.0,
+    "liquid": "none",
+    "frost_point_c": -1000.0,
+    "palette": "mineral",
+    "colors": {
+      "low": [0.8, 0.82, 0.85],
+      "high": [0.88, 0.9, 0.92],
+      "steep": [0.65, 0.68, 0.72],
+      "ice": [0.9, 0.9, 0.92]
+    }
+  },
+  "terrain": {
+    "continent_frequency": 2.0,
+    "continent_height": 400.0,
+    "land_bias": 0.0,
+    "mountain_frequency": 200.0,
+    "mountain_height": 800.0,
+    "detail_height": 80.0
+  },
+  "atmosphere": null,
+  "geology": {
+    "regime": "ice_shell",
+    "plate_count": 0
+  },
+  "climate": {
+    "humidity": 0.0
+  }
+}

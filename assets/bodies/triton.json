@@ -1,0 +1,63 @@
+{
+  "format": 1,
+  "name": "Triton",
+  "kind": "moon",
+  "orbits": "Neptune",
+  "description": "Neptune's captured moon: pinkish nitrogen ice, cantaloupe terrain and active geysers; orbits backwards.",
+  "physical": {
+    "radius_km": 1353.4,
+    "mass_kg": 2.14e+22,
+    "rotation_hours": -141.0,
+    "solar_day_hours": 141.0,
+    "axial_tilt_deg": 0.0,
+    "oblateness": 0.0,
+    "bond_albedo": 0.76
+  },
+  "orbit": {
+    "distance_au": 30.07,
+    "eccentricity": 1.6e-05,
+    "period_days": 5.877,
+    "parent_distance_km": 354759.0
+  },
+  "star": {
+    "luminosity_solar": 1.0,
+    "temperature_k": 5772,
+    "radius_solar": 1.0
+  },
+  "surface": {
+    "mean_temperature_c": -235.0,
+    "liquid": "none",
+    "frost_point_c": -1000.0,
+    "palette": "mineral",
+    "colors": {
+      "low": [0.52, 0.42, 0.4],
+      "high": [0.72, 0.66, 0.62],
+      "steep": [0.45, 0.38, 0.36],
+      "ice": [0.85, 0.82, 0.8]
+    }
+  },
+  "terrain": {
+    "continent_frequency": 2.5,
+    "continent_height": 300.0,
+    "land_bias": 0.0,
+    "mountain_frequency": 200.0,
+    "mountain_height": 600.0,
+    "detail_height": 80.0
+  },
+  "atmosphere": {
+    "surface_pressure_bar": 1.4e-05,
+    "composition": {
+      "N2": 0.99,
+      "CH4": 0.01
+    },
+    "aerosols": null,
+    "ozone": false
+  },
+  "geology": {
+    "regime": "ice_shell",
+    "plate_count": 0
+  },
+  "climate": {
+    "humidity": 0.0
+  }
+}

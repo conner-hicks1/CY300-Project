@@ -1,6 +1,7 @@
 import math
 import random
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -9,6 +10,7 @@ from imgui_bundle import imgui
 
 from ecs.components import (
     AtmosphereComponent,
+    BodyComponent,
     CameraComponent,
     ClimateComponent,
     CameraControllerComponent,
@@ -18,6 +20,8 @@ from ecs.components import (
     TransformComponent
 )
 from ecs.entity import Entity
+
+from editor.inspector_panel import body_facts
 
 from math3d import quaternion
 
@@ -109,11 +113,22 @@ class PlanetPanel:
     def __init__(
         self,
         editor: "SceneEditor",
-        planet_system: PlanetSystem
+        planet_system: PlanetSystem,
+        apply_preset: Callable[[Entity, str], None] | None = None,
+        descriptions: dict[str, str] | None = None
     ):
+        """
+        apply_preset(planet entity, profile id): turn the
+            planet into another body (Application).
+        descriptions: profile id -> one-paragraph description.
+        """
 
         self._editor = editor
         self._planets = planet_system
+        self._apply_preset = apply_preset
+        self._descriptions = descriptions or {}
+
+        self._preset_choice = 0
 
         editor.panels.register(
             "Planet",
@@ -265,6 +280,9 @@ class PlanetPanel:
             f"Radius {component.radius / 1000.0:,.0f} km  |  seed {component.seed}"
         )
 
+        if imgui.collapsing_header("Body", imgui.TreeNodeFlags_.default_open.value):
+            self._draw_body_section(context)
+
         if imgui.collapsing_header("Camera", imgui.TreeNodeFlags_.default_open.value):
             self._draw_camera_section(context)
 
@@ -282,6 +300,68 @@ class PlanetPanel:
 
         if editor.playing:
             imgui.text_disabled("Playing: changes are undone on Stop.")
+
+    # -----------------------------------------------------
+    # Body
+    # -----------------------------------------------------
+
+    def _draw_body_section(
+        self,
+        context: "_PlanetContext"
+    ):
+
+        body = context.scene.try_get_component(context.planet, BodyComponent)
+
+        if body is not None:
+
+            description = self._descriptions.get(body.profile)
+
+            if description:
+                imgui.text_wrapped(description)
+
+            if imgui.begin_table("planet body facts", 2, imgui.TableFlags_.row_bg.value):
+
+                for label, value in body_facts(body)[:8]:
+
+                    imgui.table_next_row()
+                    imgui.table_next_column()
+                    imgui.text_disabled(label)
+                    imgui.table_next_column()
+                    imgui.text(value)
+
+                imgui.end_table()
+
+        else:
+
+            imgui.text_disabled("No body profile: a custom planet.")
+
+        presets = [
+            (profile_id, name)
+            for members in self._editor.body_presets.values()
+            for profile_id, name in members
+        ]
+
+        if not presets or self._apply_preset is None:
+            return
+
+        names = [name for _, name in presets]
+
+        self._preset_choice = min(self._preset_choice, len(names) - 1)
+
+        _, self._preset_choice = imgui.combo("##body preset", self._preset_choice, names)
+
+        imgui.same_line()
+
+        if imgui.button("Become"):
+
+            profile_id, name = presets[self._preset_choice]
+
+            self._apply_preset(context.planet, profile_id)
+
+        imgui.set_item_tooltip(
+            "Turn this planet into the chosen body: size, surface,\n"
+            "atmosphere, climate and geology (undo restores it)."
+        )
 
     # -----------------------------------------------------
     # Camera

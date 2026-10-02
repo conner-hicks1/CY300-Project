@@ -1,0 +1,68 @@
+{
+  "format": 1,
+  "name": "Mars",
+  "kind": "terrestrial",
+  "orbits": "Sun",
+  "description": "Cold desert world with a thin carbon dioxide atmosphere, rust-red dust, polar ice caps and the tallest volcano in the solar system.",
+  "physical": {
+    "radius_km": 3389.5,
+    "mass_kg": 6.417e+23,
+    "rotation_hours": 24.623,
+    "solar_day_hours": 24.66,
+    "axial_tilt_deg": 25.19,
+    "oblateness": 0.00589,
+    "bond_albedo": 0.25
+  },
+  "orbit": {
+    "distance_au": 1.524,
+    "eccentricity": 0.0934,
+    "period_days": 686.98
+  },
+  "star": {
+    "luminosity_solar": 1.0,
+    "temperature_k": 5772,
+    "radius_solar": 1.0
+  },
+  "surface": {
+    "mean_temperature_c": -63.0,
+    "liquid": "none",
+    "frost_point_c": -120.0,
+    "palette": "mineral",
+    "colors": {
+      "low": [0.2, 0.085, 0.04],
+      "high": [0.3, 0.15, 0.08],
+      "steep": [0.14, 0.08, 0.05],
+      "ice": [0.75, 0.72, 0.7]
+    }
+  },
+  "terrain": {
+    "continent_frequency": 0.9,
+    "continent_height": 3000.0,
+    "land_bias": 0.0,
+    "mountain_frequency": 80.0,
+    "mountain_height": 8000.0,
+    "detail_height": 400.0
+  },
+  "atmosphere": {
+    "surface_pressure_bar": 0.006,
+    "composition": {
+      "CO2": 0.951,
+      "N2": 0.0259,
+      "Ar": 0.0194
+    },
+    "aerosols": {
+      "scattering_per_Mm": 30.0,
+      "absorption_per_Mm": 10.0,
+      "scale_height_km": 11.0,
+      "anisotropy": 0.7
+    },
+    "ozone": false
+  },
+  "geology": {
+    "regime": "stagnant_lid",
+    "plate_count": 0
+  },
+  "climate": {
+    "humidity": 0.0
+  }
+}

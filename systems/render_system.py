@@ -1,3 +1,5 @@
+import math
+
 import numpy as np
 
 from OpenGL.GL import (
@@ -18,6 +20,7 @@ from core.profiler import Profiler
 
 from ecs.components import (
     AtmosphereComponent,
+    BodyComponent,
     CameraComponent,
     DirectionalLightComponent,
     MeshRendererComponent,
@@ -30,6 +33,7 @@ from ecs.entity import Entity
 from ecs.registry import Registry
 
 from graphics.atmosphere import (
+    SUN_ANGULAR_RADIUS,
     AtmosphereLuts,
     AtmosphereParameters,
     AtmosphereSky,
@@ -77,6 +81,8 @@ from graphics.texture import Texture2D
 from graphics.uniform_blocks import LightingFrame
 
 from math3d.camera import Camera
+
+from planet.bodies import AU_M, SOLAR_RADIUS_M
 
 from resources.resources import Resources
 
@@ -829,13 +835,19 @@ class RenderSystem:
 
         if self.settings.atmosphere_enabled:
 
-            for _, transform, planet, component in registry.view_with(
+            # The first planet; one without air gets a vacuum
+            # (black sky) rather than the procedural sky.
+            for entity, transform, planet in registry.view_with(
                 TransformComponent,
-                PlanetComponent,
-                AtmosphereComponent
+                PlanetComponent
             ):
 
-                found = (transform, planet, component)
+                found = (
+                    transform,
+                    planet,
+                    registry.try_get(entity, AtmosphereComponent),
+                    registry.try_get(entity, BodyComponent)
+                )
 
                 break
 
@@ -845,12 +857,31 @@ class RenderSystem:
 
             return None
 
-        transform, planet, component = found
+        transform, planet, component, body = found
 
-        parameters = AtmosphereParameters.from_components(
-            planet.radius,
-            component
-        )
+        if component is not None:
+
+            parameters = AtmosphereParameters.from_components(
+                planet.radius,
+                component
+            )
+
+        else:
+
+            parameters = AtmosphereParameters.vacuum(planet.radius)
+
+        # The sun's apparent size: from the body's distance to
+        # its star (Earth's sky without a body profile).
+        sun_angular_radius = SUN_ANGULAR_RADIUS
+
+        if body is not None and body.orbit_distance_au > 0.0:
+
+            sun_angular_radius = math.degrees(
+                math.atan(
+                    body.star_radius * SOLAR_RADIUS_M
+                    / (body.orbit_distance_au * AU_M)
+                )
+            )
 
         center = np.asarray(transform.world_matrix, dtype=np.float64)[:3, 3]
 
@@ -884,7 +915,8 @@ class RenderSystem:
                 aerial_perspective=(
                     self.settings.aerial_perspective
                     and not self.suppress_haze
-                )
+                ),
+                sun_angular_radius=sun_angular_radius
             )
         )
 

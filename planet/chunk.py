@@ -81,8 +81,13 @@ def build_chunk(
 
     elevation = terrain.elevation(directions, spacing)
 
-    # Oceans: the visible surface is the water at sea level.
-    surface = np.maximum(elevation, 0.0)
+    # Oceans: the visible surface is the liquid at sea level
+    # (dry worlds keep their basins).
+    surface = (
+        np.maximum(elevation, 0.0)
+        if terrain.settings.has_liquid
+        else elevation
+    )
 
     positions = directions * (radius + surface)[:, None]
 

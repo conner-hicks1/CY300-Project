@@ -4,6 +4,7 @@ from imgui_bundle import imgui
 
 from ecs.components import (
     AtmosphereComponent,
+    BodyComponent,
     CameraComponent,
     CameraControllerComponent,
     ClimateComponent,
@@ -572,6 +573,44 @@ def _edit_planet(
 
     inspector.slider(component, "split_factor", "Split distance", 0.5, 4.0)
 
+    imgui.separator_text("Surface")
+
+    for field, label, options in (
+        ("liquid", "Liquid", ("water", "methane", "lava", "none")),
+        ("palette", "Palette", ("biomes", "mineral", "bands")),
+    ):
+
+        current = getattr(component, field)
+
+        index = options.index(current) if current in options else 0
+
+        changed, index = imgui.combo(label, index, list(options))
+
+        if changed:
+            setattr(component, field, options[index])
+
+        inspector.discrete(changed, label)
+
+    if component.palette != "biomes":
+
+        inspector.color(component, "color_low", "Low / belts")
+        inspector.color(component, "color_high", "High / zones")
+
+    if component.palette == "mineral":
+
+        inspector.color(component, "color_steep", "Cliffs")
+        inspector.color(component, "color_ice", "Frost / ice")
+        inspector.slider(component, "frost_point", "Frost point (C)", -250.0, 50.0, "%.0f")
+
+    if component.palette == "bands":
+
+        changed, bands = imgui.slider_int("Bands", component.bands, 1, 40)
+
+        if changed:
+            component.bands = bands
+
+        inspector.continuous("Bands")
+
     imgui.text_disabled(
         "Terrain changes rebuild the planet.\n"
         "Chunk counts: Stats panel."
@@ -636,6 +675,64 @@ def _edit_climate(
     inspector.slider(component, "axial_tilt", "Axial tilt", 0.0, 60.0, "%.1f")
 
     imgui.text_disabled("Summary and views: Climate panel.")
+
+
+def _edit_body(
+    inspector: _Inspector,
+    component: BodyComponent
+):
+
+    imgui.text(f"{component.name or 'Unnamed body'}  ({component.kind.replace('_', ' ')})")
+
+    imgui.text_disabled(f"Orbits {component.orbits}; profile '{component.profile}'")
+
+    if imgui.begin_table("body facts", 2, imgui.TableFlags_.row_bg.value):
+
+        for label, value in body_facts(component):
+
+            imgui.table_next_row()
+            imgui.table_next_column()
+            imgui.text_disabled(label)
+            imgui.table_next_column()
+            imgui.text(value)
+
+        imgui.end_table()
+
+    imgui.text_disabled(
+        "Physical data from the body profile\n"
+        "(assets/bodies). Planet panel > Body\n"
+        "applies another preset."
+    )
+
+
+def body_facts(
+    component: BodyComponent
+) -> list[tuple[str, str]]:
+    """Readable facts about a body, for the inspector and Planet panel."""
+
+    def duration(hours):
+
+        hours = abs(hours)
+
+        return f"{hours:.1f} h" if hours < 48.0 else f"{hours / 24.0:.1f} days"
+
+    year = component.year_days
+
+    facts = [
+        ("Gravity", f"{component.surface_gravity:.2f} m/s2  ({component.surface_gravity / 9.80665:.2f} g)"),
+        ("Day (solar)", duration(component.solar_day_hours)),
+        ("Rotation", duration(component.rotation_hours) + (" (retrograde)" if component.rotation_hours < 0 else "")),
+        ("Year", f"{year:,.1f} days" if year < 1000 else f"{year / 365.256:,.1f} Earth years"),
+        ("Distance", f"{component.orbit_distance_au:.3f} AU from the star"),
+        ("Sunlight", f"{component.star_luminosity / max(component.orbit_distance_au, 1e-9) ** 2 * 100.0:.2f}% of Earth's"),
+        ("Mean temperature", f"{component.mean_temperature:+.0f} C"),
+        ("Surface pressure", (
+            f"{component.surface_pressure_bar:,.3g} bar" if component.surface_pressure_bar > 0 else "none (vacuum)"
+        )),
+        ("Mass", f"{component.mass:.3e} kg"),
+    ]
+
+    return facts
 
 
 def _edit_directional_light(
@@ -704,6 +801,7 @@ _COMPONENT_EDITORS = {
     AtmosphereComponent: _edit_atmosphere,
     TectonicsComponent: _edit_tectonics,
     ClimateComponent: _edit_climate,
+    BodyComponent: _edit_body,
     DirectionalLightComponent: _edit_directional_light,
     PointLightComponent: _edit_point_light,
     SpotLightComponent: _edit_spot_light,

@@ -278,6 +278,28 @@ class PlanetComponent:
     max_depth: int = 15
     split_factor: float = 1.5
 
+    # Surface appearance.
+    #   liquid:  "water", "methane", "lava" or "none" (dry
+    #            worlds keep their basins instead of seas)
+    #   palette: "biomes" (Earth-like life, from climate),
+    #            "mineral" (bare ground: color_low / high /
+    #            steep, color_ice where colder than
+    #            frost_point), or "bands" (gas giant cloud
+    #            belts in color_low / color_high; no relief)
+    liquid: str = "water"
+    palette: str = "biomes"
+    color_low: tuple[float, float, float] = (0.30, 0.30, 0.30)
+    color_high: tuple[float, float, float] = (0.40, 0.40, 0.40)
+    color_steep: tuple[float, float, float] = (0.16, 0.14, 0.12)
+    color_ice: tuple[float, float, float] = (0.80, 0.82, 0.86)
+
+    # Below this annual mean temperature (C) the ground is
+    # frosted / iced over (mineral palette).
+    frost_point: float = -2.0
+
+    # Number of cloud bands ("bands" palette).
+    bands: int = 0
+
 
 # =========================================================
 # Atmosphere
@@ -375,3 +397,40 @@ class ClimateComponent:
 
     # Grid cells per cube-face edge.
     resolution: int = 64
+
+
+# =========================================================
+# Body
+# =========================================================
+#
+# What the planet entity is, physically: the facts a body
+# profile (assets/bodies/*.json, planet/bodies.py) brings,
+# kept on the entity for display and for the physics that
+# will use them (energy-balance climate, gravity, orbits).
+
+@dataclass(slots=True)
+class BodyComponent:
+
+    # Profile id ("mars") and display name.
+    profile: str = ""
+    name: str = ""
+
+    # "terrestrial", "moon", "dwarf", "gas_giant", "ice_giant".
+    kind: str = "terrestrial"
+
+    # What it orbits ("Sun", "Saturn", ...).
+    orbits: str = "Sun"
+
+    mass: float = 5.972e24                      # kg
+    surface_gravity: float = 9.81               # m/s^2
+    rotation_hours: float = 23.934              # sidereal; < 0 = retrograde
+    solar_day_hours: float = 24.0
+    orbit_distance_au: float = 1.0              # from the star
+    eccentricity: float = 0.0167
+    year_days: float = 365.256
+    bond_albedo: float = 0.306
+    star_luminosity: float = 1.0                # Suns
+    star_radius: float = 1.0                    # Suns
+    surface_pressure_bar: float = 1.014
+    mean_temperature: float = 15.0              # C
+    oblateness: float = 0.0

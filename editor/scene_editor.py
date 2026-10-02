@@ -107,7 +107,9 @@ class SceneEditor:
         populate_demo_scene: Callable[[Scene], None],
         load_model: Callable[[str], object],
         load_model_material: Callable[[str], object] | None = None,
-        panels: PanelRegistry | None = None
+        panels: PanelRegistry | None = None,
+        body_presets: dict[str, list[tuple[str, str]]] | None = None,
+        populate_body_scene: Callable[[Scene, str], None] | None = None
     ):
         """
         load_model_material: model path -> Material handle
@@ -123,6 +125,10 @@ class SceneEditor:
         self.serializer = serializer
 
         self._populate_demo_scene = populate_demo_scene
+
+        # group -> [(profile id, name)] for File > New Planet.
+        self.body_presets = body_presets or {}
+        self._populate_body_scene = populate_body_scene
         self._load_model = load_model
         self._load_model_material = load_model_material
 
@@ -985,6 +991,30 @@ class SceneEditor:
 
         self._confirm_discard_then(action)
 
+    def new_body_scene(
+        self,
+        profile_id: str,
+        name: str
+    ):
+        """A new scene with a planet from a body profile."""
+
+        def action():
+
+            if self.playing:
+                self.stop()
+
+            self.scene.clear()
+
+            self.scene.name = name
+
+            self._populate_body_scene(self.scene, profile_id)
+
+            self.new_scene_loaded(name)
+
+            self.set_status(f"New scene: {name}.")
+
+        self._confirm_discard_then(action)
+
     def new_scene_loaded(
         self,
         name: str = "Demo Scene"
@@ -1354,6 +1384,21 @@ class SceneEditor:
 
             if imgui.menu_item("New Demo Scene", "", False, editing)[0]:
                 self.new_scene(demo=True)
+
+            if self.body_presets and self._populate_body_scene is not None:
+
+                if imgui.begin_menu("New Planet", editing):
+
+                    for group, members in self.body_presets.items():
+
+                        imgui.separator_text(group)
+
+                        for profile_id, name in members:
+
+                            if imgui.menu_item(name, "", False)[0]:
+                                self.new_body_scene(profile_id, name)
+
+                    imgui.end_menu()
 
             imgui.separator()
 

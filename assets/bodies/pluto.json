@@ -1,0 +1,68 @@
+{
+  "format": 1,
+  "name": "Pluto",
+  "kind": "dwarf",
+  "orbits": "Sun",
+  "description": "Dwarf planet with a heart-shaped plain of nitrogen ice, reddish tholin highlands and water-ice mountains.",
+  "physical": {
+    "radius_km": 1188.3,
+    "mass_kg": 1.303e+22,
+    "rotation_hours": -153.3,
+    "solar_day_hours": 153.3,
+    "axial_tilt_deg": 122.53,
+    "oblateness": 0.0,
+    "bond_albedo": 0.72
+  },
+  "orbit": {
+    "distance_au": 39.48,
+    "eccentricity": 0.2488,
+    "period_days": 90560.0
+  },
+  "star": {
+    "luminosity_solar": 1.0,
+    "temperature_k": 5772,
+    "radius_solar": 1.0
+  },
+  "surface": {
+    "mean_temperature_c": -229.0,
+    "liquid": "none",
+    "frost_point_c": -1000.0,
+    "palette": "mineral",
+    "colors": {
+      "low": [0.75, 0.7, 0.62],
+      "high": [0.3, 0.17, 0.1],
+      "steep": [0.4, 0.3, 0.25],
+      "ice": [0.85, 0.83, 0.8]
+    }
+  },
+  "terrain": {
+    "continent_frequency": 1.2,
+    "continent_height": 2000.0,
+    "land_bias": 0.0,
+    "mountain_frequency": 80.0,
+    "mountain_height": 3000.0,
+    "detail_height": 150.0
+  },
+  "atmosphere": {
+    "surface_pressure_bar": 1e-05,
+    "composition": {
+      "N2": 0.99,
+      "CH4": 0.005,
+      "CO": 0.005
+    },
+    "aerosols": {
+      "scattering_per_Mm": 2.0,
+      "absorption_per_Mm": 1.0,
+      "scale_height_km": 30.0,
+      "anisotropy": 0.7
+    },
+    "ozone": false
+  },
+  "geology": {
+    "regime": "stagnant_lid",
+    "plate_count": 0
+  },
+  "climate": {
+    "humidity": 0.0
+  }
+}

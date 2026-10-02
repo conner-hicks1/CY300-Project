@@ -1,0 +1,72 @@
+{
+  "format": 1,
+  "name": "Uranus",
+  "kind": "ice_giant",
+  "orbits": "Sun",
+  "description": "Ice giant tipped on its side (98 degree tilt); methane gives it a pale cyan color.",
+  "physical": {
+    "radius_km": 25362.0,
+    "mass_kg": 8.681e+25,
+    "rotation_hours": -17.24,
+    "solar_day_hours": 17.24,
+    "axial_tilt_deg": 97.77,
+    "oblateness": 0.02293,
+    "bond_albedo": 0.3
+  },
+  "orbit": {
+    "distance_au": 19.19,
+    "eccentricity": 0.0472,
+    "period_days": 30688.5
+  },
+  "star": {
+    "luminosity_solar": 1.0,
+    "temperature_k": 5772,
+    "radius_solar": 1.0
+  },
+  "surface": {
+    "mean_temperature_c": -197.0,
+    "liquid": "none",
+    "frost_point_c": -1000.0,
+    "palette": "bands",
+    "colors": {
+      "low": [0.3, 0.3, 0.3],
+      "high": [0.4, 0.4, 0.4],
+      "steep": [0.2, 0.2, 0.2],
+      "ice": [0.8, 0.8, 0.8]
+    }
+  },
+  "terrain": {
+    "continent_frequency": 1.0,
+    "continent_height": 0.0,
+    "land_bias": 0.0,
+    "mountain_frequency": 100.0,
+    "mountain_height": 0.0,
+    "detail_height": 0.0
+  },
+  "atmosphere": {
+    "surface_pressure_bar": 1.0,
+    "composition": {
+      "H2": 0.825,
+      "He": 0.152,
+      "CH4": 0.023
+    },
+    "aerosols": {
+      "scattering_per_Mm": 4.0,
+      "absorption_per_Mm": 1.0,
+      "scale_height_km": 30.0,
+      "anisotropy": 0.7
+    },
+    "ozone": false
+  },
+  "geology": {
+    "regime": "none",
+    "plate_count": 0
+  },
+  "climate": {
+    "humidity": 0.0
+  },
+  "bands": {
+    "count": 4,
+    "colors": [[0.52, 0.72, 0.76], [0.6, 0.8, 0.82]]
+  }
+}

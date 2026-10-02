@@ -1,0 +1,54 @@
+{
+  "format": 1,
+  "name": "Mercury",
+  "kind": "terrestrial",
+  "orbits": "Sun",
+  "description": "Smallest planet and closest to the Sun: airless, heavily cratered, scorching days and frigid nights.",
+  "physical": {
+    "radius_km": 2439.7,
+    "mass_kg": 3.301e+23,
+    "rotation_hours": 1407.6,
+    "solar_day_hours": 4222.6,
+    "axial_tilt_deg": 0.034,
+    "oblateness": 0.0,
+    "bond_albedo": 0.088
+  },
+  "orbit": {
+    "distance_au": 0.387,
+    "eccentricity": 0.2056,
+    "period_days": 87.97
+  },
+  "star": {
+    "luminosity_solar": 1.0,
+    "temperature_k": 5772,
+    "radius_solar": 1.0
+  },
+  "surface": {
+    "mean_temperature_c": 167.0,
+    "liquid": "none",
+    "frost_point_c": -1000.0,
+    "palette": "mineral",
+    "colors": {
+      "low": [0.12, 0.115, 0.11],
+      "high": [0.17, 0.165, 0.155],
+      "steep": [0.1, 0.1, 0.095],
+      "ice": [0.6, 0.6, 0.62]
+    }
+  },
+  "terrain": {
+    "continent_frequency": 1.5,
+    "continent_height": 1500.0,
+    "land_bias": 0.0,
+    "mountain_frequency": 120.0,
+    "mountain_height": 3000.0,
+    "detail_height": 300.0
+  },
+  "atmosphere": null,
+  "geology": {
+    "regime": "stagnant_lid",
+    "plate_count": 0
+  },
+  "climate": {
+    "humidity": 0.0
+  }
+}

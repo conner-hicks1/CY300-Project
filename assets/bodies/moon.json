@@ -1,0 +1,55 @@
+{
+  "format": 1,
+  "name": "Moon",
+  "kind": "moon",
+  "orbits": "Earth",
+  "description": "Earth's airless companion: bright cratered highlands and dark lava plains (maria).",
+  "physical": {
+    "radius_km": 1737.4,
+    "mass_kg": 7.346e+22,
+    "rotation_hours": 655.7,
+    "solar_day_hours": 708.7,
+    "axial_tilt_deg": 6.68,
+    "oblateness": 0.0,
+    "bond_albedo": 0.11
+  },
+  "orbit": {
+    "distance_au": 1.0,
+    "eccentricity": 0.0549,
+    "period_days": 27.32,
+    "parent_distance_km": 384400.0
+  },
+  "star": {
+    "luminosity_solar": 1.0,
+    "temperature_k": 5772,
+    "radius_solar": 1.0
+  },
+  "surface": {
+    "mean_temperature_c": -20.0,
+    "liquid": "none",
+    "frost_point_c": -1000.0,
+    "palette": "mineral",
+    "colors": {
+      "low": [0.06, 0.06, 0.06],
+      "high": [0.16, 0.155, 0.15],
+      "steep": [0.11, 0.11, 0.105],
+      "ice": [0.6, 0.6, 0.6]
+    }
+  },
+  "terrain": {
+    "continent_frequency": 1.4,
+    "continent_height": 2500.0,
+    "land_bias": 0.25,
+    "mountain_frequency": 60.0,
+    "mountain_height": 4000.0,
+    "detail_height": 300.0
+  },
+  "atmosphere": null,
+  "geology": {
+    "regime": "stagnant_lid",
+    "plate_count": 0
+  },
+  "climate": {
+    "humidity": 0.0
+  }
+}

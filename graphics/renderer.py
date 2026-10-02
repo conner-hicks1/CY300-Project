@@ -120,6 +120,13 @@ class Renderer:
         "uUVScale": (1.0, 1.0),
         "uTerrainShading": 0.0,
         "uTerrainView": 0.0,
+        "uSurfacePalette": 0.0,
+        "uLiquid": 1.0,
+        "uColorLow": (0.3, 0.3, 0.3),
+        "uColorHigh": (0.4, 0.4, 0.4),
+        "uColorSteep": (0.16, 0.14, 0.12),
+        "uColorIce": (0.8, 0.82, 0.86),
+        "uFrostPoint": -2.0,
     }
 
     # =====================================================

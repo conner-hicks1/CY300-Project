@@ -311,6 +311,18 @@ class Material:
 
         return self._values.items()
 
+    def copy(
+        self
+    ) -> "Material":
+        """Same shader, values and textures; independent afterwards."""
+
+        clone = Material(self.shader)
+
+        clone._values = dict(self._values)
+        clone._textures = dict(self._textures)
+
+        return clone
+
     # =====================================================
     # Representation
     # =====================================================

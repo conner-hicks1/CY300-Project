@@ -54,6 +54,18 @@ class FakeMaterial:
 
         self.values[name] = value
 
+    def set_vec3(self, name, value):
+
+        self.values[name] = tuple(value)
+
+    def copy(self):
+
+        clone = FakeMaterial()
+
+        clone.values = dict(self.values)
+
+        return clone
+
 
 PLANET_MATERIAL = FakeMaterial()
 
@@ -130,7 +142,10 @@ def test_streams_until_complete(world):
     items = system.draw_items
 
     assert len(items) == stats.chunks_drawn
-    assert all(item.material is PLANET_MATERIAL for item in items)
+    # One material per planet, a copy of the base one.
+    assert len({id(item.material) for item in items}) == 1
+    assert items[0].material is not PLANET_MATERIAL
+    assert items[0].material.values["uLiquid"] == 1.0
 
     # Chunk world matrices include the planet's position.
     centers = np.array([item.world_matrix[:3, 3] for item in items])
@@ -239,4 +254,25 @@ def test_view_mode_reaches_material(world):
 
     system.update(scene, np.array([0.0, 500.0, 0.0]))
 
-    assert PLANET_MATERIAL.values["uTerrainView"] == 3.0
+    (material,) = system._materials.values()
+
+    assert material.values["uTerrainView"] == 3.0
+
+
+def test_planet_surface_reaches_its_material(world):
+
+    scene, system, _, planet = world
+
+    component = scene.get_component(planet, PlanetComponent)
+
+    component.liquid = "none"
+    component.palette = "mineral"
+    component.color_low = (0.2, 0.1, 0.05)
+
+    system.update(scene, np.array([0.0, 500.0, 0.0]))
+
+    (material,) = system._materials.values()
+
+    assert material.values["uLiquid"] == 0.0
+    assert material.values["uSurfacePalette"] == 1.0
+    assert material.values["uColorLow"] == (0.2, 0.1, 0.05)
