@@ -13,6 +13,7 @@ from ecs.components import (
     MeshRendererComponent,
     NameComponent,
     PlanetComponent,
+    RingsComponent,
     PointLightComponent,
     RotatorComponent,
     SpotLightComponent,
@@ -665,6 +666,22 @@ def _edit_planet(
     )
 
 
+def _edit_rings(
+    inspector: _Inspector,
+    component: RingsComponent
+):
+
+    inspector.slider(component, "inner_radius", "Inner radius (m)", 1.0e6, 5.0e8, "%.0f", logarithmic=True)
+    inspector.slider(component, "outer_radius", "Outer radius (m)", 1.0e6, 5.0e8, "%.0f", logarithmic=True)
+    inspector.slider(component, "opacity", "Opacity", 0.0, 4.0, "%.2f")
+    inspector.color(component, "color", "Particle color")
+
+    imgui.text_disabled(
+        "In the equatorial plane of the planet on this entity.\n"
+        "Bands (Saturn's C, B, A rings...) come from its profile."
+    )
+
+
 def _edit_atmosphere(
     inspector: _Inspector,
     component: AtmosphereComponent
@@ -860,6 +877,7 @@ _COMPONENT_EDITORS = {
     CameraComponent: _edit_camera,
     CameraControllerComponent: _edit_camera_controller,
     PlanetComponent: _edit_planet,
+    RingsComponent: _edit_rings,
     AtmosphereComponent: _edit_atmosphere,
     TectonicsComponent: _edit_tectonics,
     ClimateComponent: _edit_climate,

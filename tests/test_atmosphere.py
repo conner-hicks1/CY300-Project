@@ -155,7 +155,7 @@ def test_block_layout(earth):
 
     assert len(raw) == ATMOSPHERE_BLOCK.size
 
-    v = np.frombuffer(raw, dtype=np.float32).reshape(13, 4)
+    v = np.frombuffer(raw, dtype=np.float32).reshape(14, 4)
 
     np.testing.assert_allclose(v[0], (0.0, -6372.0, 0.0, 1.0))
     np.testing.assert_allclose(v[1], (6371.0, 6471.0, 0.8, 0.3), rtol=1e-6)
@@ -171,7 +171,7 @@ def test_block_layout(earth):
 
 def test_block_without_sun(earth):
 
-    v = np.frombuffer(pack_atmosphere_block(earth), dtype=np.float32).reshape(13, 4)
+    v = np.frombuffer(pack_atmosphere_block(earth), dtype=np.float32).reshape(14, 4)
 
     assert v[0, 3] == 1.0
     assert v[7, 3] == 0.0

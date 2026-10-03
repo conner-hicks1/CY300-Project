@@ -19,6 +19,7 @@ from ecs.components import (
     MeshRendererComponent,
     NameComponent,
     PlanetComponent,
+    RingsComponent,
     PointLightComponent,
     RotatorComponent,
     SpotLightComponent,
@@ -652,6 +653,12 @@ COMPONENT_CODECS: tuple[ComponentCodec, ...] = (
         "Climate",
         ClimateComponent,
         create_default=lambda _: ClimateComponent()
+    ),
+
+    _dataclass_codec(
+        "Rings",
+        RingsComponent,
+        create_default=lambda _: RingsComponent()
     ),
 
     _dataclass_codec(

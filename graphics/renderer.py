@@ -625,6 +625,35 @@ class Renderer:
         self.stats.draw_calls += 1
         self.stats.triangles += allocation.index_count // 3
 
+    def draw_mesh(
+        self,
+        mesh: Mesh,
+        shader: Shader,
+        model_matrix: np.ndarray
+    ):
+        """One mesh with a model matrix (made camera-relative); the caller sets the rest."""
+
+        self._assert_in_scene()
+
+        shader.bind()
+
+        shader.set_mat4("uModel", self.to_render_space(model_matrix))
+
+        allocation = mesh.allocation
+
+        GeometryPool.instance().bind()
+
+        glDrawElementsBaseVertex(
+            GL_TRIANGLES,
+            allocation.index_count,
+            GL_UNSIGNED_INT,
+            ctypes.c_void_p(allocation.first_index * 4),
+            allocation.base_vertex
+        )
+
+        self.stats.draw_calls += 1
+        self.stats.triangles += allocation.index_count // 3
+
     def draw_fullscreen(
         self,
         shader: Shader

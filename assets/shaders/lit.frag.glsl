@@ -5,6 +5,7 @@
 #include "include/shadows.glsl"
 #include "include/atmosphere.glsl"
 #include "include/clouds.glsl"
+#include "include/rings.glsl"
 #include "include/terrain.glsl"
 
 
@@ -228,8 +229,9 @@ void main()
         {
             radiance *= sunTransmittanceAtWorld(vWorldPosition);
 
-            // Cloud shadows.
+            // Cloud and ring shadows.
             radiance *= cloudShadow(vWorldPosition * 0.001 - uPlanetCenter.xyz);
+            radiance *= ringShadow(vWorldPosition * 0.001 - uPlanetCenter.xyz, L);
         }
 
         // Geometric normal for the shadow lookup: the

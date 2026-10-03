@@ -18,7 +18,8 @@ from OpenGL.GL import (
     glBlendColor,
     glBlendFunc,
     glClear,
-    glClearColor
+    glClearColor,
+    glDepthMask
 )
 
 from core.assertions import engine_assert
@@ -32,6 +33,7 @@ from ecs.components import (
     DirectionalLightComponent,
     MeshRendererComponent,
     PlanetComponent,
+    RingsComponent,
     PointLightComponent,
     SpotLightComponent,
     TransformComponent
@@ -57,6 +59,8 @@ from graphics.environment import (
     SkyParameters
 )
 from graphics.clouds import CloudParameters, cloud_cover_map
+from graphics.mesh import Mesh
+from graphics.rings import disc_mesh_data, ring_profile, unflat_bands
 from graphics.framebuffer import (
     ColorFormat,
     ColorTarget,
@@ -183,6 +187,7 @@ class RenderSystem:
             "sky": self._load_engine_shader("sky"),
             "post": self._load_engine_shader("post", "fullscreen"),
             "exposure": self._load_engine_shader("exposure", "fullscreen"),
+            "rings": self._load_engine_shader("rings"),
             "fxaa": self._load_engine_shader("fxaa", "fullscreen"),
             "bloom_downsample": self._load_engine_shader("bloom_downsample", "fullscreen"),
             "bloom_upsample": self._load_engine_shader("bloom_upsample", "fullscreen"),
@@ -230,6 +235,16 @@ class RenderSystem:
             "engine/gizmo_cube",
             MeshFactory.create_cube
         )
+
+        # Rings: a unit disc scaled to each ring system.
+        self._ring_mesh_handle = resources.meshes.load(
+            "engine/ring_disc",
+            lambda: Mesh.from_data(disc_mesh_data())
+        )
+
+        # (world matrix, outer radius m, color) of the ring
+        # system to draw this frame, if any.
+        self._rings_to_draw = None
 
         # -------------------------------------------------
         # GPU Resources
@@ -513,6 +528,12 @@ class RenderSystem:
                 with profiler.scope("Atmosphere"):
 
                     self._render_atmosphere(hdr)
+
+            if self._rings_to_draw is not None:
+
+                with profiler.scope("Rings"):
+
+                    self._render_rings()
 
             elif settings.show_sky:
 
@@ -917,6 +938,8 @@ class RenderSystem:
 
         clouds, cloud_key = self._prepare_clouds(planet_entity, planet, component)
 
+        rings = self._prepare_rings(registry.try_get(planet_entity, RingsComponent), transform)
+
         cloud_drift = 0.0
 
         if clouds is not None:
@@ -959,7 +982,8 @@ class RenderSystem:
                 cloud_drift=cloud_drift,
                 planet_frame=_inverse_rotation(transform.world_matrix),
                 flattening=planet.oblateness if planet.palette == "bands" else 0.0,
-                no_surface=planet.palette == "bands"
+                no_surface=planet.palette == "bands",
+                rings=rings
             )
         )
 
@@ -979,6 +1003,97 @@ class RenderSystem:
             ),
             clouds=cloud_key
         )
+
+    def _prepare_rings(
+        self,
+        component,
+        transform
+    ):
+        """
+        The planet's ring system: rebuild its profile texture
+        when it changed, remember it for drawing, and return
+        (inner km, outer km, opacity) for the atmosphere
+        block (or None).
+        """
+
+        profile = self._atmosphere_luts.ring_profile
+
+        self._rings_to_draw = None
+
+        if component is None or component.outer_radius <= component.inner_radius:
+
+            profile.clear()
+
+            return None
+
+        bands = unflat_bands(component.bands)
+
+        profile.update(
+            (component.inner_radius, component.outer_radius, tuple(component.bands), component.seed),
+            lambda: ring_profile(component.inner_radius, component.outer_radius, bands, component.seed)
+        )
+
+        self._rings_to_draw = (
+            np.asarray(transform.world_matrix, dtype=np.float64),
+            float(component.outer_radius),
+            tuple(float(c) for c in component.color)
+        )
+
+        return (
+            component.inner_radius / 1000.0,
+            component.outer_radius / 1000.0,
+            max(float(component.opacity), 0.0)
+        )
+
+    def _render_rings(self):
+        """
+        The ring system over the scene (premultiplied alpha,
+        depth-tested against the planet, not written).
+        """
+
+        world, outer, color = self._rings_to_draw
+
+        shader = self._shader("rings")
+
+        shader.bind()
+
+        luts = self._atmosphere_luts.textures()
+
+        for unit, (name, (texture_id, _)) in enumerate(luts.items()):
+
+            RenderCommand.bind_texture(texture_id, unit)
+
+            shader.set_int(name, unit)
+
+        shader.set_vec3("uRingColor", color)
+
+        # Unit disc -> the rings' outer radius, in the
+        # planet's equatorial plane.
+        rotation = world[:3, :3] / np.maximum(np.linalg.norm(world[:3, :3], axis=0, keepdims=True), 1e-12)
+
+        model = np.eye(4)
+        model[:3, :3] = rotation * outer
+        model[:3, 3] = world[:3, 3]
+
+        RenderState.set_depth_test(True)
+        RenderState.set_depth_func(GL_GREATER)
+        RenderState.set_face_culling(False)
+        RenderState.set_blending(True)
+
+        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA)
+        glDepthMask(False)
+
+        self._renderer.draw_mesh(
+            self._resources.meshes.get(self._ring_mesh_handle),
+            shader,
+            model
+        )
+
+        glDepthMask(True)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+        RenderState.set_blending(False)
+        RenderState.set_face_culling(True)
 
     def _prepare_clouds(
         self,

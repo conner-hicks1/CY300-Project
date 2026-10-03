@@ -66,6 +66,20 @@ building and saving scenes.
   depth (the HUD shows the depth and pressure) until no sunlight is left;
   the fog closes in, lit dimmer and dimmer from above
 
+**Rings**
+
+![Saturn's rings from their lit and unlit faces, and Uranus's narrow dark rings](docs/images/rings.png)
+
+- Ring systems in the equatorial plane from the profiles: Saturn's C, B and
+  A rings, the Cassini Division, the Encke Gap and the F ring; Uranus's
+  narrow, coal-dark rings; Neptune's faint ones; each band made of fine
+  ringlets
+- Lit as a layer of icy particles (single scattering with backscattering
+  particles and a forward-scattering glow): dense rings bright on their lit
+  face and dark from below, sparse ones glowing from behind
+- The planet's shadow falls across the rings, and the rings' shadow bands
+  across the planet
+
 **Plate tectonics**
 
 ![Crust-age view after a few hundred million years: young sea floor (red) at the ridges, older floor (blue), continents (tan)](docs/images/tectonics.png)
@@ -283,7 +297,7 @@ building and saving scenes.
   under a per-frame time budget
 - Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
   output routed to the log
-- 528 unit tests for everything that does not need a GPU
+- 535 unit tests for everything that does not need a GPU
 
 ## Getting Started
 

@@ -104,6 +104,14 @@ void main()
     if (geometry)
     {
         end = min(end, geometryDistance);
+
+        // A giant's cloud tops seen from above: end at the
+        // true surface (the mesh sags below it between
+        // vertices).
+        if (noSolidSurface() && !underTops && groundHit > 0.0)
+        {
+            end = min(end, groundHit);
+        }
     }
     else if (groundHit > 0.0)
     {

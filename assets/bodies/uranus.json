@@ -53,9 +53,10 @@
     },
     "aerosols": {
       "scattering_per_Mm": 1.5,
-      "absorption_per_Mm": 0.5,
+      "absorption_per_Mm": 4.0,
       "scale_height_km": 30.0,
-      "anisotropy": 0.7
+      "anisotropy": 0.7,
+      "absorption_tint": [4.0, 1.0, 0.2]
     },
     "ozone": false
   },
@@ -70,5 +71,6 @@
     "count": 4,
     "colors": [[0.52, 0.72, 0.76], [0.6, 0.8, 0.82]],
     "ovals": 0.0
-  }
+  },
+  "rings": {"inner_km": 41500.0, "outer_km": 51300.0, "bands": [[41800, 42600, 0.15], [44680, 44740, 0.4], [45630, 45690, 0.3], [47150, 47200, 0.2], [47600, 47650, 0.6], [48280, 48320, 0.3], [51060, 51240, 1.5]], "color": [0.06, 0.06, 0.07]}
 }

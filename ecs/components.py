@@ -366,6 +366,27 @@ class PlanetComponent:
 
 
 # =========================================================
+# Rings
+# =========================================================
+#
+# A ring system in the equatorial plane of the planet on the
+# same entity (graphics/rings.py): from inner_radius to
+# outer_radius (m), made of up to 8 bands (inner m, outer m,
+# normal optical depth; flattened, 0 = unused), particles of
+# `color` albedo; `opacity` scales the depths.
+
+@dataclass(slots=True)
+class RingsComponent:
+
+    inner_radius: float = 0.0
+    outer_radius: float = 0.0
+    bands: tuple[float, ...] = (0.0,) * 24
+    color: tuple[float, float, float] = (0.8, 0.72, 0.6)
+    opacity: float = 1.0
+    seed: int = 1
+
+
+# =========================================================
 # Atmosphere
 # =========================================================
 #

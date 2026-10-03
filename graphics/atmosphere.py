@@ -16,6 +16,7 @@ from graphics.framebuffer import (
 )
 from graphics.render_command import RenderCommand
 from graphics.clouds import CloudMap, CloudParameters
+from graphics.rings import RingProfileTexture
 from graphics.uniform_blocks import ATMOSPHERE_BLOCK
 
 
@@ -359,6 +360,8 @@ def _ray_sphere(
 #                                    taken as opaque, w depth (km) where it
 #                                    starts thickening (below the cloud-top
 #                                    mesh's sag between vertices)
+#     vec4 uRings;                   x inner, y outer radius (km), z 1 =
+#                                    rings, w optical depth scale
 #
 # The atmosphere is computed in "atmosphere space": the
 # planet's frame with y divided by (1 - flattening), where
@@ -378,9 +381,13 @@ def pack_atmosphere_block(
     cloud_drift: float = 0.0,
     planet_frame=(0.0, 0.0, 0.0, 1.0),
     flattening: float = 0.0,
-    no_surface: bool = False
+    no_surface: bool = False,
+    rings: tuple[float, float, float] | None = None
 ) -> bytes:
     """
+    rings: (inner km, outer km, optical depth scale) of
+    the planet's ring system, or None.
+
     parameters None packs a disabled atmosphere.
     planet_center_relative: planet center minus camera (m).
     sun_direction: unit vector toward the sun (None = none).
@@ -443,8 +450,16 @@ def pack_atmosphere_block(
         flattening,
         1.0 if no_surface else 0.0,
         10.0 * deepest,
-        0.25 * min(p.rayleigh_scale_height, p.mie_scale_height)
+        # Deeper than the coarsest chunks sag between their
+        # vertices (a cube face of 32 steps: ~R (pi / 64)^2 / 8).
+        max(
+            0.25 * min(p.rayleigh_scale_height, p.mie_scale_height),
+            1.5 * p.ground_radius * (math.pi / 64.0) ** 2 / 8.0
+        )
     )
+
+    if rings is not None:
+        data[52:56] = (rings[0], rings[1], 1.0, rings[2])
 
     return data.tobytes()
 
@@ -492,6 +507,9 @@ class AtmosphereLuts:
         # The weather cloud cover (graphics/clouds.py); bound
         # with the LUTs wherever the atmosphere is drawn.
         self.cloud_map = CloudMap()
+
+        # The ring system's radial profile (graphics/rings.py).
+        self.ring_profile = RingProfileTexture()
 
         self._diffuse = Framebuffer(
             FramebufferSpec(
@@ -556,6 +574,7 @@ class AtmosphereLuts:
             "uMultiScatteringLut": (self._multi_scattering.color_texture_id, GL_TEXTURE_2D),
             "uDiffuseLut": (self._diffuse.color_texture_id, GL_TEXTURE_2D),
             "uCloudMap": (self.cloud_map.texture_id, GL_TEXTURE_2D),
+            "uRingProfile": (self.ring_profile.texture_id, GL_TEXTURE_2D),
         }
 
     def delete(self):
@@ -564,6 +583,7 @@ class AtmosphereLuts:
         self._multi_scattering.delete()
         self._diffuse.delete()
         self.cloud_map.delete()
+        self.ring_profile.delete()
 
 
 # =========================================================

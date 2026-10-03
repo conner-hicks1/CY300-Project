@@ -90,7 +90,7 @@ def test_sun_is_packed_in_atmosphere_space():
     v = np.frombuffer(
         pack_atmosphere_block(earth, sun_direction=sun, sun_illuminance=(1.0, 1.0, 1.0), flattening=0.2, no_surface=True),
         dtype=np.float32
-    ).reshape(13, 4)
+    ).reshape(14, 4)
 
     expected = np.array([0.6, 0.8 / 0.8, 0.0])
     expected /= np.linalg.norm(expected)

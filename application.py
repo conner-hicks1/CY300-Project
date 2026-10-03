@@ -41,6 +41,7 @@ from ecs.components import (
     CameraComponent,
     ClimateComponent,
     PlanetComponent,
+    RingsComponent,
     TectonicsComponent,
     CameraControllerComponent,
     DirectionalLightComponent,
@@ -711,6 +712,7 @@ class Application:
             AtmosphereComponent,
             ClimateComponent,
             TectonicsComponent,
+            RingsComponent,
         ):
 
             if scene.has_component(entity, component_type):

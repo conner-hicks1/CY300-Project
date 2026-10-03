@@ -9,6 +9,7 @@ from ecs.components import (
     BodyComponent,
     ClimateComponent,
     PlanetComponent,
+    RingsComponent,
     TectonicsComponent
 )
 
@@ -39,6 +40,7 @@ PROFILE_FORMAT = 1
 
 BODIES_DIRECTORY = Path("assets/bodies")
 
+from graphics.rings import flat_bands
 from planet.phases import ICES, SUBSTANCES, frost_point
 from planet.regimes import DEFAULT_TIME_STEPS
 from planet.volcanoes import max_volcano_height
@@ -246,7 +248,9 @@ class BodyProfile:
     band_count: int = 0
     band_colors: tuple[tuple[float, float, float], ...] = ()
 
-    rings: tuple[float, float] | None = None
+    # Rings: (inner km, outer km, ((inner km, outer km,
+    # optical depth), ...), color) or None.
+    rings: tuple | None = None
 
     # Giants: the great storm (latitude, longitude deg,
     # size km, color, strength) or None; white ovals;
@@ -648,7 +652,31 @@ def parse_profile(
         if not isinstance(rings, dict):
             fail("'rings' must be an object")
 
-        ring_extent = (number(rings, "inner_km", 0.0), number(rings, "outer_km", 0.0))
+        raw_bands = rings.get("bands", [])
+
+        if not isinstance(raw_bands, list) or len(raw_bands) > 8:
+            fail("'rings.bands' must be a list of up to 8 [inner_km, outer_km, optical_depth]")
+
+        ring_bands = []
+
+        for band in raw_bands:
+
+            if (
+                not isinstance(band, list)
+                or len(band) != 3
+                or not all(isinstance(v, (int, float)) and v >= 0 for v in band)
+                or band[1] <= band[0]
+            ):
+                fail("each ring band must be [inner_km, outer_km, optical_depth]")
+
+            ring_bands.append(tuple(float(v) for v in band))
+
+        ring_extent = (
+            number(rings, "inner_km", 0.0),
+            number(rings, "outer_km", 0.0),
+            tuple(ring_bands),
+            color(rings.get("color", [0.8, 0.72, 0.6]), "rings.color"),
+        )
 
     # Ice caps and life.
     ice = surface.get("ice", "none")
@@ -774,6 +802,7 @@ class BodyComponents:
     atmosphere: AtmosphereComponent | None
     climate: ClimateComponent | None
     tectonics: TectonicsComponent | None
+    rings: RingsComponent | None = None
 
     def all(
         self
@@ -781,7 +810,7 @@ class BodyComponents:
 
         return [
             component
-            for component in (self.planet, self.body, self.atmosphere, self.climate, self.tectonics)
+            for component in (self.planet, self.body, self.atmosphere, self.climate, self.tectonics, self.rings)
             if component is not None
         ]
 
@@ -891,7 +920,22 @@ def components_for(
             relief_scale=relief_scale(profile.surface_gravity)
         )
 
+    rings = None
+
+    if profile.rings is not None:
+
+        inner_km, outer_km, ring_bands, ring_color = profile.rings
+
+        rings = RingsComponent(
+            inner_radius=inner_km * 1000.0,
+            outer_radius=outer_km * 1000.0,
+            bands=flat_bands([(a * 1000.0, b * 1000.0, tau) for a, b, tau in ring_bands]),
+            color=ring_color,
+            seed=seed
+        )
+
     return BodyComponents(
+        rings=rings,
         planet=planet,
         body=body,
         atmosphere=atmosphere_for(profile),

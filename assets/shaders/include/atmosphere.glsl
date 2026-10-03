@@ -33,6 +33,8 @@ layout(std140) uniform AtmosphereBlock
     vec4 uShape;                    // x flattening, y 1 = no solid surface
                                     // (giants), z opaque depth (km), w depth
                                     // where the deep air begins (km)
+    vec4 uRings;                    // x inner, y outer radius (km), z 1 =
+                                    // rings, w optical depth scale
 };
 
 // ---------------------------------------------------------
@@ -366,6 +368,13 @@ vec3 sunTransmittanceAtWorld(
     vec3 p = toAtmosphereSpace(worldPosition * 0.001 - uPlanetCenter.xyz);
 
     float r = length(p);
+
+    // Lit geometry on a giant is its cloud tops (the mesh
+    // only sags below them between vertices).
+    if (noSolidSurface())
+    {
+        r = max(r, groundRadius());
+    }
 
     return sunTransmittance(r, dot(p, uAtmosphereSunDirection.xyz) / r);
 }
