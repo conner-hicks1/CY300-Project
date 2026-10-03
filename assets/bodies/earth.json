@@ -58,7 +58,14 @@
       "scale_height_km": 1.2,
       "anisotropy": 0.8
     },
-    "ozone": true
+    "ozone": true,
+    "clouds": {
+      "coverage": 0.55,
+      "altitude_km": 4.0,
+      "optical_depth": 14.0,
+      "scale_km": 700.0,
+      "color": [1.0, 1.0, 1.0]
+    }
   },
   "geology": {
     "regime": "plate_tectonics",

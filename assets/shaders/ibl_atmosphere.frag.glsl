@@ -2,6 +2,7 @@
 
 #include "include/cubemap.glsl"
 #include "include/atmosphere.glsl"
+#include "include/clouds.glsl"
 
 
 // =========================================================
@@ -51,13 +52,15 @@ void main()
             end = min(end, groundHit);
         }
 
-        color = integrateScattering(
+        // Clouds too: an overcast sky lights the scene grey.
+        color = scatteringWithClouds(
             origin,
             direction,
             start,
             end,
             STEPS,
             0.5,
+            0.02,
             transmittance
         );
     }

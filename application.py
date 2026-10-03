@@ -341,6 +341,9 @@ class Application:
             tectonic_field=self.tectonics_system.field
         )
 
+        # Clouds form where the climate rains.
+        self.render_system.climate_provider = self.climate_system.field
+
         self.planet_system = PlanetSystem(
             self.resources,
             self.jobs,

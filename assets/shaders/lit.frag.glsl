@@ -4,6 +4,7 @@
 #include "include/lighting.glsl"
 #include "include/shadows.glsl"
 #include "include/atmosphere.glsl"
+#include "include/clouds.glsl"
 #include "include/terrain.glsl"
 
 
@@ -221,6 +222,9 @@ void main()
         if (atmospherePresent())
         {
             radiance *= sunTransmittanceAtWorld(vWorldPosition);
+
+            // Cloud shadows.
+            radiance *= cloudShadow(vWorldPosition * 0.001 - uPlanetCenter.xyz);
         }
 
         // Geometric normal for the shadow lookup: the

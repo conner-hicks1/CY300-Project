@@ -24,6 +24,12 @@ layout(std140) uniform AtmosphereBlock
     vec4 uAtmosphereSunDirection;   // xyz toward the sun, w 1 = present
     vec4 uSunIlluminance;           // rgb sun color * intensity, w aerosol
                                     // layer altitude (km; 0 = at the ground)
+    vec4 uCloudParams;              // x cloud layer altitude (km), y optical
+                                    // depth, z feature size (km), w 1 = clouds
+    vec4 uCloudColor;               // rgb cloud color, w drift angle (rad)
+    vec4 uPlanetFrame;              // quaternion (xyzw): world -> the
+                                    // planet's own frame (its climate,
+                                    // clouds)
 };
 
 uniform sampler2D uTransmittanceLut;

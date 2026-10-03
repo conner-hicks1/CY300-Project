@@ -487,7 +487,16 @@ class Terrain:
         # -------------------------------------------------
 
         if self.volcanoes is not None:
-            elevation += self.volcanoes.height(directions, spacing)
+
+            # A volcano grows until its summit reaches gravity's
+            # limit, whatever it stands on (a hot spot on a
+            # mountain range adds less).
+            volcano = self.volcanoes.height(directions, spacing)
+
+            elevation += np.minimum(
+                volcano,
+                np.maximum(self.settings.volcano_max_height - elevation, 0.0)
+            )
 
         return elevation
 

@@ -686,6 +686,16 @@ def _edit_atmosphere(
     inspector.vec3(component, "mie_scattering_tint", "Scattering tint", 0.01)
     inspector.vec3(component, "mie_absorption_tint", "Absorption tint", 0.01)
     inspector.slider(component, "mie_layer_altitude", "Layer altitude (m)", 0.0, 100_000.0, "%.0f")
+
+    imgui.separator_text("Clouds")
+
+    inspector.slider(component, "cloud_coverage", "Coverage", 0.0, 1.0, "%.2f")
+    imgui.set_item_tooltip("Mean share of the sky covered (0 = none). Where: from the climate's rain.")
+    inspector.slider(component, "cloud_altitude", "Altitude (m)", 500.0, 60_000.0, "%.0f", logarithmic=True)
+    inspector.slider(component, "cloud_optical_depth", "Thickness (tau)", 0.1, 60.0, "%.1f", logarithmic=True)
+    inspector.slider(component, "cloud_scale", "Feature size (m)", 20_000.0, 3_000_000.0, "%.0f", logarithmic=True)
+    inspector.color(component, "cloud_color", "Color")
+    inspector.slider(component, "cloud_speed", "Drift (m/s)", 0.0, 200.0, "%.0f")
     imgui.set_item_tooltip("A cloud deck at this height (0 = haze thickest at the ground).")
 
     imgui.separator_text("Ozone")

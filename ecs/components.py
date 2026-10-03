@@ -374,6 +374,19 @@ class AtmosphereComponent:
     mie_scattering_tint: tuple[float, float, float] = (1.0, 1.0, 1.0)
     mie_absorption_tint: tuple[float, float, float] = (1.0, 1.0, 1.0)
 
+    # Weather clouds (graphics/clouds.py): the mean share of
+    # the sky they cover (0 = none; where comes from the
+    # climate's rain), the layer's height (m), optical depth
+    # at the thickest, the largest cloud features (m), their
+    # color, and how fast they drift (m / s). Defaults:
+    # Earth.
+    cloud_coverage: float = 0.62
+    cloud_altitude: float = 4_000.0
+    cloud_optical_depth: float = 14.0
+    cloud_scale: float = 700_000.0
+    cloud_color: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    cloud_speed: float = 10.0
+
     # Aerosols in a layer centered this high (m), thinning
     # above and below by the scale height (a cloud deck:
     # Venus's sulfuric acid clouds at ~57 km). 0 = densest at

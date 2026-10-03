@@ -56,6 +56,7 @@ from graphics.environment import (
     Environment,
     SkyParameters
 )
+from graphics.clouds import CloudParameters, cloud_cover_map
 from graphics.framebuffer import (
     ColorFormat,
     ColorTarget,
@@ -87,6 +88,7 @@ from graphics.shadows import (
 from graphics.texture import Texture2D
 from graphics.uniform_blocks import LightingFrame
 
+from math3d import quaternion
 from math3d.camera import Camera
 
 from planet.bodies import AU_M, SOLAR_RADIUS_M
@@ -272,6 +274,12 @@ class RenderSystem:
         # Auto exposure: a 1x1 target that follows the scene
         # (see _update_exposure), and when it last did.
         self._exposure_framebuffer: Framebuffer | None = None
+
+        # entity -> climate field (for where clouds form);
+        # set by the application.
+        self.climate_provider = lambda entity: None
+
+        self._clock_start = time.perf_counter()
         self._exposure_time: float | None = None
 
         # The HDR color without its depth, for the
@@ -865,7 +873,8 @@ class RenderSystem:
                     transform,
                     planet,
                     registry.try_get(entity, AtmosphereComponent),
-                    registry.try_get(entity, BodyComponent)
+                    registry.try_get(entity, BodyComponent),
+                    entity
                 )
 
                 break
@@ -876,7 +885,7 @@ class RenderSystem:
 
             return None
 
-        transform, planet, component, body = found
+        transform, planet, component, body, planet_entity = found
 
         if component is not None:
 
@@ -905,6 +914,16 @@ class RenderSystem:
         center = np.asarray(transform.world_matrix, dtype=np.float64)[:3, 3]
 
         camera_offset = np.asarray(camera.position, dtype=np.float64) - center
+
+        clouds, cloud_key = self._prepare_clouds(planet_entity, planet, component)
+
+        cloud_drift = 0.0
+
+        if clouds is not None:
+
+            elapsed = time.perf_counter() - self._clock_start
+
+            cloud_drift = (elapsed * clouds.speed / max(planet.radius, 1.0)) % (2.0 * math.pi)
 
         directional = lighting.directional
 
@@ -935,7 +954,10 @@ class RenderSystem:
                     self.settings.aerial_perspective
                     and not self.suppress_haze
                 ),
-                sun_angular_radius=sun_angular_radius
+                sun_angular_radius=sun_angular_radius,
+                clouds=clouds,
+                cloud_drift=cloud_drift,
+                planet_frame=_inverse_rotation(transform.world_matrix)
             )
         )
 
@@ -952,8 +974,57 @@ class RenderSystem:
             textures=tuple(
                 (name, texture_id)
                 for name, (texture_id, _) in self._atmosphere_luts.textures().items()
-            )
+            ),
+            clouds=cloud_key
         )
+
+    def _prepare_clouds(
+        self,
+        entity,
+        planet,
+        component
+    ):
+        """
+        The planet's cloud layer (or None) and a key for it;
+        rebuilds the cover map when the climate or coverage
+        changes.
+        """
+
+        cloud_map = self._atmosphere_luts.cloud_map
+
+        if component is None or component.cloud_coverage <= 0.0:
+
+            cloud_map.clear()
+
+            return None, None
+
+        clouds = CloudParameters(
+            coverage=float(np.clip(component.cloud_coverage, 0.0, 1.0)),
+            altitude=max(float(component.cloud_altitude), 1.0) / 1000.0,
+            optical_depth=max(float(component.cloud_optical_depth), 0.0),
+            scale=max(float(component.cloud_scale), 1_000.0) / 1000.0,
+            color=tuple(float(c) for c in component.cloud_color),
+            speed=float(component.cloud_speed)
+        )
+
+        climate = self.climate_provider(entity)
+
+        version = climate.version if climate is not None else None
+
+        cloud_map.update(
+            (version, round(clouds.coverage, 3)),
+            lambda: cloud_cover_map(clouds.coverage, climate)
+        )
+
+        key = (
+            version,
+            round(clouds.coverage, 3),
+            round(clouds.altitude, 2),
+            round(clouds.optical_depth, 2),
+            round(clouds.scale, 1),
+        )
+
+        return clouds, key
 
     def _render_atmosphere(
         self,
@@ -1572,3 +1643,18 @@ class RenderSystem:
             self._hdr_color_target.delete()
 
             self._hdr_color_target = None
+
+
+def _inverse_rotation(
+    world_matrix
+) -> tuple[float, float, float, float]:
+    """Quaternion (xyzw) taking world directions into an entity's own frame."""
+
+    rotation = np.asarray(world_matrix, dtype=np.float64)[:3, :3]
+
+    # Remove any scale from the columns.
+    rotation = rotation / np.maximum(np.linalg.norm(rotation, axis=0, keepdims=True), 1e-12)
+
+    q = quaternion.conjugate(quaternion.from_matrix3(rotation))
+
+    return tuple(float(v) for v in q)

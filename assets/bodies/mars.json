@@ -60,7 +60,14 @@
       "scattering_tint": [1.1, 1.0, 0.85],
       "absorption_tint": [0.3, 0.8, 1.6]
     },
-    "ozone": false
+    "ozone": false,
+    "clouds": {
+      "coverage": 0.07,
+      "altitude_km": 30.0,
+      "optical_depth": 0.4,
+      "scale_km": 300.0,
+      "color": [0.92, 0.95, 1.0]
+    }
   },
   "geology": {
     "regime": "stagnant_lid",

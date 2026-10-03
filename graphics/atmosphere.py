@@ -15,6 +15,7 @@ from graphics.framebuffer import (
     FramebufferSpec
 )
 from graphics.render_command import RenderCommand
+from graphics.clouds import CloudMap, CloudParameters
 from graphics.uniform_blocks import ATMOSPHERE_BLOCK
 
 
@@ -319,6 +320,11 @@ def _ray_sphere(
 #     vec4 uAtmosphereSunDirection;  xyz toward the sun, w 1 = sun present
 #     vec4 uSunIlluminance;          rgb sun color * intensity, w aerosol
 #                                    layer altitude (km; 0 = at the ground)
+#     vec4 uCloudParams;             x cloud layer altitude (km), y optical
+#                                    depth, z feature size (km), w 1 = clouds
+#     vec4 uCloudColor;              rgb cloud color, w drift angle (rad)
+#     vec4 uPlanetFrame;             quaternion (xyzw): world -> the planet's
+#                                    own frame (its climate, clouds)
 
 def pack_atmosphere_block(
     parameters: AtmosphereParameters | None,
@@ -327,7 +333,10 @@ def pack_atmosphere_block(
     sun_illuminance=(0.0, 0.0, 0.0),
     steps: int = 24,
     aerial_perspective: bool = True,
-    sun_angular_radius: float = SUN_ANGULAR_RADIUS
+    sun_angular_radius: float = SUN_ANGULAR_RADIUS,
+    clouds: "CloudParameters | None" = None,
+    cloud_drift: float = 0.0,
+    planet_frame=(0.0, 0.0, 0.0, 1.0)
 ) -> bytes:
     """
     parameters None packs a disabled atmosphere.
@@ -375,6 +384,14 @@ def pack_atmosphere_block(
 
     data[35] = p.mie_layer_altitude
 
+    if clouds is not None and clouds.coverage > 0.0:
+
+        data[36:40] = (clouds.altitude, clouds.optical_depth, max(clouds.scale, 1.0), 1.0)
+        data[40:43] = clouds.color
+        data[43] = cloud_drift
+
+    data[44:48] = planet_frame
+
     return data.tobytes()
 
 
@@ -417,6 +434,10 @@ class AtmosphereLuts:
                 depth_mode=DepthMode.NONE
             )
         )
+
+        # The weather cloud cover (graphics/clouds.py); bound
+        # with the LUTs wherever the atmosphere is drawn.
+        self.cloud_map = CloudMap()
 
         self._diffuse = Framebuffer(
             FramebufferSpec(
@@ -480,6 +501,7 @@ class AtmosphereLuts:
             "uTransmittanceLut": (self._transmittance.color_texture_id, GL_TEXTURE_2D),
             "uMultiScatteringLut": (self._multi_scattering.color_texture_id, GL_TEXTURE_2D),
             "uDiffuseLut": (self._diffuse.color_texture_id, GL_TEXTURE_2D),
+            "uCloudMap": (self.cloud_map.texture_id, GL_TEXTURE_2D),
         }
 
     def delete(self):
@@ -487,6 +509,7 @@ class AtmosphereLuts:
         self._transmittance.delete()
         self._multi_scattering.delete()
         self._diffuse.delete()
+        self.cloud_map.delete()
 
 
 # =========================================================
@@ -511,6 +534,10 @@ class AtmosphereSky:
     # the bake key.
     textures: tuple[tuple[str, int], ...] = ()
 
+    # The cloud layer and its cover map's identity (overcast
+    # skies light the scene differently).
+    clouds: tuple | None = None
+
     shader_name: str = "ibl_atmosphere"
 
     def bake_key(
@@ -534,6 +561,7 @@ class AtmosphereSky:
             rounded(self.sun_illuminance, 3),
             rounded(self.camera_up, 2),
             altitude_bucket,
+            self.clouds,
         )
 
     def apply(

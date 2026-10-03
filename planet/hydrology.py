@@ -80,8 +80,8 @@ class HydrologyField:
     segment_of_cell: np.ndarray
 
     # Lakes (padded, for sampling): 1 in lake cells, and
-    # the water level there and next to them (elsewhere far
-    # below anything).
+    # their water level times that mask (so a sample's level
+    # is the ratio of the two: only lake cells' levels mix).
     lake: np.ndarray
     lake_level: np.ndarray
 
@@ -277,9 +277,11 @@ class HydrologyField:
         if len(lake) == 0:
             return
 
-        level = self.grid.sample(self.lake_level, directions[lake])
+        weight = self.grid.sample(self.lake, directions[lake])
 
-        share = inside[lake] * (level > -1e5)
+        level = self.grid.sample(self.lake_level, directions[lake]) / np.maximum(weight, 1e-6)
+
+        share = inside[lake]
 
         elevation[lake] = elevation[lake] + (level - elevation[lake]) * share
 
@@ -522,13 +524,8 @@ def compute_hydrology(
         & (discharge >= 0.3 * threshold)
     )
 
-    # Levels in the lake and its neighbors (so shores fall
-    # where the ground rises above the water).
-    lake_level = np.where(lake, filled, -1e6)
-
-    neighbor_level = np.where(lake[neighbors], filled[neighbors], -1e6).max(axis=1)
-
-    lake_level = np.where(lake, lake_level, neighbor_level)
+    # Level times the mask (see HydrologyField.lake_level).
+    lake_level = np.where(lake, filled, 0.0)
 
     # -----------------------------------------------------
     # Deltas at the largest mouths

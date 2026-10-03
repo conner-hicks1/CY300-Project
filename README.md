@@ -177,6 +177,23 @@ building and saving scenes.
   planet-wide min / mean / max, biome shares; temperature, rainfall and biome
   views
 
+**Clouds**
+
+![Earth from space with its weather, and a cloud deck seen from below over the ocean](docs/images/clouds.png)
+
+- A weather cloud layer where the climate rains: the equatorial belt and the
+  storm tracks cloudy, the subtropical deserts clear, the planet averaging
+  its observed cover (Earth ~55-65%); domain-warped fractal noise per pixel
+  shapes the clouds from continent-sized systems down to tens of meters,
+  drifting slowly with the winds
+- Drawn inside the atmosphere pass: air in front of the clouds, the clouds,
+  and the sky behind their gaps; bright tops from above, dark bases from
+  below (two-stream light through thick cloud), reddened at sunset, glowing
+  at thin edges toward the sun
+- Clouds shadow the ground, and overcast skies dim the ambient light
+- Per body: Earth's water clouds, Mars's rare thin water-ice clouds, Titan's
+  methane clouds; Venus's sulfuric acid deck hides its surface completely
+
 **Atmosphere**
 
 | Sunset from 12 km | From orbit |
@@ -250,7 +267,7 @@ building and saving scenes.
   under a per-frame time budget
 - Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
   output routed to the log
-- 506 unit tests for everything that does not need a GPU
+- 522 unit tests for everything that does not need a GPU
 
 ## Getting Started
 

@@ -143,6 +143,10 @@ class AtmosphereProfile:
     aerosols: Aerosols | None
     ozone: bool = False
 
+    # Weather clouds: (coverage, altitude km, optical depth,
+    # feature size km, color), or None.
+    clouds: tuple | None = None
+
     @property
     def molar_mass(
         self
@@ -548,6 +552,28 @@ def parse_profile(
                 altitude_km=number(raw_aerosols, "altitude_km", 0.0, default=0.0)
             )
 
+        raw_clouds = raw_atmosphere.get("clouds")
+
+        clouds = None
+
+        if raw_clouds is not None:
+
+            if not isinstance(raw_clouds, dict):
+                fail("'atmosphere.clouds' must be an object or null")
+
+            coverage = number(raw_clouds, "coverage", 0.0)
+
+            if coverage > 1.0:
+                fail("'coverage' must be at most 1")
+
+            clouds = (
+                coverage,
+                number(raw_clouds, "altitude_km", 0.1),
+                number(raw_clouds, "optical_depth", 0.0),
+                number(raw_clouds, "scale_km", 1.0),
+                color(raw_clouds.get("color", [1.0, 1.0, 1.0]), "color"),
+            )
+
         atmosphere = AtmosphereProfile(
             surface_pressure_bar=number(raw_atmosphere, "surface_pressure_bar", 0.0),
             composition=tuple(
@@ -557,6 +583,7 @@ def parse_profile(
                 )
             ),
             aerosols=aerosols,
+            clouds=clouds,
             ozone=bool(raw_atmosphere.get("ozone", False))
         )
 
@@ -1187,6 +1214,25 @@ def sun_intensity(
     return 5.0 * min(max(max(sunlight, 1e-9) ** 0.3, 0.2), 2.5)
 
 
+def cloud_fields(
+    clouds: tuple | None
+) -> dict:
+    """AtmosphereComponent cloud fields from a profile's clouds."""
+
+    if clouds is None:
+        return {"cloud_coverage": 0.0}
+
+    coverage, altitude_km, optical_depth, scale_km, color = clouds
+
+    return {
+        "cloud_coverage": coverage,
+        "cloud_altitude": altitude_km * 1000.0,
+        "cloud_optical_depth": optical_depth,
+        "cloud_scale": scale_km * 1000.0,
+        "cloud_color": color,
+    }
+
+
 def atmosphere_for(
     profile: BodyProfile
 ) -> AtmosphereComponent | None:
@@ -1242,6 +1288,7 @@ def atmosphere_for(
         mie_scattering_tint=aerosols.scattering_tint if aerosols else (1.0, 1.0, 1.0),
         mie_absorption_tint=aerosols.absorption_tint if aerosols else (1.0, 1.0, 1.0),
         mie_layer_altitude=(aerosols.altitude_km if aerosols else 0.0) * 1000.0,
+        **cloud_fields(air.clouds),
         ozone_absorption=EARTH_OZONE if air.ozone else (0.0, 0.0, 0.0),
         ground_albedo=profile.bond_albedo
     )

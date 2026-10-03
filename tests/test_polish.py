@@ -65,7 +65,7 @@ def test_layer_is_packed_for_the_shaders():
     v = np.frombuffer(
         pack_atmosphere_block(deck(), sun_direction=(0.0, 1.0, 0.0), sun_illuminance=(1.0, 1.0, 1.0)),
         dtype=np.float32
-    ).reshape(9, 4)
+    ).reshape(12, 4)
 
     assert v[8, 3] == pytest.approx(57.0)
 
@@ -164,3 +164,43 @@ def test_faster_noise_is_unchanged():
     noise = Perlin(7)
 
     np.testing.assert_allclose(noise(points), reference_perlin(noise, points), atol=1e-12)
+
+
+# =========================================================
+# Terrain Sanity (every body)
+# =========================================================
+
+@pytest.mark.parametrize("body", ["earth", "mars", "venus", "moon", "titan", "io", "europa"])
+def test_terrain_stays_in_a_sane_range(body):
+
+    from planet.sphere_grid import sphere_grid
+    from planet.tectonics import TectonicField, simulation_for
+    from planet.terrain import Terrain
+    from systems.climate_system import climate_settings_for, compute_climate
+    from systems.planet_system import terrain_settings_for
+    from systems.tectonics_system import tectonic_settings_for
+
+    parts = components_for(load_presets()[body])
+
+    simulation = simulation_for(tectonic_settings_for(parts.planet, parts.tectonics))
+
+    field = TectonicField.from_state(simulation.grid, simulation.initial_state(), 1)
+
+    settings = terrain_settings_for(parts.planet)
+
+    climate, _ = compute_climate(
+        climate_settings_for(parts.climate, parts.planet, parts.body),
+        Terrain(settings, field)
+    )
+
+    terrain = Terrain(settings, field, climate)
+
+    elevation = terrain.elevation(sphere_grid(96).directions, 5_000.0)
+
+    # Deepest trenches and basins to the tallest volcanoes
+    # (no runaway values from any process).
+    assert elevation.min() > -20_000.0
+    assert elevation.max() < 30_000.0
+
+    if body == "earth":
+        assert elevation.max() < 11_000.0

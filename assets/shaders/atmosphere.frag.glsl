@@ -2,6 +2,7 @@
 
 #include "include/blocks.glsl"
 #include "include/atmosphere.glsl"
+#include "include/clouds.glsl"
 
 // Sun disc brightness relative to its illuminance; far
 // brighter than the sky, so it blooms (graphics/atmosphere.py).
@@ -46,6 +47,9 @@ void main()
 
     vec3 direction = normalize(transpose(mat3(uView)) * viewRay);
 
+    // Angle a pixel covers (cloud detail fades below it).
+    float pixelAngle = length(fwidth(direction));
+
     // Reversed-Z infinite projection: depth = near / view
     // distance along -Z; 0 = nothing drawn.
     float depth = texture(uSceneDepth, vTexCoord).r;
@@ -87,13 +91,14 @@ void main()
         // not needed: steps are packed where the air is
         // dense, so there is no banding to hide, and it
         // showed as a fine grid on the ocean from space.)
-        inScattered = integrateScattering(
+        inScattered = scatteringWithClouds(
             origin,
             direction,
             start,
             end,
             int(uOzoneParams.y),
             0.5,
+            pixelAngle,
             transmittance
         ) * uSunIlluminance.rgb * uAtmosphereSunDirection.w;
     }
