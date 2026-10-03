@@ -79,14 +79,14 @@ def test_clouds_are_packed():
     v = np.frombuffer(
         pack_atmosphere_block(earth, clouds=clouds, cloud_drift=0.25, planet_frame=frame),
         dtype=np.float32
-    ).reshape(12, 4)
+    ).reshape(13, 4)
 
     np.testing.assert_allclose(v[9], (4.0, 14.0, 700.0, 1.0))
     np.testing.assert_allclose(v[10], (1.0, 0.9, 0.8, 0.25), rtol=1e-6)
     np.testing.assert_allclose(v[11], frame, rtol=1e-6)
 
     # No clouds: the flag is off.
-    off = np.frombuffer(pack_atmosphere_block(earth), dtype=np.float32).reshape(12, 4)
+    off = np.frombuffer(pack_atmosphere_block(earth), dtype=np.float32).reshape(13, 4)
 
     assert off[9, 3] == 0.0
     np.testing.assert_allclose(off[11], (0.0, 0.0, 0.0, 1.0))

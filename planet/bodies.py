@@ -248,6 +248,13 @@ class BodyProfile:
 
     rings: tuple[float, float] | None = None
 
+    # Giants: the great storm (latitude, longitude deg,
+    # size km, color, strength) or None; white ovals;
+    # Saturn's polar hexagon.
+    storm: tuple | None = None
+    ovals: float = 0.0
+    polar_hexagon: bool = False
+
     # Seed of the body's terrain and tectonics (each body
     # its own layout of basins and craters).
     seed: int = 1
@@ -590,6 +597,10 @@ def parse_profile(
     bands = data.get("bands")
 
     band_count = 0
+
+    storm = None
+    ovals = 0.0
+    polar_hexagon = False
     band_colors: tuple = ()
 
     if bands is not None:
@@ -605,6 +616,28 @@ def parse_profile(
             fail("'bands.colors' must be two colors")
 
         band_colors = tuple(color(c, "bands.colors") for c in raw_colors)
+
+        raw_storm = bands.get("storm")
+
+        if raw_storm is not None:
+
+            if not isinstance(raw_storm, dict):
+                fail("'bands.storm' must be an object or null")
+
+            storm = (
+                number(raw_storm, "latitude_deg"),
+                number(raw_storm, "longitude_deg", default=0.0),
+                number(raw_storm, "size_km", 0.0),
+                color(raw_storm.get("color", [0.6, 0.3, 0.2]), "storm.color"),
+                number(raw_storm, "strength", 0.0, default=1.0),
+            )
+
+        ovals = number(bands, "ovals", 0.0, default=0.0)
+
+        polar_hexagon = bands.get("polar_hexagon", False)
+
+        if not isinstance(polar_hexagon, bool):
+            fail("'polar_hexagon' must be true or false")
 
     rings = data.get("rings")
 
@@ -674,6 +707,9 @@ def parse_profile(
         band_count=band_count,
         band_colors=band_colors,
         rings=ring_extent,
+        storm=storm,
+        ovals=ovals,
+        polar_hexagon=polar_hexagon,
         seed=int(number(data, "seed", 0.0, default=1))
     )
 
@@ -796,7 +832,8 @@ def components_for(
         **crater_settings(profile),
         **volcano_settings(profile),
         **erosion_settings(profile),
-        bands=profile.band_count if bands else 0
+        bands=profile.band_count if bands else 0,
+        **giant_settings(profile)
     )
 
     body = BodyComponent(
@@ -982,6 +1019,35 @@ def erosion_settings(
         settings.update(
             dune_density=1.0, dune_amplitude=40.0, dune_wavelength=700.0,
             dune_linear=False, dune_max_latitude=85.0, dune_darkening=0.35
+        )
+
+    return settings
+
+
+def giant_settings(
+    profile: BodyProfile
+) -> dict:
+    """PlanetComponent giant-planet fields (shape and weather)."""
+
+    if profile.palette != "bands":
+        return {}
+
+    settings = {
+        "oblateness": profile.oblateness,
+        "ovals": profile.ovals,
+        "polar_hexagon": profile.polar_hexagon,
+    }
+
+    if profile.storm is not None:
+
+        latitude, longitude, size_km, color, strength = profile.storm
+
+        settings.update(
+            storm_latitude=latitude,
+            storm_longitude=longitude,
+            storm_size=size_km * 1000.0,
+            storm_color=color,
+            storm_strength=strength,
         )
 
     return settings

@@ -350,7 +350,7 @@ def pack_lights_block(
 ATMOSPHERE_BLOCK = UniformBlockSpec(
     name="AtmosphereBlock",
     binding=2,
-    size=12 * 16
+    size=13 * 16
 )
 
 

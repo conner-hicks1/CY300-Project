@@ -57,6 +57,10 @@ class TerrainSettings:
     # (no relief). 0 = solid surface.
     bands: int = 0
 
+    # Giants: flattening of the cloud tops (an ellipsoid of
+    # revolution about the local y axis).
+    oblateness: float = 0.0
+
     # Impact craters (planet/craters.py): rate relative to
     # the Moon's (0 = none), surface age where no tectonic
     # field gives one (Myr), erosion time (Myr; 0 = never),
@@ -92,7 +96,10 @@ class TerrainSettings:
     ) -> float:
         """Lower bound of the visible surface (0 under a liquid)."""
 
-        if self.has_liquid or self.bands:
+        if self.bands:
+            return -min(max(self.oblateness, 0.0), 0.5) * self.radius
+
+        if self.has_liquid:
             return 0.0
 
         return -(2.0 * self.continent_height + self.detail_height + 7_000.0)
@@ -388,8 +395,9 @@ class Terrain:
 
         if s.bands:
 
-            # Cloud tops of a giant: a smooth sphere.
-            return np.zeros(len(directions))
+            # Cloud tops of a giant: a smooth, flattened
+            # ellipsoid (polar radius = (1 - f) x equatorial).
+            return oblate_offset(directions, s.radius, s.oblateness)
 
         radius = s.radius
 
@@ -689,3 +697,26 @@ def _smoothstep(
     t = np.clip((x - edge0) / (edge1 - edge0), 0.0, 1.0)
 
     return t * t * (3.0 - 2.0 * t)
+
+
+def oblate_offset(
+    directions: np.ndarray,
+    radius: float,
+    oblateness: float
+) -> np.ndarray:
+    """
+    Height (m, <= 0) of an oblate ellipsoid's surface below
+    the equatorial radius along unit directions (y = the
+    rotation axis).
+    """
+
+    f = min(max(float(oblateness), 0.0), 0.5)
+
+    if f == 0.0:
+        return np.zeros(len(directions))
+
+    sin2 = np.clip(directions[:, 1], -1.0, 1.0) ** 2
+
+    polar = 1.0 - f
+
+    return radius * (polar / np.sqrt(polar * polar * (1.0 - sin2) + sin2) - 1.0)

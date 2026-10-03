@@ -50,6 +50,22 @@ building and saving scenes.
   hard shadows where there is no air
 - Add a body by writing a new profile file; the loader validates it
 
+**Gas and ice giants**
+
+![Jupiter's Great Red Spot, Saturn (flattened), Uranus and Neptune with its Great Dark Spot](docs/images/giants.png)
+
+- Flattened by their spin: cloud tops on an ellipsoid (Jupiter 6.5% wider
+  at the equator, Saturn ~10%); the atmosphere, clouds and lighting work in
+  a stretched space where the ellipsoid is a sphere, so the haze and limb
+  follow the shape exactly
+- Weather per pixel: belts and zones of irregular width, festoons and
+  streaks where the jet streams shear, the great storms swirling the bands
+  around them (Jupiter's Great Red Spot, Neptune's Great Dark Spot), strings
+  of white ovals, Saturn's hexagonal north polar jet
+- No ground: fly down through the cloud tops into air that thickens with
+  depth (the HUD shows the depth and pressure) until no sunlight is left;
+  the fog closes in, lit dimmer and dimmer from above
+
 **Plate tectonics**
 
 ![Crust-age view after a few hundred million years: young sea floor (red) at the ridges, older floor (blue), continents (tan)](docs/images/tectonics.png)
@@ -267,7 +283,7 @@ building and saving scenes.
   under a per-frame time budget
 - Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
   output routed to the log
-- 522 unit tests for everything that does not need a GPU
+- 528 unit tests for everything that does not need a GPU
 
 ## Getting Started
 

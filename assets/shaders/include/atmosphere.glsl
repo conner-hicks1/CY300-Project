@@ -30,7 +30,55 @@ layout(std140) uniform AtmosphereBlock
     vec4 uPlanetFrame;              // quaternion (xyzw): world -> the
                                     // planet's own frame (its climate,
                                     // clouds)
+    vec4 uShape;                    // x flattening, y 1 = no solid surface
+                                    // (giants), z opaque depth (km), w depth
+                                    // where the deep air begins (km)
 };
+
+// ---------------------------------------------------------
+// Atmosphere Space
+// ---------------------------------------------------------
+//
+// Everything below works in the planet's own frame with y
+// stretched by 1 / (1 - flattening): a flattened giant's
+// cloud tops, its air and its cloud shell all become
+// spheres. World positions (relative to the planet center)
+// and directions are converted on entry; uAtmosphereSun-
+// Direction is already in this space.
+
+vec3 toPlanetFrame(
+    vec3 v
+)
+{
+    vec3 q = uPlanetFrame.xyz;
+
+    return v + 2.0 * cross(q, cross(q, v) + uPlanetFrame.w * v);
+}
+
+vec3 toAtmosphereSpace(
+    vec3 v
+)
+{
+    v = toPlanetFrame(v);
+
+    v.y /= 1.0 - uShape.x;
+
+    return v;
+}
+
+// Back to the planet's frame (unstretched).
+vec3 atmosphereToPlanetFrame(
+    vec3 a
+)
+{
+    return vec3(a.x, a.y * (1.0 - uShape.x), a.z);
+}
+
+// Giants: air continues below the cloud tops.
+bool noSolidSurface()
+{
+    return uShape.y > 0.5;
+}
 
 uniform sampler2D uTransmittanceLut;
 uniform sampler2D uMultiScatteringLut;
@@ -132,7 +180,15 @@ void mediumAt(
     out vec3 extinction
 )
 {
-    altitude = max(altitude, 0.0);
+    // Below the "ground": solid worlds stop there; on giants
+    // the air keeps thickening (to the opaque depth).
+    //
+    // (The deep air starts uShape.w below the tops: the
+    // cloud-top mesh's flat triangles sag below the true
+    // surface between vertices, and must not pick it up.)
+    altitude = noSolidSurface()
+        ? max(min(altitude + uShape.w, 0.0) + max(altitude, 0.0), -uShape.z)
+        : max(altitude, 0.0);
 
     float rayleighDensity = exp(-altitude / uRayleighScattering.w);
 
@@ -216,12 +272,43 @@ void lutParameters(
     radius = mix(groundRadius() + 0.01, topRadius(), uv.y);
 }
 
+// Giants below their cloud tops: the extra air between
+// here and the "ground" level dims the light (vertical
+// optical depth of the exponential layers, along a slant).
+vec3 belowGroundTransmittance(
+    float radius,
+    float sunCosZenith
+)
+{
+    if (!noSolidSurface() || radius >= groundRadius())
+    {
+        return vec3(1.0);
+    }
+
+    float depth = min(groundRadius() - radius - uShape.w, uShape.z);
+
+    if (depth <= 0.0)
+    {
+        return vec3(1.0);
+    }
+
+    float hr = uRayleighScattering.w;
+    float hm = uMieScattering.w;
+
+    vec3 tau =
+        uRayleighScattering.rgb * hr * (exp(depth / hr) - 1.0)
+        + (uMieScattering.rgb + uMieAbsorption.rgb) * hm * (exp(min(depth / hm, 30.0)) - 1.0);
+
+    return exp(-tau / max(sunCosZenith, 0.05));
+}
+
 vec3 sunTransmittance(
     float radius,
     float sunCosZenith
 )
 {
-    return texture(uTransmittanceLut, lutCoordinates(radius, sunCosZenith)).rgb;
+    return texture(uTransmittanceLut, lutCoordinates(radius, sunCosZenith)).rgb
+        * belowGroundTransmittance(radius, sunCosZenith);
 }
 
 // 0..1: how optically thick the atmosphere is (see
@@ -239,7 +326,8 @@ vec3 diffuseDaylight(
     float sunCosZenith
 )
 {
-    return texture(uDiffuseLut, lutCoordinates(radius, sunCosZenith)).rgb;
+    return texture(uDiffuseLut, lutCoordinates(radius, sunCosZenith)).rgb
+        * belowGroundTransmittance(radius, max(sunCosZenith, 0.3));
 }
 
 // Light scattered more than once, as radiance per unit sun
@@ -251,7 +339,8 @@ vec3 multipleScattering(
     float sunCosZenith
 )
 {
-    vec3 hillaire = texture(uMultiScatteringLut, lutCoordinates(radius, sunCosZenith)).rgb;
+    vec3 hillaire = texture(uMultiScatteringLut, lutCoordinates(radius, sunCosZenith)).rgb
+        * belowGroundTransmittance(radius, max(sunCosZenith, 0.3));
 
     float weight = thickAtmosphereWeight();
 
@@ -274,7 +363,7 @@ vec3 sunTransmittanceAtWorld(
     vec3 worldPosition
 )
 {
-    vec3 p = worldPosition * 0.001 - uPlanetCenter.xyz;
+    vec3 p = toAtmosphereSpace(worldPosition * 0.001 - uPlanetCenter.xyz);
 
     float r = length(p);
 
@@ -393,6 +482,13 @@ vec3 integrateScattering(
 
     // Lowest point of the segment (closest to the center).
     float lowest = clamp(-dot(origin, direction), start, end);
+
+    // Inside a giant's deep air: it is densest around the
+    // camera, so pack the samples there.
+    if (noSolidSurface() && length(origin) < groundRadius())
+    {
+        lowest = start;
+    }
 
     float length_ = max(end - start, 1e-6);
 

@@ -45,10 +45,18 @@ void main()
         -1.0
     );
 
-    vec3 direction = normalize(transpose(mat3(uView)) * viewRay);
+    vec3 worldDirection = normalize(transpose(mat3(uView)) * viewRay);
 
     // Angle a pixel covers (cloud detail fades below it).
-    float pixelAngle = length(fwidth(direction));
+    float pixelAngle = length(fwidth(worldDirection));
+
+    // Into atmosphere space (a flattened giant becomes a
+    // sphere); world distances scale by `stretch`.
+    vec3 direction = toAtmosphereSpace(worldDirection);
+
+    float stretch = length(direction);
+
+    direction /= stretch;
 
     // Reversed-Z infinite projection: depth = near / view
     // distance along -Z; 0 = nothing drawn.
@@ -59,17 +67,39 @@ void main()
     float near = uProjection[3][2];
 
     float geometryDistance = geometry
-        ? length(viewRay * (near / depth)) * 0.001
+        ? length(viewRay * (near / depth)) * 0.001 * stretch
         : 0.0;
 
-    vec3 origin = -uPlanetCenter.xyz;
+    vec3 origin = toAtmosphereSpace(-uPlanetCenter.xyz);
 
     float start;
     float end;
 
     bool inside = atmosphereSegment(origin, direction, start, end);
 
-    float groundHit = raySphere(origin, direction, groundRadius());
+    // Giants have no ground. From above, their cloud tops
+    // act as one; below them the deck overhead closes off
+    // the sky and the air thickens on down (taken as opaque
+    // at uShape.z below the tops): fog all around.
+    bool underTops = noSolidSurface() && length(origin) < groundRadius();
+
+    float groundHit = underTops ? -1.0 : raySphere(origin, direction, groundRadius());
+
+    if (underTops)
+    {
+        float ceiling = raySphere(origin, direction, groundRadius());
+        float deep = raySphere(origin, direction, groundRadius() - uShape.z);
+
+        if (ceiling > 0.0)
+        {
+            end = min(end, ceiling);
+        }
+
+        if (deep > 0.0)
+        {
+            end = min(end, deep);
+        }
+    }
 
     if (geometry)
     {

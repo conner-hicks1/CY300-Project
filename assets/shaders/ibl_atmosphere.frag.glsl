@@ -28,7 +28,9 @@ void main()
         vTexCoord * 2.0 - 1.0
     );
 
-    vec3 origin = -uPlanetCenter.xyz;
+    vec3 origin = toAtmosphereSpace(-uPlanetCenter.xyz);
+
+    direction = normalize(toAtmosphereSpace(direction));
 
     float start;
     float end;
@@ -41,12 +43,32 @@ void main()
         return;
     }
 
-    float groundHit = raySphere(origin, direction, groundRadius());
+    // Giants: cloud tops as the ground from above; fog all
+    // around below them (see atmosphere.frag.glsl).
+    bool underTops = noSolidSurface() && length(origin) < groundRadius();
+
+    float groundHit = underTops ? -1.0 : raySphere(origin, direction, groundRadius());
 
     vec3 transmittance = vec3(1.0);
 
     if (atmosphereSegment(origin, direction, start, end))
     {
+        if (underTops)
+        {
+            float ceiling = raySphere(origin, direction, groundRadius());
+            float deep = raySphere(origin, direction, groundRadius() - uShape.z);
+
+            if (ceiling > 0.0)
+            {
+                end = min(end, ceiling);
+            }
+
+            if (deep > 0.0)
+            {
+                end = min(end, deep);
+            }
+        }
+
         if (groundHit > 0.0)
         {
             end = min(end, groundHit);

@@ -957,7 +957,9 @@ class RenderSystem:
                 sun_angular_radius=sun_angular_radius,
                 clouds=clouds,
                 cloud_drift=cloud_drift,
-                planet_frame=_inverse_rotation(transform.world_matrix)
+                planet_frame=_inverse_rotation(transform.world_matrix),
+                flattening=planet.oblateness if planet.palette == "bands" else 0.0,
+                no_surface=planet.palette == "bands"
             )
         )
 

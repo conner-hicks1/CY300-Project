@@ -256,6 +256,34 @@ class AtmosphereParameters:
         return np.exp(-optical_depth)
 
 
+def to_atmosphere_space(
+    vector,
+    planet_frame=(0.0, 0.0, 0.0, 1.0),
+    flattening: float = 0.0,
+    direction: bool = False
+) -> np.ndarray:
+    """
+    A world-space vector in atmosphere space (the planet's
+    frame, y stretched by 1 / (1 - flattening): a flattened
+    giant becomes a sphere). Directions come back unit.
+    """
+
+    v = np.asarray(vector, dtype=np.float64)
+
+    x, y, z, w = (float(c) for c in planet_frame)
+
+    q = np.array([x, y, z])
+
+    v = v + 2.0 * np.cross(q, np.cross(q, v) + w * v)
+
+    v = np.array([v[0], v[1] / (1.0 - flattening), v[2]])
+
+    if direction:
+        v = v / max(np.linalg.norm(v), 1e-12)
+
+    return v
+
+
 def _tinted(
     value: float,
     tint
@@ -325,6 +353,18 @@ def _ray_sphere(
 #     vec4 uCloudColor;              rgb cloud color, w drift angle (rad)
 #     vec4 uPlanetFrame;             quaternion (xyzw): world -> the planet's
 #                                    own frame (its climate, clouds)
+#     vec4 uShape;                   x flattening (giants), y 1 = no solid
+#                                    surface (giants: air below the cloud
+#                                    tops), z depth (km) where that air is
+#                                    taken as opaque, w depth (km) where it
+#                                    starts thickening (below the cloud-top
+#                                    mesh's sag between vertices)
+#
+# The atmosphere is computed in "atmosphere space": the
+# planet's frame with y divided by (1 - flattening), where
+# a flattened giant is a sphere. Positions and directions
+# are converted on entry (include/atmosphere.glsl); the sun
+# direction is packed already converted.
 
 def pack_atmosphere_block(
     parameters: AtmosphereParameters | None,
@@ -336,7 +376,9 @@ def pack_atmosphere_block(
     sun_angular_radius: float = SUN_ANGULAR_RADIUS,
     clouds: "CloudParameters | None" = None,
     cloud_drift: float = 0.0,
-    planet_frame=(0.0, 0.0, 0.0, 1.0)
+    planet_frame=(0.0, 0.0, 0.0, 1.0),
+    flattening: float = 0.0,
+    no_surface: bool = False
 ) -> bytes:
     """
     parameters None packs a disabled atmosphere.
@@ -375,9 +417,11 @@ def pack_atmosphere_block(
     data[26] = 1.0 if aerial_perspective else 0.0
     data[27] = p.thick_weight
 
+    flattening = min(max(float(flattening), 0.0), 0.5)
+
     if sun_direction is not None:
 
-        data[28:31] = sun_direction
+        data[28:31] = to_atmosphere_space(sun_direction, planet_frame, flattening, direction=True)
         data[31] = 1.0
 
         data[32:35] = sun_illuminance
@@ -391,6 +435,16 @@ def pack_atmosphere_block(
         data[43] = cloud_drift
 
     data[44:48] = planet_frame
+
+    # Opaque well within ~10 scale heights of the deepest air.
+    deepest = max(p.rayleigh_scale_height, p.mie_scale_height)
+
+    data[48:52] = (
+        flattening,
+        1.0 if no_surface else 0.0,
+        10.0 * deepest,
+        0.25 * min(p.rayleigh_scale_height, p.mie_scale_height)
+    )
 
     return data.tobytes()
 

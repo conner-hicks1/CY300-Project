@@ -52,8 +52,8 @@
       "CH4": 0.023
     },
     "aerosols": {
-      "scattering_per_Mm": 4.0,
-      "absorption_per_Mm": 1.0,
+      "scattering_per_Mm": 1.5,
+      "absorption_per_Mm": 0.5,
       "scale_height_km": 30.0,
       "anisotropy": 0.7
     },
@@ -68,6 +68,7 @@
   },
   "bands": {
     "count": 4,
-    "colors": [[0.52, 0.72, 0.76], [0.6, 0.8, 0.82]]
+    "colors": [[0.52, 0.72, 0.76], [0.6, 0.8, 0.82]],
+    "ovals": 0.0
   }
 }

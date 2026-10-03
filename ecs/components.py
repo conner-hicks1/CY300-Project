@@ -248,6 +248,10 @@ class CameraControllerComponent:
     # Closest the camera may get to the surface.
     min_altitude: float = 1.0
 
+    # How far below planet_radius the camera may go (m):
+    # giant planets have no ground, only ever-thicker air.
+    descent: float = 0.0
+
 
 # =========================================================
 # Planet
@@ -306,6 +310,22 @@ class PlanetComponent:
 
     # Number of cloud bands ("bands" palette).
     bands: int = 0
+
+    # Giant planets ("bands" palette): flattening of the
+    # cloud tops ((equatorial - polar) / equatorial radius;
+    # Jupiter 0.065), the great storm (latitude, longitude in
+    # degrees, east-west size in m, 0 = none; color;
+    # strength 0..1: Jupiter's Great Red Spot, Neptune's
+    # Great Dark Spot), how many small white ovals, and
+    # Saturn's hexagonal north polar jet.
+    oblateness: float = 0.0
+    storm_latitude: float = 0.0
+    storm_longitude: float = 0.0
+    storm_size: float = 0.0
+    storm_color: tuple[float, float, float] = (0.62, 0.28, 0.16)
+    storm_strength: float = 1.0
+    ovals: float = 0.0
+    polar_hexagon: bool = False
 
     # Impact craters (planet/craters.py): impact rate
     # relative to the Moon's (0 = none); how many show

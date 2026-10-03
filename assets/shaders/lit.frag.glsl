@@ -137,6 +137,9 @@ void main()
 
         TerrainDetail detail = terrainDetail(local, length(fwidth(local)));
 
+        // The planet's own frame (giants' bands and storms).
+        vec3 planetDirection = normalize(toPlanetFrame(local));
+
         TerrainSurface terrain = terrainSurface(
             vColor.r,
             vColor.g,
@@ -144,7 +147,9 @@ void main()
             vTexCoord.x,
             vTangent.x >= 0.0 ? vTangent.z : -1.0,
             fract(vTexCoord.y) / 0.99,
-            detail.albedo
+            detail.albedo,
+            planetDirection,
+            length(fwidth(planetDirection))
         );
 
         terrainRelief = detail.height * terrain.relief;

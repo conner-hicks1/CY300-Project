@@ -819,6 +819,16 @@ class PlanetPanel:
 
         self._last_camera_position = position
 
+    def _scale_height(
+        self,
+        context
+    ) -> float:
+        """The planet's air scale height (m), 0 without air."""
+
+        atmosphere = self._editor.scene.try_get_component(context.planet, AtmosphereComponent)
+
+        return float(atmosphere.rayleigh_scale_height) if atmosphere is not None else 0.0
+
     def _draw_hud(
         self,
         context: "_PlanetContext | None",
@@ -856,7 +866,34 @@ class PlanetPanel:
 
             above_sea = distance - radius
 
-            if ground is not None:
+            if ground is not None and context.planet_component.palette == "bands":
+
+                # Giants: no ground, cloud tops (and below them,
+                # air ever thicker: ~1 bar at the tops, x e per
+                # scale height down).
+                above_tops = above_sea - ground
+
+                if above_tops >= 0.0:
+
+                    imgui.text(f"Altitude  {_distance(above_tops)} above the cloud tops")
+
+                else:
+
+                    imgui.text(f"Depth     {_distance(-above_tops)} below the cloud tops")
+
+                    scale_height = self._scale_height(context)
+
+                    if scale_height > 0.0:
+
+                        body = self._editor.scene.try_get_component(context.planet, BodyComponent)
+
+                        tops_pressure = body.surface_pressure_bar if body is not None else 1.0
+
+                        pressure = tops_pressure * math.exp(-above_tops / scale_height)
+
+                        imgui.text_disabled(f"          ~{pressure:,.1f} bar")
+
+            elif ground is not None:
 
                 above_ground = above_sea - max(ground, 0.0)
 

@@ -165,6 +165,14 @@ uniform float uFrostPoint;      // C: below this the ground frosts over
 uniform float uLiquidFreezing;  // C: below this the seas ice over
 uniform float uLife;            // 1 = vegetation (biomes palette)
 
+// Giants (cloud bands palette):
+uniform float uBandCount;       // belts + zones
+uniform vec4 uStorm;            // x latitude, y longitude (rad), z east-west
+                                // half size (rad), w strength (0 = none)
+uniform vec3 uStormColor;
+uniform float uOvals;           // how many small white ovals
+uniform float uPolarHexagon;    // 1 = Saturn's north polar hexagon
+
 // Linear-space albedos.
 const vec3 TERRAIN_SAND = vec3(0.42, 0.36, 0.22);
 const vec3 TERRAIN_HOT_DESERT = vec3(0.55, 0.42, 0.25);
@@ -190,6 +198,214 @@ float terrainWetness(
 )
 {
     return precipitation / (300.0 + 30.0 * max(temperature, 0.0));
+}
+
+// ---------------------------------------------------------
+// Giant Planet Weather
+// ---------------------------------------------------------
+//
+// Cloud bands per pixel, in the planet's own frame:
+//
+//   belts and zones   bands of irregular width from latitude
+//                     (the jet streams between them run east
+//                     and west)
+//   turbulence        noise stretched east-west and sheared
+//                     where the jets meet, warping the bands
+//                     into festoons and streaks
+//   the great storm   an oval vortex that swirls the bands
+//                     around it (Jupiter's Great Red Spot,
+//                     Neptune's Great Dark Spot)
+//   white ovals       small storms strung along the bands
+//   polar hexagon     Saturn's north polar jet, six-sided
+
+// Rotate `v` about the unit axis `axis` by `angle`.
+vec3 giantRotate(
+    vec3 v,
+    vec3 axis,
+    float angle
+)
+{
+    float c = cos(angle);
+    float s = sin(angle);
+
+    return v * c + cross(axis, v) * s + axis * dot(axis, v) * (1.0 - c);
+}
+
+vec3 giantFromLatLon(
+    float latitude,
+    float longitude
+)
+{
+    return vec3(cos(latitude) * cos(longitude), sin(latitude), cos(latitude) * sin(longitude));
+}
+
+// Fractal noise stretched east-west (y is the axis), with
+// octaves fading below the pixel footprint (radians).
+float giantStreaks(
+    vec3 direction,
+    float scale,
+    float stretch,
+    float footprint,
+    int octaves
+)
+{
+    vec3 p = vec3(direction.x, direction.y * stretch, direction.z) * scale;
+
+    float sum = 0.0;
+    float weight = 0.5;
+    float total = 0.0;
+    float frequency = 1.0;
+
+    for (int octave = 0; octave < octaves; ++octave)
+    {
+        // Fade octaves smaller than a few pixels (across the
+        // bands they are `stretch` times finer).
+        float fade = 1.0 - smoothstep(0.15, 0.35, footprint * scale * stretch * frequency);
+
+        if (fade <= 0.0)
+        {
+            break;
+        }
+
+        sum += weight * fade * terrainValueNoise(p * frequency + float(octave) * 7.31);
+
+        total += weight;
+        weight *= 0.55;
+        frequency *= 2.1;
+    }
+
+    return sum / max(total, 1e-3);
+}
+
+vec3 giantBands(
+    vec3 direction,     // unit, the planet's frame (y = axis)
+    float footprint     // radians per pixel
+)
+{
+    vec3 d = direction;
+
+    // ----- The great storm: swirl the bands around it -----
+    float stormMask = 0.0;
+    float stormSwirl = 0.0;
+
+    if (uStorm.w > 0.0)
+    {
+        vec3 center = giantFromLatLon(uStorm.x, uStorm.y);
+
+        // East-west it is wider than north-south (an oval).
+        vec3 east = normalize(cross(vec3(0.0, 1.0, 0.0), center));
+        vec3 north = cross(center, east);
+
+        vec3 offset = d - center;
+
+        float x = dot(offset, east) / uStorm.z;
+        float y = dot(offset, north) / (uStorm.z * 0.6);
+
+        float r = length(vec2(x, y));
+
+        // Anticyclone: spins fastest just inside its rim.
+        float spin = uStorm.w * 4.0 * exp(-r * r * 1.2) * (dot(center, d) > 0.0 ? 1.0 : 0.0);
+
+        d = giantRotate(d, center, spin);
+
+        stormMask = (1.0 - smoothstep(0.75, 1.05, r)) * uStorm.w;
+        stormSwirl = r;
+    }
+
+    float latitude = asin(clamp(d.y, -1.0, 1.0));
+
+    // ----- Turbulence along the jets -----
+    float large = giantStreaks(d, 5.0, 5.0, footprint, 6);
+    float fine = giantStreaks(d, 30.0, 10.0, footprint, 6);
+
+    float band = latitude;
+
+    // Saturn's hexagon: near the north pole the band
+    // coordinate follows a six-sided polar distance.
+    if (uPolarHexagon > 0.5 && d.y > 0.85)
+    {
+        float angle = atan(d.z, d.x);
+
+        float sector = 3.14159265 / 3.0;
+
+        float local = mod(angle + sector * 0.5, sector) - sector * 0.5;
+
+        float polar = acos(clamp(d.y, -1.0, 1.0)) / cos(local);
+
+        float hexagonal = 1.5707963 - polar;
+
+        band = mix(band, hexagonal, smoothstep(0.85, 0.93, d.y));
+    }
+
+    // Warp the bands; more where the jets shear (belt edges).
+    float n = uBandCount;
+
+    float edge = abs(cos(band * n));
+
+    // Festoons and swirls where the jets meet.
+    band += (1.6 * large + 0.4 * fine) * (0.3 + 0.7 * edge) / max(n, 1.0);
+
+    // Irregular widths: slower and faster harmonics.
+    float phase = band * n + 0.9 * sin(band * n * 0.5 + 1.3) + 0.45 * sin(band * n * 1.7 + 0.4);
+
+    float zone = smoothstep(-0.45, 0.45, sin(phase));
+
+    vec3 color = mix(uColorLow, uColorHigh, zone);
+
+    // Each band its own shade.
+    color *= 0.86 + 0.28 * (0.5 + 0.5 * sin(band * n * 0.73 + 2.1) * sin(band * n * 0.31 + 0.7));
+
+    // Streaks of brighter and darker cloud along the bands.
+    color *= 0.88 + 0.24 * (0.5 + 0.5 * fine);
+
+    // Polar regions: duskier, less banded.
+    float polar = smoothstep(0.75, 0.97, abs(d.y));
+
+    color = mix(color, mix(uColorLow, uColorHigh, 0.35) * 0.8, polar * 0.6);
+
+    // ----- White ovals -----
+    if (uOvals > 0.0)
+    {
+        float cellLatitude = 0.09;          // ~5 degrees
+        float cellLongitude = 0.16;
+
+        float longitude = atan(d.z, d.x);
+
+        vec2 cell = vec2(floor(longitude / cellLongitude), floor(latitude / cellLatitude));
+
+        ivec3 key = ivec3(int(cell.x) + 1000, int(cell.y) + 1000, 17);
+
+        // Only along a few latitudes, a few per row.
+        bool row = terrainHash(ivec3(0, int(cell.y) + 1000, 5)) < 0.3;
+
+        if (row && terrainHash(key) < uOvals * 0.12 && abs(latitude) < 1.1)
+        {
+            vec2 jitter = vec2(terrainHash(key + ivec3(0, 0, 1)), terrainHash(key + ivec3(0, 0, 2)));
+
+            vec2 centerCell = (cell + 0.25 + 0.5 * jitter) * vec2(cellLongitude, cellLatitude);
+
+            vec2 offset = vec2(
+                (longitude - centerCell.x) * cos(latitude) / (cellLatitude * 0.32),
+                (latitude - centerCell.y) / (cellLatitude * 0.2)
+            );
+
+            float oval = 1.0 - smoothstep(0.3, 1.0, length(offset));
+
+            color = mix(color, vec3(0.92, 0.9, 0.86), oval * oval * 0.8);
+        }
+    }
+
+    // ----- The storm's own color -----
+    if (stormMask > 0.0)
+    {
+        float swirl = 0.5 + 0.5 * fine;
+
+        vec3 storm = uStormColor * (0.85 + 0.3 * swirl) * (0.8 + 0.2 * smoothstep(0.0, 0.7, stormSwirl));
+
+        color = mix(color, storm, stormMask);
+    }
+
+    return color;
 }
 
 vec3 mineralLand(
@@ -237,7 +453,9 @@ TerrainSurface terrainSurface(
     float temperature,
     float crust,
     float water,
-    float detail
+    float detail,
+    vec3 planetDirection,   // unit, the planet's own frame
+    float footprint         // radians per pixel there
 )
 {
     TerrainSurface surface;
@@ -250,9 +468,8 @@ TerrainSurface terrainSurface(
 
     if (palette == 2)
     {
-        // Giant planet cloud belts: "precipitation" carries
-        // the band coordinate (planet/terrain.py _bands).
-        surface.albedo = mix(uColorLow, uColorHigh, smoothstep(0.3, 0.7, precipitation));
+        // Giant planet weather, per pixel.
+        surface.albedo = giantBands(planetDirection, footprint);
         surface.roughness = 1.0;
 
         return surface;

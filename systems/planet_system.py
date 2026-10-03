@@ -1,3 +1,4 @@
+import math
 import time
 
 from collections.abc import Callable
@@ -407,6 +408,12 @@ class PlanetSystem:
 
                 planet.previous = previous = None
 
+            # Below a giant's cloud tops, the deck is above:
+            # the fog in the atmosphere pass is all there is.
+            if planet.terrain.settings.bands and _below_cloud_tops(planet, camera_local):
+                self._evict(planet)
+                continue
+
             items.extend(previous.items if previous is not None else planet.items)
 
             self._evict(planet)
@@ -441,6 +448,11 @@ class PlanetSystem:
     ) -> list[DrawItem]:
 
         return self._items
+
+    # How deep below a giant's cloud tops the camera may go,
+    # as a share of the radius (~10 scale heights: the fog is
+    # opaque long before).
+    GIANT_DESCENT = 0.004
 
     # Liquid / palette names -> shader codes
     # (include/terrain.glsl).
@@ -486,6 +498,21 @@ class PlanetSystem:
         material.set_vec3("uColorSteep", component.color_steep)
         material.set_vec3("uColorIce", component.color_ice)
         material.set_float("uFrostPoint", component.frost_point)
+
+        # Giants: bands, storms, polar hexagon.
+        material.set_float("uBandCount", float(max(component.bands, 1)))
+        material.set_vec4(
+            "uStorm",
+            (
+                math.radians(component.storm_latitude),
+                math.radians(component.storm_longitude),
+                max(component.storm_size, 0.0) / max(component.radius, 1.0),
+                float(component.storm_strength) if component.storm_size > 0.0 else 0.0
+            )
+        )
+        material.set_vec3("uStormColor", component.storm_color)
+        material.set_float("uOvals", float(max(component.ovals, 0.0)))
+        material.set_float("uPolarHexagon", 1.0 if component.polar_hexagon else 0.0)
 
         return material
 
@@ -885,6 +912,14 @@ class PlanetSystem:
 
             controller.planet_radius = planet.terrain.settings.radius + elevation
 
+            # Giants: no ground, only ever-thicker air below the
+            # cloud tops (opaque well within this depth).
+            controller.descent = (
+                self.GIANT_DESCENT * planet.terrain.settings.radius
+                if planet.terrain.settings.bands
+                else 0.0
+            )
+
     # =====================================================
     # Shutdown
     # =====================================================
@@ -922,6 +957,7 @@ def terrain_settings_for(
             and not getattr(climate, "liquid_boiled", False)
         ),
         bands=max(0, int(component.bands)) if component.palette == "bands" else 0,
+        oblateness=float(component.oblateness) if component.palette == "bands" else 0.0,
         crater_density=max(0.0, float(component.crater_density)),
         surface_age=float(component.surface_age),
         crater_erosion=max(0.0, float(component.crater_erosion)),
@@ -980,3 +1016,21 @@ def _rigid(
     rigid[:3, 3] = matrix[:3, 3]
 
     return rigid
+
+
+def _below_cloud_tops(
+    planet: "_Planet",
+    camera_local: np.ndarray
+) -> bool:
+    """Is the camera under a giant planet's cloud tops?"""
+
+    distance = float(np.linalg.norm(camera_local))
+
+    if distance <= 0.0:
+        return True
+
+    tops = planet.terrain.settings.radius + float(
+        planet.terrain.elevation((camera_local / distance)[None, :])[0]
+    )
+
+    return distance < tops - 50.0

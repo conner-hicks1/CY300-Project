@@ -52,8 +52,8 @@
       "CH4": 0.015
     },
     "aerosols": {
-      "scattering_per_Mm": 4.0,
-      "absorption_per_Mm": 1.0,
+      "scattering_per_Mm": 1.5,
+      "absorption_per_Mm": 0.5,
       "scale_height_km": 30.0,
       "anisotropy": 0.7
     },
@@ -68,6 +68,8 @@
   },
   "bands": {
     "count": 6,
-    "colors": [[0.16, 0.28, 0.66], [0.26, 0.42, 0.8]]
+    "colors": [[0.16, 0.28, 0.66], [0.26, 0.42, 0.8]],
+    "storm": {"latitude_deg": -20.0, "longitude_deg": -40.0, "size_km": 5000.0, "color": [0.05, 0.09, 0.33], "strength": 0.8},
+    "ovals": 0.25
   }
 }

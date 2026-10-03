@@ -66,17 +66,6 @@ float cloudNoise(
     return mix(mix(a, b, f.y), mix(c, d, f.y), f.z) * 2.0 - 1.0;
 }
 
-// A world-space direction in the planet's own frame (the
-// one its climate, and so the cover map, is in).
-vec3 planetFrame(
-    vec3 v
-)
-{
-    vec3 q = uPlanetFrame.xyz;
-
-    return v + 2.0 * cross(q, cross(q, v) + uPlanetFrame.w * v);
-}
-
 // The cover map's fraction (0..1) at a unit direction (in
 // the planet's frame).
 float cloudCover(
@@ -99,7 +88,9 @@ float cloudDepth(
     float footprint
 )
 {
-    direction = planetFrame(direction);
+    // From atmosphere space to the planet's frame (the
+    // cover map's).
+    direction = normalize(atmosphereToPlanetFrame(direction));
 
     float base = cloudCover(direction);
 
@@ -307,16 +298,19 @@ vec3 scatteringWithClouds(
     return front + frontTransmittance * (cloud.radiance + through * back);
 }
 
-// Direct sunlight reaching a surface point (km, planet
-// relative) through the cloud layer above it: 1 = clear.
+// Direct sunlight reaching a surface point (km, world
+// space relative to the planet center) through the cloud
+// layer above it: 1 = clear.
 float cloudShadow(
-    vec3 position
+    vec3 worldPosition
 )
 {
     if (!cloudsPresent())
     {
         return 1.0;
     }
+
+    vec3 position = toAtmosphereSpace(worldPosition);
 
     vec3 sunDirection = uAtmosphereSunDirection.xyz;
 

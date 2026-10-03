@@ -539,7 +539,7 @@ def planet_speed(
 
     return max(
         controller.movement_speed,
-        altitude(controller, position) * controller.altitude_speed
+        abs(altitude(controller, position)) * controller.altitude_speed
     )
 
 
@@ -566,7 +566,7 @@ def clamp_altitude(
 
     position = np.asarray(position, dtype=np.float64)
 
-    floor = controller.planet_radius + controller.min_altitude
+    floor = controller.planet_radius + controller.min_altitude - max(controller.descent, 0.0)
 
     if floor <= 0.0:
         return position

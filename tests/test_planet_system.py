@@ -58,6 +58,10 @@ class FakeMaterial:
 
         self.values[name] = tuple(value)
 
+    def set_vec4(self, name, value):
+
+        self.values[name] = tuple(value)
+
     def copy(self):
 
         clone = FakeMaterial()

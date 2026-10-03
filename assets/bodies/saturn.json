@@ -45,16 +45,17 @@
     "detail_height": 0.0
   },
   "atmosphere": {
-    "surface_pressure_bar": 1.0,
+    "surface_pressure_bar": 0.5,
     "composition": {
       "H2": 0.963,
       "He": 0.0325
     },
     "aerosols": {
-      "scattering_per_Mm": 8.0,
-      "absorption_per_Mm": 1.5,
+      "scattering_per_Mm": 3.0,
+      "absorption_per_Mm": 1.2,
       "scale_height_km": 40.0,
-      "anisotropy": 0.7
+      "anisotropy": 0.7,
+      "absorption_tint": [0.4, 0.8, 1.6]
     },
     "ozone": false
   },
@@ -67,7 +68,9 @@
   },
   "bands": {
     "count": 10,
-    "colors": [[0.66, 0.55, 0.36], [0.82, 0.75, 0.56]]
+    "colors": [[0.66, 0.55, 0.36], [0.82, 0.75, 0.56]],
+    "ovals": 0.15,
+    "polar_hexagon": true
   },
   "rings": {
     "inner_km": 74500.0,

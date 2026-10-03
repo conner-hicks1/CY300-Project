@@ -65,7 +65,7 @@ def test_layer_is_packed_for_the_shaders():
     v = np.frombuffer(
         pack_atmosphere_block(deck(), sun_direction=(0.0, 1.0, 0.0), sun_illuminance=(1.0, 1.0, 1.0)),
         dtype=np.float32
-    ).reshape(12, 4)
+    ).reshape(13, 4)
 
     assert v[8, 3] == pytest.approx(57.0)
 
