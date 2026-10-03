@@ -79,7 +79,7 @@ def build_chunk(
 
     spacing = edge_length(radius, key.depth) / (n - 1)
 
-    elevation = terrain.elevation(directions, spacing)
+    elevation, water = terrain.elevation_and_water(directions, spacing)
 
     # Oceans: the visible surface is the liquid at sea level
     # (dry worlds keep their basins).
@@ -117,13 +117,16 @@ def build_chunk(
     positions = positions[1:-1, 1:-1].reshape(-1, 3)
     directions = interior(directions, 3)
     elevation = interior(elevation[:, None], 1)[:, 0]
+    water = interior(water[:, None], 1)[:, 0]
 
     slope = np.einsum("ij,ij->i", normals, directions)
 
     # Terrain inputs for the per-pixel biome shading
     # (assets/shaders/include/terrain.glsl): color = (elevation,
     # slope, precipitation), uv.x = temperature,
-    # uv.y = depth / 20.
+    # uv.y = quadtree depth + 0.99 * surface water (the
+    # depth is the same across a chunk, so the shader splits
+    # them with floor / fract after interpolation).
     temperature, precipitation = terrain.surface_climate(directions, elevation)
 
     colors = np.stack(
@@ -153,7 +156,7 @@ def build_chunk(
     all_positions = np.vstack((positions, skirt_positions)) - center
 
     # uv.y: quadtree depth, for the "Detail level" view.
-    uv = np.stack((temperature, np.full(n * n, key.depth / 20.0)), axis=1)
+    uv = np.stack((temperature, key.depth + 0.99 * np.clip(water, 0.0, 1.0)), axis=1)
 
     # Tectonic data for the plate / crust views rides in
     # the tangent slot (terrain shading uses no normal map).

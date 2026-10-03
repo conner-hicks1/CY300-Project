@@ -584,6 +584,18 @@ def _edit_planet(
     inspector.slider(component, "volcano_max_height", "Tallest (m)", 1_000.0, 30_000.0, "%.0f")
     imgui.set_item_tooltip("Gravity's limit: ~10 km on Earth, ~25 km on Mars.")
 
+    imgui.separator_text("Erosion")
+
+    inspector.checkbox(component, "rivers", "Rivers, lakes, glaciers")
+    imgui.set_item_tooltip("Drain the climate's rain to the seas (needs a liquid and a climate).")
+    inspector.slider(component, "dune_density", "Dune fields", 0.0, 2.0, "%.2f")
+    imgui.set_item_tooltip("How common wind-blown dune fields are on dry ground (0 = none).")
+    inspector.slider(component, "dune_amplitude", "Dune height (m)", 5.0, 300.0, "%.0f")
+    inspector.slider(component, "dune_wavelength", "Dune spacing (m)", 100.0, 5_000.0, "%.0f")
+    inspector.checkbox(component, "dune_linear", "Linear dunes (along the wind)")
+    inspector.slider(component, "dune_max_latitude", "Dune latitudes", 5.0, 90.0, "%.0f deg")
+    inspector.slider(component, "dune_darkening", "Dark sand", 0.0, 1.0, "%.2f")
+
     imgui.separator_text("Level of detail")
 
     for field, label, low, high in (

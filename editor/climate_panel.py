@@ -207,6 +207,26 @@ class ClimatePanel:
                 f"range {field.min_temperature:+.0f} .. {field.max_temperature:+.0f} C"
             )
 
+            hydrology = field.hydrology
+
+            if hydrology is not None:
+
+                imgui.separator_text("Rivers")
+
+                imgui.text(
+                    f"{hydrology.river_count:,} river reaches, "
+                    f"{hydrology.glacier_count:,} glaciated"
+                )
+                imgui.text(
+                    f"Lakes {hydrology.lake_fraction * 100.0:.1f}% of land, "
+                    f"{len(hydrology.delta_radius)} deltas"
+                )
+                imgui.text(f"Largest river {hydrology.largest_discharge:,.0f} m^3/s")
+                imgui.set_item_tooltip(
+                    "Rain drains downhill to the sea; the wettest basins "
+                    "feed the largest rivers."
+                )
+
             imgui.separator_text("Land")
 
             imgui.text(f"Average temperature  {field.mean_temperature:+.1f} C")

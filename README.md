@@ -129,6 +129,26 @@ building and saving scenes.
   volcano exists if the ground at its center is volcanic), so they appear
   at every level of detail; summits are cold enough for snow and frost
 
+**Erosion: rivers, glaciers and dunes**
+
+![Titan's linear dunes and Mars's transverse dunes (hillshade), and rivers, lakes and a delta on Earth](docs/images/erosion.png)
+
+- Rivers from the climate's rain: a priority flood routes every land cell
+  to the sea and fills depressions into lakes; discharge adds up downstream,
+  and the largest flows become rivers as wide as their water, smoothed and
+  meandering, in valleys carved down to their water level
+- Deltas fan out into the sea at the biggest mouths, with distributary
+  channels; where it is frozen, rivers become glaciers in wider U-shaped
+  valleys
+- Matched to the body: water on Earth, methane on Titan, none on dry or
+  boiled-away worlds
+- Wind-blown dunes where air can move sand and the ground is dry:
+  transverse crests with steep slip faces across the wind (Earth's deserts,
+  Mars's dark basaltic fields), long linear ridges along it in Titan's
+  equatorial belt of dark organic sand; active dunes bury the craters under
+  them
+- Climate panel: river, glacier, lake and delta counts
+
 **Climate and biomes**
 
 ![Natural colors, biomes, temperature and rainfall](docs/images/climate.png)
@@ -221,7 +241,7 @@ building and saving scenes.
   under a per-frame time budget
 - Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
   output routed to the log
-- 486 unit tests for everything that does not need a GPU
+- 498 unit tests for everything that does not need a GPU
 
 ## Getting Started
 
@@ -290,7 +310,7 @@ The planet streams in over the first few seconds.
 | `core/` | Window, input, events, timer, logging, profiler, job system |
 | `ecs/` | Entity registry and components |
 | `systems/` | Transform, camera controller, rotator, tectonics, climate, planet streaming and render systems |
-| `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping and simulation grid, plate tectonics and other tectonic regimes, impact craters, volcanoes, climate, terrain, chunk building, level of detail, solar time |
+| `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping and simulation grid, plate tectonics and other tectonic regimes, impact craters, volcanoes, rivers and dunes, climate, terrain, chunk building, level of detail, solar time |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, bloom |
 | `editor/` | Scene editor, hierarchy / inspector / planet panels, picking, undo history |
 | `scene/` | Scene container and scene file (de)serialization |

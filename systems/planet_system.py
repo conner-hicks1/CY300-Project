@@ -929,7 +929,14 @@ def terrain_settings_for(
         crater_transition=max(100.0, float(component.crater_transition)),
         crater_rays=bool(component.crater_rays),
         volcanism=float(min(max(component.volcanism, 0.0), 1.0)),
-        volcano_max_height=max(100.0, float(component.volcano_max_height))
+        volcano_max_height=max(100.0, float(component.volcano_max_height)),
+        rivers=bool(component.rivers),
+        dune_density=max(0.0, float(component.dune_density)),
+        dune_amplitude=max(0.0, float(component.dune_amplitude)),
+        dune_wavelength=max(50.0, float(component.dune_wavelength)),
+        dune_linear=bool(component.dune_linear),
+        dune_max_latitude=float(component.dune_max_latitude),
+        dune_darkening=float(min(max(component.dune_darkening, 0.0), 1.0))
     )
 
 

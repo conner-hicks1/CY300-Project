@@ -133,7 +133,8 @@ void main()
             vColor.g,
             vColor.b,
             vTexCoord.x,
-            vTangent.x >= 0.0 ? vTangent.z : -1.0
+            vTangent.x >= 0.0 ? vTangent.z : -1.0,
+            fract(vTexCoord.y) / 0.99
         );
 
         baseColor = terrain.albedo * uBaseColor;
@@ -150,7 +151,7 @@ void main()
                 vColor.g,
                 vColor.b,
                 vTexCoord.x,
-                vTexCoord.y,
+                floor(vTexCoord.y) / 20.0,
                 vTangent
             );
 

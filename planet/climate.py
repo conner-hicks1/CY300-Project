@@ -672,6 +672,10 @@ class ClimateField:
     liquid_state: str = "none"
     frozen_fraction: float = 0.0
 
+    # Rivers, lakes, deltas and glaciers draining this
+    # climate's rain (planet/hydrology.py), or None.
+    hydrology: object = None
+
     @property
     def liquid_boiled(
         self

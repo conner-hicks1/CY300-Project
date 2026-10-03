@@ -1,3 +1,6 @@
+import dataclasses
+import math
+
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -15,6 +18,7 @@ from planet.climate import (
     ClimateModel,
     ClimateSettings
 )
+from planet.hydrology import HydrologySettings, compute_hydrology
 from planet.phases import liquid_range
 from planet.terrain import Terrain
 
@@ -287,6 +291,27 @@ def compute_climate(
         land=elevation > 0.0,
         lapse_rate=settings.lapse_rate
     )
+
+    # Where the rain goes: rivers to the sea (a liquid that
+    # can flow, not boiled away).
+    if (
+        terrain.settings.rivers
+        and terrain.settings.has_liquid
+        and settings.liquid_freezing is not None
+        and math.isfinite(settings.liquid_freezing)
+        and not field.liquid_boiled
+    ):
+
+        hydrology = compute_hydrology(
+            Terrain(terrain.settings, terrain.field, field),
+            field,
+            HydrologySettings(
+                seed=terrain.settings.seed,
+                glacier_temperature=settings.liquid_freezing + 2.0
+            )
+        )
+
+        field = dataclasses.replace(field, hydrology=hydrology)
 
     return field, state.compute_seconds
 

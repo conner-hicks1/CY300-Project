@@ -99,6 +99,9 @@ vec3 mineralLand(
     return mix(land, uColorIce, frost);
 }
 
+// water: 0..1 rivers, lakes and delta channels (planet/
+// hydrology.py), drawn as the planet's liquid, or as ice
+// (glaciers) where it is colder than the liquid freezes.
 // crust: 0 dark .. 1 bright crust from a tectonic regime
 // (the tectonic data's "continental" channel; up to 1.6
 // on fresh crater rays), -1 without.
@@ -107,7 +110,8 @@ TerrainSurface terrainSurface(
     float slope,
     float precipitation,
     float temperature,
-    float crust
+    float crust,
+    float water
 )
 {
     TerrainSurface surface;
@@ -191,6 +195,30 @@ TerrainSurface terrainSurface(
     }
 
     // -----------------------------------------------------
+    // Rivers, lakes and glaciers on land
+    // -----------------------------------------------------
+
+    float landRoughness = 0.9;
+
+    if (water > 0.01 && liquid != 0 && liquid != 3)
+    {
+        // Crisp banks from the interpolated mask.
+        water = smoothstep(0.35, 0.65, water);
+
+        float frozen = smoothstep(uLiquidFreezing + 2.4, uLiquidFreezing - 0.6, temperature);
+
+        vec3 river = liquid == 2
+            ? vec3(0.02, 0.016, 0.01)       // methane: dark and glassy
+            : TERRAIN_SHALLOW_WATER;
+
+        river = mix(river, TERRAIN_SNOW * 0.92, frozen);
+
+        land = mix(land, river, water);
+
+        landRoughness = mix(0.9, mix(0.08, 0.5, frozen), water);
+    }
+
+    // -----------------------------------------------------
     // Liquid below sea level
     // -----------------------------------------------------
 
@@ -198,7 +226,7 @@ TerrainSurface terrainSurface(
     {
         // Dry world: basins are just low ground.
         surface.albedo = land;
-        surface.roughness = 0.9;
+        surface.roughness = landRoughness;
 
         return surface;
     }
@@ -252,7 +280,7 @@ TerrainSurface terrainSurface(
     surface.albedo = mix(land, sea, wet);
 
     // Open liquid is glossy (sun glint); ice and land rough.
-    surface.roughness = mix(0.9, seaRoughness, wet);
+    surface.roughness = mix(landRoughness, seaRoughness, wet);
 
     if (liquid == 3)
     {

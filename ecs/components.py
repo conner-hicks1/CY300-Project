@@ -329,6 +329,21 @@ class PlanetComponent:
     volcanism: float = 1.0
     volcano_max_height: float = 10_000.0
 
+    # Erosion matched to the body: rivers, lakes, deltas and
+    # glaciers draining the climate's rain into the seas
+    # (planet/hydrology.py), and wind-blown dune fields on
+    # dry ground (planet/dunes.py): how common, crest
+    # height and spacing (m), linear ridges along the wind
+    # (Titan) or transverse crests across it, the latitude
+    # band, and how much darker the sand is.
+    rivers: bool = True
+    dune_density: float = 0.4
+    dune_amplitude: float = 60.0
+    dune_wavelength: float = 1_500.0
+    dune_linear: bool = False
+    dune_max_latitude: float = 50.0
+    dune_darkening: float = 0.0
+
 
 # =========================================================
 # Atmosphere

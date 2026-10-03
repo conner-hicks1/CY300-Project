@@ -763,6 +763,7 @@ def components_for(
         life=profile.life,
         **crater_settings(profile),
         **volcano_settings(profile),
+        **erosion_settings(profile),
         bands=profile.band_count if bands else 0
     )
 
@@ -893,6 +894,65 @@ def volcano_settings(
         "volcanism": volcanism,
         "volcano_max_height": max_volcano_height(profile.surface_gravity),
     }
+
+
+def erosion_settings(
+    profile: BodyProfile
+) -> dict:
+    """
+    PlanetComponent erosion fields from the body:
+    - rivers wherever a liquid falls as rain and flows to
+      seas (Earth's water, Titan's methane)
+    - dunes need air to move sand (~1 mbar and up) and dry
+      ground: everywhere dry on rainless worlds (Mars),
+      in deserts where it rains (Earth); Venus's sluggish
+      surface winds build few
+    - Titan: long linear dunes along the wind, ~3 km apart,
+      ~100 m high, in its equatorial belt, of dark organic
+      sand; Mars: dark basaltic transverse dunes
+    """
+
+    air = profile.atmosphere
+
+    pressure = air.surface_pressure_bar if air is not None else 0.0
+
+    settings = {
+        "rivers": profile.liquid in ("water", "methane") and profile.humidity > 0.0,
+        "dune_density": 0.0,
+    }
+
+    if profile.palette == "bands" or not profile.has_solid_surface or pressure < 1e-3:
+        return settings
+
+    if profile.liquid == "methane":
+
+        settings.update(
+            dune_density=1.2, dune_amplitude=100.0, dune_wavelength=3_000.0,
+            dune_linear=True, dune_max_latitude=30.0, dune_darkening=0.45
+        )
+
+    elif profile.liquid == "water":
+
+        settings.update(
+            dune_density=0.6, dune_amplitude=60.0, dune_wavelength=1_500.0,
+            dune_linear=False, dune_max_latitude=50.0, dune_darkening=0.0
+        )
+
+    elif pressure > 10.0:
+
+        settings.update(
+            dune_density=0.1, dune_amplitude=30.0, dune_wavelength=500.0,
+            dune_linear=False, dune_max_latitude=90.0, dune_darkening=0.0
+        )
+
+    else:
+
+        settings.update(
+            dune_density=1.0, dune_amplitude=40.0, dune_wavelength=700.0,
+            dune_linear=False, dune_max_latitude=85.0, dune_darkening=0.35
+        )
+
+    return settings
 
 
 def relief_scale(

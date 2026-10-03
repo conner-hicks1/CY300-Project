@@ -4,6 +4,8 @@ import numpy as np
 
 from planet.climate import fallback_surface
 from planet.craters import CraterSettings, Craters
+from planet.dunes import DuneSettings, Dunes
+from planet.hydrology import meander_offsets
 from planet.volcanoes import VolcanoSettings, Volcanoes
 
 # Crust brightness of fresh ejecta and rays (1 = the
@@ -72,6 +74,17 @@ class TerrainSettings:
     # tallest its gravity allows (m).
     volcanism: float = 0.0
     volcano_max_height: float = 10_000.0
+
+    # Erosion: rivers, lakes, deltas and glaciers from the
+    # climate (planet/hydrology.py; needs a liquid), and
+    # wind-blown dunes (planet/dunes.py).
+    rivers: bool = False
+    dune_density: float = 0.0
+    dune_amplitude: float = 50.0
+    dune_wavelength: float = 1_500.0
+    dune_linear: bool = False
+    dune_max_latitude: float = 90.0
+    dune_darkening: float = 0.0
 
     @property
     def min_elevation(
@@ -156,6 +169,34 @@ class Terrain:
 
         self.craters = None
 
+        # Rivers come with the climate they drain.
+        self.hydrology = (
+            getattr(climate, "hydrology", None)
+            if settings.rivers and settings.has_liquid and not settings.bands
+            else None
+        )
+
+        self.dunes = None
+
+        if settings.dune_density > 0.0 and not settings.bands:
+
+            self.dunes = Dunes(
+                DuneSettings(
+                    seed=settings.seed,
+                    density=settings.dune_density,
+                    amplitude=settings.dune_amplitude,
+                    wavelength=max(settings.dune_wavelength, 50.0),
+                    linear=settings.dune_linear,
+                    max_latitude=settings.dune_max_latitude,
+                    darkening=settings.dune_darkening
+                ),
+                settings.radius,
+                climate
+            )
+
+            if not self.dunes.enabled:
+                self.dunes = None
+
         self.volcanoes = None
 
         if field is not None and settings.volcanism > 0.0 and not settings.bands:
@@ -221,6 +262,9 @@ class Terrain:
         if self.volcanoes is not None:
             rim += self.volcanoes.max_height
 
+        if self.dunes is not None:
+            rim += self.dunes.max_height
+
         if self.field is None:
             return self.settings.max_elevation + rim
 
@@ -261,6 +305,74 @@ class Terrain:
         directions: (n, 3) unit vectors.
         spacing: distance between samples in meters (0 =
             full detail).
+        """
+
+        return self.elevation_and_water(directions, spacing)[0]
+
+    def elevation_and_water(
+        self,
+        directions: np.ndarray,
+        spacing: float = 0.0
+    ) -> tuple[np.ndarray, np.ndarray]:
+        """
+        (elevation m, surface water 0..1: rivers, lakes and
+        delta channels, or glaciers where frozen).
+        """
+
+        elevation = self._shape(directions, spacing)
+
+        water = np.zeros(len(directions))
+
+        # Active dune fields bury the craters under them.
+        dunes = cover = None
+
+        if self.dunes is not None:
+            dunes, cover = self.dunes.apply(directions, spacing)
+
+        # -------------------------------------------------
+        # Craters, as many as the surface is old
+        # -------------------------------------------------
+
+        if self.craters is not None:
+
+            craters = self.craters.height(
+                directions,
+                spacing,
+                self.surface_age(directions)
+            )
+
+            if cover is not None:
+                craters = craters * (1.0 - 0.9 * cover)
+
+            elevation = elevation + craters
+
+        # -------------------------------------------------
+        # Erosion: rivers carve valleys, lakes fill basins,
+        # deltas build out to sea; wind piles up dunes.
+        # -------------------------------------------------
+
+        if self.hydrology is not None:
+
+            elevation, water = self.hydrology.apply(
+                directions,
+                elevation,
+                spacing,
+                meander_offsets(directions, self.hydrology.grid.cell_angle, self.settings.seed)
+            )
+
+        if dunes is not None:
+            elevation = elevation + dunes * (1.0 - water)
+
+        return elevation, water
+
+    def _shape(
+        self,
+        directions: np.ndarray,
+        spacing: float = 0.0
+    ) -> np.ndarray:
+        """
+        The surface before impacts and erosion: continents,
+        mountains, hills and volcanoes.
         """
 
         s = self.settings
@@ -368,18 +480,6 @@ class Terrain:
         if self.volcanoes is not None:
             elevation += self.volcanoes.height(directions, spacing)
 
-        # -------------------------------------------------
-        # Craters, as many as the surface is old
-        # -------------------------------------------------
-
-        if self.craters is not None:
-
-            elevation += self.craters.height(
-                directions,
-                spacing,
-                self.surface_age(directions)
-            )
-
         return elevation
 
     def surface_age(
@@ -467,6 +567,14 @@ class Terrain:
         data[:, 1] = field.sample("age", directions) / getattr(field, "age_scale", 400.0)
         data[:, 2] = field.sample("continental", directions)
         data[:, 3] = field.sample("activity", directions)
+
+        # Dune fields: often darker sand (Mars's basalt,
+        # Titan's organics), visible even from orbit.
+        if self.dunes is not None and self.settings.dune_darkening > 0.0:
+
+            _, cover = self.dunes.apply(directions, 1e12)
+
+            data[:, 2] = np.clip(data[:, 2] - self.settings.dune_darkening * cover, 0.0, None)
 
         # Young craters' bright ejecta and rays lighten the
         # crust (the mineral palette colors by it), past the
