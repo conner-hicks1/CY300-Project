@@ -51,9 +51,10 @@
       "N2": 0.035
     },
     "aerosols": {
-      "scattering_per_Mm": 400.0,
-      "absorption_per_Mm": 40.0,
-      "scale_height_km": 15.0,
+      "scattering_per_Mm": 3000.0,
+      "absorption_per_Mm": 25.0,
+      "scale_height_km": 5.0,
+      "altitude_km": 57.0,
       "anisotropy": 0.75,
       "scattering_tint": [1.0, 1.0, 0.95],
       "absorption_tint": [0.3, 0.6, 1.8]

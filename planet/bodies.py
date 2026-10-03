@@ -127,6 +127,10 @@ class Aerosols:
     scattering_tint: tuple[float, float, float] = (1.0, 1.0, 1.0)
     absorption_tint: tuple[float, float, float] = (1.0, 1.0, 1.0)
 
+    # A deck centered this high (km); 0 = thickest at the
+    # ground.
+    altitude_km: float = 0.0
+
 
 @dataclass(frozen=True, slots=True)
 class AtmosphereProfile:
@@ -540,7 +544,8 @@ def parse_profile(
                 scale_height_km=number(raw_aerosols, "scale_height_km", 0.01),
                 anisotropy=number(raw_aerosols, "anisotropy", -0.99),
                 scattering_tint=tint(raw_aerosols, "scattering_tint"),
-                absorption_tint=tint(raw_aerosols, "absorption_tint")
+                absorption_tint=tint(raw_aerosols, "absorption_tint"),
+                altitude_km=number(raw_aerosols, "altitude_km", 0.0, default=0.0)
             )
 
         atmosphere = AtmosphereProfile(
@@ -1219,10 +1224,12 @@ def atmosphere_for(
     aerosols = air.aerosols
 
     # Thick enough to hold ~12 scale heights of either gas
-    # or haze.
+    # or haze, and any cloud deck.
     tallest = max(scale_height, aerosols.scale_height_km if aerosols else 0.0)
 
-    height_km = min(max(12.0 * tallest, 20.0), 800.0)
+    deck = (aerosols.altitude_km + 6.0 * aerosols.scale_height_km) if aerosols and aerosols.altitude_km > 0.0 else 0.0
+
+    height_km = min(max(12.0 * tallest, deck, 20.0), 800.0)
 
     component = AtmosphereComponent(
         height=height_km * 1000.0,
@@ -1234,6 +1241,7 @@ def atmosphere_for(
         mie_anisotropy=aerosols.anisotropy if aerosols else 0.8,
         mie_scattering_tint=aerosols.scattering_tint if aerosols else (1.0, 1.0, 1.0),
         mie_absorption_tint=aerosols.absorption_tint if aerosols else (1.0, 1.0, 1.0),
+        mie_layer_altitude=(aerosols.altitude_km if aerosols else 0.0) * 1000.0,
         ozone_absorption=EARTH_OZONE if air.ozone else (0.0, 0.0, 0.0),
         ground_albedo=profile.bond_albedo
     )

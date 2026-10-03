@@ -23,7 +23,7 @@ building and saving scenes.
 
 **Bodies of the solar system**
 
-![Mars, the Moon, Io, Venus, Titan and Jupiter](docs/images/bodies.png)
+![Mars from orbit, the Moon's surface, Io, Venus's surface under its clouds, Titan's surface and Europa](docs/images/bodies.png)
 
 - Body profiles (`assets/bodies/*.json`, real data from NASA's fact sheets) for
   Mercury, Venus, Earth, the Moon, Mars, Jupiter, Io, Europa, Ganymede,
@@ -189,6 +189,8 @@ building and saving scenes.
   space, from the same model and Earth's physical constants (all editable)
 - Sunlight reaching every surface is filtered by the air above it: low sun
   turns orange, the night side goes dark
+- Aerosols near the ground (dust, haze) or in a deck at altitude (Venus's
+  sulfuric acid clouds at ~57 km, with clearer air below)
 - Colored aerosols (per-channel scattering and absorption): Mars's
   butterscotch dust, Titan's orange haze
 - Optically thick atmospheres (Venus's clouds, Titan's haze) pass diffuse
@@ -205,7 +207,14 @@ building and saving scenes.
   plus spot light shadows, filtered with hardware PCF
 - Procedural sky for scenes without a planet; ambient light and reflections baked from it
   (split-sum image-based lighting: irradiance, prefiltered specular, BRDF LUT)
-- HDR pipeline: bloom, exposure, ACES / Reinhard tone mapping, gamma correction, FXAA
+- HDR pipeline: bloom, exposure with eye adaptation (dim scenes such as
+  Titan's surface brighten, glaring ones darken, over half a second; views
+  of a planet from space keep their exposure), ACES / Reinhard tone mapping,
+  gamma correction, FXAA
+- Close-up terrain detail: per-pixel fractal noise varies the ground's
+  brightness and hue and adds micro-relief bump shading, fading out with
+  distance so it never shimmers; bare worlds' regolith is mottled at every
+  scale
 - Batched drawing: one shared geometry buffer, one multi-draw-indirect call per
   material, frustum culling of every object and shadow caster
 - Planet-scale precision: 64-bit world positions, camera-relative rendering and
@@ -241,7 +250,7 @@ building and saving scenes.
   under a per-frame time budget
 - Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
   output routed to the log
-- 498 unit tests for everything that does not need a GPU
+- 506 unit tests for everything that does not need a GPU
 
 ## Getting Started
 

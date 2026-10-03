@@ -1,0 +1,166 @@
+import math
+
+import numpy as np
+import pytest
+
+from ecs.components import AtmosphereComponent
+from graphics.atmosphere import AtmosphereParameters, pack_atmosphere_block
+from planet.bodies import components_for, load_presets
+from planet.craters import lattice_cells
+from planet.noise import _GRADIENTS, Perlin
+
+
+RADIUS = 6_051_800.0
+
+
+# =========================================================
+# Aerosol Layers (Venus's cloud deck)
+# =========================================================
+
+def deck(**overrides) -> AtmosphereParameters:
+
+    values = dict(
+        mie_scattering=3_000.0,
+        mie_absorption=25.0,
+        mie_scale_height=5_000.0,
+        mie_layer_altitude=57_000.0,
+        height=200_000.0
+    )
+
+    values.update(overrides)
+
+    return AtmosphereParameters.from_components(RADIUS, AtmosphereComponent(**values))
+
+
+def test_layer_density_peaks_at_its_altitude():
+
+    p = deck()
+
+    density = p.mie_density(np.array([0.0, 30.0, 57.0, 80.0]))
+
+    assert density[2] == pytest.approx(1.0)
+    assert density[0] < 1e-4 and density[1] < density[2] > density[3]
+
+    # Ground-hugging aerosols are densest at the ground.
+    ground = deck(mie_layer_altitude=0.0)
+
+    assert ground.mie_density(np.array([0.0]))[0] == pytest.approx(1.0)
+
+
+def test_layer_column_and_thickness():
+
+    p = deck()
+
+    # Both sides of the deck: about twice the scale height.
+    assert p.mie_column == pytest.approx(10.0, rel=1e-3)
+    assert deck(mie_layer_altitude=0.0).mie_column == pytest.approx(5.0)
+
+    # Venus's clouds (tau ~30) make it optically thick.
+    assert p.vertical_scattering_depth > 25.0
+    assert p.thick_weight == 1.0
+
+
+def test_layer_is_packed_for_the_shaders():
+
+    v = np.frombuffer(
+        pack_atmosphere_block(deck(), sun_direction=(0.0, 1.0, 0.0), sun_illuminance=(1.0, 1.0, 1.0)),
+        dtype=np.float32
+    ).reshape(9, 4)
+
+    assert v[8, 3] == pytest.approx(57.0)
+
+
+def test_venus_clouds_sit_high():
+
+    venus = components_for(load_presets()["venus"]).atmosphere
+
+    assert venus.mie_layer_altitude == pytest.approx(57_000.0)
+    assert venus.height > venus.mie_layer_altitude + 4 * venus.mie_scale_height
+
+
+def test_layer_clears_the_ground():
+
+    p = deck()
+
+    # Sunlight at the ground still crosses the deck, but the
+    # air near the surface is free of cloud.
+    near_ground = p.extinction(np.array([0.5]))[0]
+    in_deck = p.extinction(np.array([57.0]))[0]
+
+    assert np.all(in_deck > 100.0 * (near_ground - np.asarray(p.rayleigh_scattering)))
+
+
+# =========================================================
+# Lattice Cells
+# =========================================================
+
+@pytest.mark.parametrize("spread", [1e3, 1e7])
+def test_dense_and_sorted_lattices_agree(spread):
+
+    rng = np.random.default_rng(0)
+
+    # Compact points (one chunk: dense path) and spread-out
+    # ones (whole planet: sorted path).
+    points = rng.normal(size=(500, 3)) * spread
+
+    keys, cell_of, point = lattice_cells(points, 2_000.0)
+
+    base = np.floor(points / 2_000.0 - 0.5).astype(np.int64)
+
+    corners = np.array([[(c >> 0) & 1, (c >> 1) & 1, (c >> 2) & 1] for c in range(8)])
+
+    expected = (base[:, None, :] + corners[None]).reshape(-1, 3)
+
+    # Every pair points at its own cell; cells are distinct.
+    np.testing.assert_array_equal(keys[cell_of], expected)
+    np.testing.assert_array_equal(point, np.repeat(np.arange(500), 8))
+
+    assert len(np.unique(keys, axis=0)) == len(keys)
+
+
+# =========================================================
+# Noise
+# =========================================================
+
+def reference_perlin(noise: Perlin, points: np.ndarray) -> np.ndarray:
+    """The original formulation (row-gathered gradients)."""
+
+    floor = np.floor(points)
+    f = points - floor
+    cell = floor.astype(np.int64) & 255
+    perm = noise._perm
+    gradient_of = _GRADIENTS[perm % 12]
+
+    x, y, z = cell[:, 0], cell[:, 1], cell[:, 2]
+    a = perm[x] + y
+    b = perm[x + 1] + y
+    aa, ab, ba, bb = perm[a] + z, perm[a + 1] + z, perm[b] + z, perm[b + 1] + z
+
+    fx, fy, fz = f[:, 0], f[:, 1], f[:, 2]
+    gx, gy, gz = fx - 1.0, fy - 1.0, fz - 1.0
+
+    def corner(h, px, py, pz):
+        g = gradient_of[h]
+        return g[:, 0] * px + g[:, 1] * py + g[:, 2] * pz
+
+    u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0)
+    ux, uy, uz = u[:, 0], u[:, 1], u[:, 2]
+
+    x00 = corner(aa, fx, fy, fz) + ux * (corner(ba, gx, fy, fz) - corner(aa, fx, fy, fz))
+    x10 = corner(ab, fx, gy, fz) + ux * (corner(bb, gx, gy, fz) - corner(ab, fx, gy, fz))
+    x01 = corner(aa + 1, fx, fy, gz) + ux * (corner(ba + 1, gx, fy, gz) - corner(aa + 1, fx, fy, gz))
+    x11 = corner(ab + 1, fx, gy, gz) + ux * (corner(bb + 1, gx, gy, gz) - corner(ab + 1, fx, gy, gz))
+
+    y0 = x00 + uy * (x10 - x00)
+    y1 = x01 + uy * (x11 - x01)
+
+    return y0 + uz * (y1 - y0)
+
+
+def test_faster_noise_is_unchanged():
+
+    points = np.random.default_rng(1).normal(size=(2_000, 3)) * 40.0
+
+    noise = Perlin(7)
+
+    np.testing.assert_allclose(noise(points), reference_perlin(noise, points), atol=1e-12)

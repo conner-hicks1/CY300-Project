@@ -449,6 +449,16 @@ class DebugPanel:
 
             _slider(settings, "exposure", "Exposure", 0.05, 8.0, logarithmic=True)
 
+            _checkbox(settings, "auto_exposure", "Auto exposure")
+
+            imgui.set_item_tooltip(
+                "Eye adaptation: brightens dim scenes (Titan, dusk) and "
+                "darkens glaring ones, over about half a second."
+            )
+
+            if settings.auto_exposure:
+                _slider(settings, "exposure_adaptation", "Adaptation", 0.0, 1.0)
+
             names = [
                 tonemapper.name.title()
                 for tonemapper in Tonemapper

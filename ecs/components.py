@@ -374,6 +374,12 @@ class AtmosphereComponent:
     mie_scattering_tint: tuple[float, float, float] = (1.0, 1.0, 1.0)
     mie_absorption_tint: tuple[float, float, float] = (1.0, 1.0, 1.0)
 
+    # Aerosols in a layer centered this high (m), thinning
+    # above and below by the scale height (a cloud deck:
+    # Venus's sulfuric acid clouds at ~57 km). 0 = densest at
+    # the ground (dust, haze).
+    mie_layer_altitude: float = 0.0
+
     # Ozone: absorbs orange-red, deepening twilight blue.
     ozone_absorption: tuple[float, float, float] = (0.650, 1.881, 0.085)
     ozone_altitude: float = 25_000.0

@@ -192,8 +192,9 @@ class Volcanoes:
             # boundaries); rare hot spots anywhere.
             arcs = _smoothstep(1.0, 4.0, activity)
 
+            # (~40 large hot-spot volcanoes on Earth.)
             if kind == SHIELD:
-                return np.full(len(directions), 0.03)
+                return np.full(len(directions), 0.02)
 
             if kind == STRATO:
                 return arcs
@@ -261,14 +262,16 @@ class Volcanoes:
             if octave.radius < spacing:
                 continue
 
+            lattice = lattice_cells(points, octave.radius / 0.25)
+
             for slot in range(octave.slots):
-                self._octave(points, directions, octave, index * 8 + slot, out)
+                self._octave(lattice, directions, octave, index * 8 + slot, out)
 
         return out
 
     def _octave(
         self,
-        points: np.ndarray,
+        lattice: tuple,
         directions: np.ndarray,
         octave: _Octave,
         index: int,
@@ -282,7 +285,7 @@ class Volcanoes:
         # every volcano that reaches it).
         cell = octave.radius / 0.25
 
-        keys, cell_of, point = lattice_cells(points, cell)
+        keys, cell_of, point = lattice
 
         # Per candidate volcano (each cell once).
         h = lattice_hash(keys, s.seed * 3_571 + index * 17 + 5)

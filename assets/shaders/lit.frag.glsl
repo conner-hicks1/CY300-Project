@@ -126,16 +126,27 @@ void main()
 
     vec3 terrainEmissive = vec3(0.0);
 
+    // Micro-relief height (m) for bump shading.
+    float terrainRelief = 0.0;
+
     if (uTerrainShading > 0.5)
     {
+        // Planet-local position (km) for the detail noise.
+        vec3 local = vWorldPosition * 0.001 - uPlanetCenter.xyz;
+
+        TerrainDetail detail = terrainDetail(local, length(fwidth(local)));
+
         TerrainSurface terrain = terrainSurface(
             vColor.r,
             vColor.g,
             vColor.b,
             vTexCoord.x,
             vTangent.x >= 0.0 ? vTangent.z : -1.0,
-            fract(vTexCoord.y) / 0.99
+            fract(vTexCoord.y) / 0.99,
+            detail.albedo
         );
+
+        terrainRelief = detail.height * terrain.relief;
 
         baseColor = terrain.albedo * uBaseColor;
         roughness = terrain.roughness;
@@ -174,6 +185,11 @@ void main()
 
     Surface surface;
     surface.N = surfaceNormal(geometricNormal);
+
+    if (uTerrainShading > 0.5)
+    {
+        surface.N = terrainBumpNormal(surface.N, vWorldPosition, terrainRelief);
+    }
     surface.V = normalize(uViewPosition.xyz - vWorldPosition);
     surface.baseColor = baseColor;
     surface.metallic = metallic;

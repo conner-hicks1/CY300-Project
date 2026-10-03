@@ -250,6 +250,7 @@ class Terrain:
         self._mountains = Perlin(seed + 2)
         self._detail = Perlin(seed + 3)
         self._moisture = Perlin(seed + 4)
+        self._mottle = Perlin(seed + 5)
 
     @property
     def max_elevation(
@@ -353,12 +354,20 @@ class Terrain:
 
         if self.hydrology is not None:
 
-            elevation, water = self.hydrology.apply(
-                directions,
-                elevation,
-                spacing,
-                meander_offsets(directions, self.hydrology.grid.cell_angle, self.settings.seed)
-            )
+            # Meander noise only where water might be.
+            meander = np.zeros_like(directions)
+
+            near = self.hydrology.near_water(directions)
+
+            if np.any(near):
+
+                meander[near] = meander_offsets(
+                    directions[near],
+                    self.hydrology.grid.cell_angle,
+                    self.settings.seed
+                )
+
+            elevation, water = self.hydrology.apply(directions, elevation, spacing, meander)
 
         if dunes is not None:
             elevation = elevation + dunes * (1.0 - water)
@@ -567,6 +576,17 @@ class Terrain:
         data[:, 1] = field.sample("age", directions) / getattr(field, "age_scale", 400.0)
         data[:, 2] = field.sample("continental", directions)
         data[:, 3] = field.sample("activity", directions)
+
+        # Mottled ground on the other regimes' bare worlds:
+        # regolith and rock vary in brightness at every scale
+        # (from ~500 km patches down to the vertex spacing).
+        if getattr(field, "regime", "plate_tectonics") != "plate_tectonics":
+
+            data[:, 2] = np.clip(
+                data[:, 2] + 0.12 * fbm(self._mottle, directions * (self.settings.radius / 500_000.0), 6),
+                0.0,
+                None
+            )
 
         # Dune fields: often darker sand (Mars's basalt,
         # Titan's organics), visible even from orbit.

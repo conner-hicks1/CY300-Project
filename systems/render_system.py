@@ -1,17 +1,24 @@
 import math
+import time
 
 import numpy as np
 
 from OpenGL.GL import (
+    GL_COLOR_BUFFER_BIT,
+    GL_CONSTANT_ALPHA,
     GL_GEQUAL,
     GL_GREATER,
     GL_LESS,
     GL_ONE,
+    GL_ONE_MINUS_CONSTANT_ALPHA,
     GL_ONE_MINUS_SRC_ALPHA,
     GL_SRC1_COLOR,
     GL_SRC_ALPHA,
     GL_TEXTURE_2D_ARRAY,
-    glBlendFunc
+    glBlendColor,
+    glBlendFunc,
+    glClear,
+    glClearColor
 )
 
 from core.assertions import engine_assert
@@ -173,6 +180,7 @@ class RenderSystem:
             "unlit": self._load_engine_shader("unlit"),
             "sky": self._load_engine_shader("sky"),
             "post": self._load_engine_shader("post", "fullscreen"),
+            "exposure": self._load_engine_shader("exposure", "fullscreen"),
             "fxaa": self._load_engine_shader("fxaa", "fullscreen"),
             "bloom_downsample": self._load_engine_shader("bloom_downsample", "fullscreen"),
             "bloom_upsample": self._load_engine_shader("bloom_upsample", "fullscreen"),
@@ -260,6 +268,11 @@ class RenderSystem:
 
         self._hdr_framebuffer: Framebuffer | None = None
         self._ldr_framebuffer: Framebuffer | None = None
+
+        # Auto exposure: a 1x1 target that follows the scene
+        # (see _update_exposure), and when it last did.
+        self._exposure_framebuffer: Framebuffer | None = None
+        self._exposure_time: float | None = None
 
         # The HDR color without its depth, for the
         # atmosphere pass (which samples that depth).
@@ -538,6 +551,10 @@ class RenderSystem:
 
         with profiler.scope("Post", gpu=True):
 
+            exposure_texture = self._update_exposure(
+                bloom_texture if bloom_texture is not None else hdr.color_texture_id
+            )
+
             if settings.fxaa_enabled:
 
                 ldr = self._ensure_framebuffer(
@@ -556,7 +573,8 @@ class RenderSystem:
 
             self._render_post(
                 hdr,
-                bloom_texture
+                bloom_texture,
+                exposure_texture
             )
 
             if settings.fxaa_enabled:
@@ -1154,10 +1172,98 @@ class RenderSystem:
     # Post / FXAA
     # =====================================================
 
+    # Average scene luminance that needs no adjustment
+    # (Earth daylight at the default exposure), the limits of
+    # the adjustment, and how fast the eye follows (s).
+    EXPOSURE_REFERENCE = 0.65
+    EXPOSURE_LIMITS = (0.1, 12.0)
+    EXPOSURE_TIME = 0.5
+
+    # Brightening stops before the brightest surfaces clip.
+    EXPOSURE_HIGHLIGHT = 1.6
+
+    def _update_exposure(
+        self,
+        scene_texture: int
+    ) -> int | None:
+        """
+        Eye adaptation: measure the scene into a 1x1 target,
+        blended with its previous value so the exposure
+        eases toward the new one. Returns the target's
+        texture (None: auto exposure off).
+        """
+
+        settings = self.settings
+
+        if not settings.auto_exposure:
+
+            self._exposure_time = None
+
+            return None
+
+        target = self._exposure_framebuffer
+
+        fresh = target is None
+
+        if fresh:
+
+            target = Framebuffer(
+                FramebufferSpec(
+                    width=1,
+                    height=1,
+                    color_format=ColorFormat.RGBA16F,
+                    depth_mode=DepthMode.NONE
+                )
+            )
+
+            self._exposure_framebuffer = target
+
+        now = time.perf_counter()
+
+        elapsed = 1.0 if self._exposure_time is None else now - self._exposure_time
+
+        self._exposure_time = now
+
+        target.bind()
+
+        if fresh:
+
+            glClearColor(1.0, 1.0, 1.0, 1.0)
+            glClear(GL_COLOR_BUFFER_BIT)
+
+        shader = self._shader("exposure")
+
+        shader.bind()
+
+        RenderCommand.bind_texture(scene_texture, 0)
+
+        shader.set_int("uScene", 0)
+        shader.set_float("uReference", self.EXPOSURE_REFERENCE)
+        shader.set_float("uAdaptation", float(np.clip(settings.exposure_adaptation, 0.0, 1.0)))
+        shader.set_vec2("uLimits", self.EXPOSURE_LIMITS)
+        shader.set_float("uHighlight", self.EXPOSURE_HIGHLIGHT)
+
+        # new = measured * a + previous * (1 - a)
+        blend = 1.0 - math.exp(-max(elapsed, 0.0) / self.EXPOSURE_TIME)
+
+        RenderState.set_blending(True)
+
+        glBlendColor(0.0, 0.0, 0.0, float(blend))
+        glBlendFunc(GL_CONSTANT_ALPHA, GL_ONE_MINUS_CONSTANT_ALPHA)
+
+        self._renderer.draw_fullscreen(shader)
+
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+        RenderState.set_blending(False)
+
+        return target.color_texture_id
+
     def _render_post(
         self,
         hdr: Framebuffer,
-        bloom_texture: int | None
+        bloom_texture: int | None,
+        exposure_texture: int | None = None
     ):
 
         settings = self.settings
@@ -1182,6 +1288,15 @@ class RenderSystem:
         shader.set_float("uBloomIntensity", settings.bloom_intensity)
 
         shader.set_float("uExposure", settings.exposure)
+
+        # Eye adaptation (1x1; unit 2).
+        RenderCommand.bind_texture(
+            exposure_texture if exposure_texture is not None else hdr.color_texture_id,
+            2
+        )
+
+        shader.set_int("uAutoExposureTexture", 2)
+        shader.set_bool("uAutoExposure", exposure_texture is not None)
         shader.set_float("uGamma", settings.gamma)
         shader.set_int("uTonemapper", int(settings.tonemapper))
 
@@ -1435,7 +1550,7 @@ class RenderSystem:
 
     def shutdown(self):
 
-        for attribute in ("_hdr_framebuffer", "_ldr_framebuffer"):
+        for attribute in ("_hdr_framebuffer", "_ldr_framebuffer", "_exposure_framebuffer"):
 
             framebuffer = getattr(self, attribute)
 

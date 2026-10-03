@@ -53,7 +53,8 @@ from graphics.uniform_blocks import ATMOSPHERE_BLOCK
 SUN_ANGULAR_RADIUS = 0.2678
 
 # Disc brightness relative to the sun's illuminance; far
-# brighter than the sky, so it blooms.
+# brighter than the sky, so it blooms (SUN_DISC_BRIGHTNESS
+# in atmosphere.frag.glsl).
 SUN_DISC_BRIGHTNESS = 40.0
 
 
@@ -78,6 +79,9 @@ class AtmosphereParameters:
     ozone_half_width: float
 
     ground_albedo: float
+
+    # Aerosol layer center (km); 0 = densest at the ground.
+    mie_layer_altitude: float = 0.0
 
     @classmethod
     def vacuum(
@@ -137,7 +141,8 @@ class AtmosphereParameters:
             ),
             ozone_altitude=component.ozone_altitude / 1000.0,
             ozone_half_width=max(component.ozone_thickness, 1.0) / 2000.0,
-            ground_albedo=float(np.clip(component.ground_albedo, 0.0, 1.0))
+            ground_albedo=float(np.clip(component.ground_albedo, 0.0, 1.0)),
+            mie_layer_altitude=max(float(component.mie_layer_altitude), 0.0) / 1000.0
         )
 
     # -----------------------------------------------------
@@ -156,8 +161,34 @@ class AtmosphereParameters:
 
         return (
             self.rayleigh_scattering[1] * self.rayleigh_scale_height
-            + self.mie_scattering[1] * self.mie_scale_height
+            + self.mie_scattering[1] * self.mie_column
         )
+
+    @property
+    def mie_column(
+        self
+    ) -> float:
+        """Height-integrated aerosol density (km)."""
+
+        h = self.mie_scale_height
+
+        if self.mie_layer_altitude <= 0.0:
+            return h
+
+        return h * (2.0 - math.exp(-self.mie_layer_altitude / h))
+
+    def mie_density(
+        self,
+        altitude_km
+    ) -> np.ndarray:
+        """Aerosol density (0..1) at altitudes (as in include/atmosphere.glsl)."""
+
+        altitude = np.maximum(np.asarray(altitude_km, dtype=np.float64), 0.0)
+
+        if self.mie_layer_altitude > 0.0:
+            return np.exp(-np.abs(altitude - self.mie_layer_altitude) / self.mie_scale_height)
+
+        return np.exp(-altitude / self.mie_scale_height)
 
     @property
     def thick_weight(
@@ -183,7 +214,7 @@ class AtmosphereParameters:
 
         rayleigh = np.exp(-altitude / self.rayleigh_scale_height) * self.rayleigh_scattering
 
-        mie = np.exp(-altitude / self.mie_scale_height) * (
+        mie = self.mie_density(altitude) * (
             np.asarray(self.mie_scattering) + np.asarray(self.mie_absorption)
         )
 
@@ -286,7 +317,8 @@ def _ray_sphere(
 #                                    z 1 = haze over geometry (aerial perspective),
 #                                    w thick-atmosphere weight (diffuse LUT)
 #     vec4 uAtmosphereSunDirection;  xyz toward the sun, w 1 = sun present
-#     vec4 uSunIlluminance;          rgb sun color * intensity, w disc brightness
+#     vec4 uSunIlluminance;          rgb sun color * intensity, w aerosol
+#                                    layer altitude (km; 0 = at the ground)
 
 def pack_atmosphere_block(
     parameters: AtmosphereParameters | None,
@@ -341,7 +373,7 @@ def pack_atmosphere_block(
 
         data[32:35] = sun_illuminance
 
-    data[35] = SUN_DISC_BRIGHTNESS
+    data[35] = p.mie_layer_altitude
 
     return data.tobytes()
 

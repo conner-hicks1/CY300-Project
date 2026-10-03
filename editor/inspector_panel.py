@@ -685,6 +685,8 @@ def _edit_atmosphere(
     inspector.slider(component, "mie_anisotropy", "Anisotropy (g)", 0.0, 0.99)
     inspector.vec3(component, "mie_scattering_tint", "Scattering tint", 0.01)
     inspector.vec3(component, "mie_absorption_tint", "Absorption tint", 0.01)
+    inspector.slider(component, "mie_layer_altitude", "Layer altitude (m)", 0.0, 100_000.0, "%.0f")
+    imgui.set_item_tooltip("A cloud deck at this height (0 = haze thickest at the ground).")
 
     imgui.separator_text("Ozone")
 

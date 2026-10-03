@@ -830,25 +830,49 @@ class IceShell(RegimeSimulation):
     def _cracks(
         self,
         rng: np.random.Generator
-    ) -> tuple[np.ndarray, np.ndarray]:
+    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
         """
-        Offset and taper of a tidal crack: a great-circle arc,
-        wobbling as the tidal stress it follows turns (Europa's
-        cycloidal ridges).
+        A tidal crack: a great-circle arc, wobbling as the
+        tidal stress it follows turns (Europa's cycloidal
+        ridges). Returns (cells near it, their angular offset
+        from it, a 0..1 taper along it); only cells within
+        reach are evaluated.
         """
 
         center = _random_direction(rng)
+        normal = _perpendicular(center, rng)
+        half_length = rng.uniform(0.1, 1.0)
 
-        offset, taper = self.arc(_perpendicular(center, rng), center, rng.uniform(0.1, 1.0))
+        slow_amount = rng.uniform(-0.04, 0.04)
+        fast_amount = rng.uniform(-0.015, 0.015)
 
         if self._wobble is None:
             self._wobble = (self.noise(11, 5.0, 3), self.noise(12, 9.0, 2))
 
+        # Cells within the arc's reach: near its circle (wobble
+        # plus the widest band) and not far past its ends.
+        reach = abs(slow_amount) + abs(fast_amount) + 6.0 * self.cell_angle
+
+        cells = np.nonzero(
+            (np.abs(self.directions @ normal) < math.sin(reach))
+            & (self.directions @ center > math.cos(min(half_length + reach, math.pi)))
+        )[0]
+
+        directions = self.directions[cells]
+
+        side = np.cross(normal, center)
+
+        offset = np.arcsin(np.clip(directions @ normal, -1.0, 1.0))
+
+        along = np.arctan2(directions @ side, directions @ center)
+
+        taper = _smoothstep(half_length, half_length * 0.75, np.abs(along))
+
         slow, fast = self._wobble
 
-        wobble = rng.uniform(-0.04, 0.04) * slow + rng.uniform(-0.015, 0.015) * fast
+        offset = offset + slow_amount * slow[cells] + fast_amount * fast[cells]
 
-        return offset + wobble, taper
+        return cells, offset, taper
 
     def _ridge(
         self,
@@ -858,7 +882,7 @@ class IceShell(RegimeSimulation):
     ):
         """A double ridge along a crack: dark lineae."""
 
-        offset, taper = self._cracks(rng)
+        cells, offset, taper = self._cracks(rng)
 
         # At least ~1.5 grid cells wide, so lines stay
         # continuous when sampled.
@@ -866,12 +890,14 @@ class IceShell(RegimeSimulation):
 
         line = np.exp(-(offset / width) ** 2) * taper
 
-        near = line > 0.01
+        keep = line > 0.01
 
-        state.height[near] += rng.uniform(100.0, 300.0) * self.relief * line[near]
-        state.continental[near] *= 1.0 - 0.65 * line[near]
-        state.age[near] = np.minimum(state.age[near], np.where(line[near] > 0.3, age, state.age[near]))
-        state.activity[near] += 0.5 * line[near]
+        near, line = cells[keep], line[keep]
+
+        state.height[near] += rng.uniform(100.0, 300.0) * self.relief * line
+        state.continental[near] *= 1.0 - 0.65 * line
+        state.age[near] = np.where(line > 0.3, np.minimum(state.age[near], age), state.age[near])
+        state.activity[near] += 0.5 * line
 
     def _band(
         self,
@@ -881,18 +907,20 @@ class IceShell(RegimeSimulation):
     ):
         """A spreading band: the shell pulled apart and refilled."""
 
-        offset, taper = self._cracks(rng)
+        cells, offset, taper = self._cracks(rng)
 
         width = self.cell_angle * rng.uniform(2.0, 4.0)
 
         band = _smoothstep(width, width * 0.6, np.abs(offset)) * taper
 
-        near = band > 0.01
+        keep = band > 0.01
 
-        state.height[near] += (-60.0 * self.relief - state.height[near] * 0.7) * band[near]
-        state.continental[near] = state.continental[near] * (1.0 - band[near]) + 0.45 * band[near]
-        state.age[near] = state.age[near] * (1.0 - band[near]) + age * band[near]
-        state.activity[near] -= band[near]
+        near, band = cells[keep], band[keep]
+
+        state.height[near] += (-60.0 * self.relief - state.height[near] * 0.7) * band
+        state.continental[near] = state.continental[near] * (1.0 - band) + 0.45 * band
+        state.age[near] = state.age[near] * (1.0 - band) + age * band
+        state.activity[near] -= band
 
     def _chaos(
         self,

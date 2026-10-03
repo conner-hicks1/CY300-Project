@@ -22,7 +22,8 @@ layout(std140) uniform AtmosphereBlock
                                     // z 1 = haze over geometry,
                                     // w thick-atmosphere weight
     vec4 uAtmosphereSunDirection;   // xyz toward the sun, w 1 = present
-    vec4 uSunIlluminance;           // rgb sun color * intensity, w disc brightness
+    vec4 uSunIlluminance;           // rgb sun color * intensity, w aerosol
+                                    // layer altitude (km; 0 = at the ground)
 };
 
 uniform sampler2D uTransmittanceLut;
@@ -128,7 +129,14 @@ void mediumAt(
     altitude = max(altitude, 0.0);
 
     float rayleighDensity = exp(-altitude / uRayleighScattering.w);
-    float mieDensity = exp(-altitude / uMieScattering.w);
+
+    // Aerosols: thickest at the ground (dust, haze), or in a
+    // deck around a given height (Venus's clouds).
+    float layer = uSunIlluminance.w;
+
+    float mieDensity = layer > 0.0
+        ? exp(-abs(altitude - layer) / uMieScattering.w)
+        : exp(-altitude / uMieScattering.w);
 
     // Ozone: a tent around its center altitude.
     float ozoneDensity = max(

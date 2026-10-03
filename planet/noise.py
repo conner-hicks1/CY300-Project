@@ -32,7 +32,7 @@ _OCTAVE_OFFSET = np.array([19.1, 7.3, 13.7])
 
 class Perlin:
 
-    __slots__ = ("_perm", "_gradient_of")
+    __slots__ = ("_perm", "_gx", "_gy", "_gz")
 
     def __init__(
         self,
@@ -48,8 +48,13 @@ class Perlin:
             (permutation, permutation)
         ).astype(np.int64)
 
-        # Hash -> gradient, folded into one table lookup.
-        self._gradient_of = _GRADIENTS[self._perm % 12]
+        # Hash -> gradient, folded into one lookup per axis
+        # (1D gathers are much faster than gathering rows).
+        gradients = _GRADIENTS[self._perm % 12]
+
+        self._gx = np.ascontiguousarray(gradients[:, 0])
+        self._gy = np.ascontiguousarray(gradients[:, 1])
+        self._gz = np.ascontiguousarray(gradients[:, 2])
 
     def __call__(
         self,
@@ -81,13 +86,11 @@ class Perlin:
 
         gx, gy, gz = fx - 1.0, fy - 1.0, fz - 1.0
 
-        grad = self._gradient_of
+        grad_x, grad_y, grad_z = self._gx, self._gy, self._gz
 
         def corner(h, px, py, pz):
 
-            g = grad[h]
-
-            return g[:, 0] * px + g[:, 1] * py + g[:, 2] * pz
+            return grad_x[h] * px + grad_y[h] * py + grad_z[h] * pz
 
         # Quintic fade: C2-continuous, so normals derived
         # from the height field have no creases.

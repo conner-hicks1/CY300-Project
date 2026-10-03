@@ -239,10 +239,12 @@ class Craters:
 
             # Each cell holds up to SLOTS craters, the k-th
             # with chance (expected - k).
+            lattice = lattice_cells(points, cell)
+
             for slot in range(slots):
 
                 self._octave(
-                    points,
+                    lattice,
                     directions,
                     cell,
                     octave * 8 + slot,
@@ -254,7 +256,7 @@ class Craters:
 
     def _octave(
         self,
-        points: np.ndarray,
+        lattice: tuple,
         directions: np.ndarray,
         cell: float,
         octave: int,
@@ -264,7 +266,7 @@ class Craters:
 
         s = self.settings
 
-        keys, cell_of, point = lattice_cells(points, cell)
+        keys, cell_of, point = lattice
 
         # Per candidate crater (each cell once).
         h = lattice_hash(keys, s.seed * 1_000 + octave)
@@ -357,43 +359,51 @@ class Craters:
 
         cell = self._ray_cell
 
-        q = directions * self.radius / cell
+        keys, cell_of, point = lattice_cells(directions * self.radius, cell)
 
-        base = np.floor(q - 0.5).astype(np.int64)
+        most = float(np.max(chance))
 
-        for corner, slot in ((c, k) for c in range(8) for k in range(RAY_SLOTS)):
+        for slot in range(RAY_SLOTS):
 
-            key = base + LATTICE_CORNERS[corner]
+            # Per candidate ray crater (each cell once).
+            h = lattice_hash(keys, s.seed * 7_919 + 99 + slot * 131)
 
-            h = lattice_hash(key, s.seed * 7_919 + 99 + slot * 131)
+            roll = lattice_uniform(h, 0)
 
-            live = np.nonzero(lattice_uniform(h, 0) < chance)[0]
-
-            if len(live) == 0:
-                continue
-
-            h = h[live]
-
-            center = (key[live] + np.stack([lattice_uniform(h, k) for k in (1, 2, 3)], axis=1)) * cell
+            center = (keys + np.stack([lattice_uniform(h, k) for k in (1, 2, 3)], axis=1)) * cell
 
             length = np.linalg.norm(center, axis=1)
 
-            near = np.abs(length - self.radius) < 0.25 * cell
+            candidate = (roll < most) & (np.abs(length - self.radius) < 0.25 * cell)
 
-            c = center / length[:, None]
+            if not np.any(candidate):
+                continue
 
-            r = 0.5 * (RAY_DIAMETER[0] + (RAY_DIAMETER[1] - RAY_DIAMETER[0]) * lattice_uniform(h, 4))
+            pairs = np.nonzero(candidate[cell_of])[0]
+
+            pairs = pairs[roll[cell_of[pairs]] < chance[point[pairs]]]
+
+            if len(pairs) == 0:
+                continue
+
+            owner = cell_of[pairs]
+            live = point[pairs]
+
+            c = center[owner] / length[owner, None]
+
+            r = 0.5 * (RAY_DIAMETER[0] + (RAY_DIAMETER[1] - RAY_DIAMETER[0]) * lattice_uniform(h[owner], 4))
 
             d = directions[live]
 
             x = np.linalg.norm(d - c, axis=1) * self.radius / r
 
-            hit = near & (x < RAY_REACH)
+            hit = x < RAY_REACH
 
             if not np.any(hit):
                 continue
 
-            c, d, x, h = c[hit], d[hit], x[hit], h[hit]
+            # (h becomes per hit: the slot's next pass rehashes.)
+            c, d, x, h = c[hit], d[hit], x[hit], h[owner[hit]]
 
             # Angle around the crater.
             helper = np.where(np.abs(c[:, 1:2]) < 0.9, [[0.0, 1.0, 0.0]], [[1.0, 0.0, 0.0]])
@@ -521,7 +531,43 @@ def lattice_cells(
 
     keys = (base[:, None, :] + LATTICE_CORNERS[None, :, :]).reshape(-1, 3)
 
-    # Pack each cell into one integer for a fast unique.
+    point = np.repeat(np.arange(n), 8)
+
+    if n == 0:
+        return keys, np.zeros(0, dtype=np.int64), point
+
+    # The points of one chunk span only a few cells: index a
+    # dense box of them (no sort). Spread-out points (whole-
+    # planet sampling) fall back to a sorted unique.
+    low = base.min(axis=0)
+    extent = base.max(axis=0) - low + 2
+
+    volume = int(extent[0]) * int(extent[1]) * int(extent[2])
+
+    if volume <= 4 * len(keys) + 4_096:
+
+        local = keys - low
+
+        linear = (local[:, 0] * extent[1] + local[:, 1]) * extent[2] + local[:, 2]
+
+        present = np.zeros(volume, dtype=bool)
+        present[linear] = True
+
+        cells = np.flatnonzero(present)
+
+        index = np.cumsum(present) - 1
+
+        unique = np.stack(
+            (
+                cells // (extent[1] * extent[2]),
+                (cells // extent[2]) % extent[1],
+                cells % extent[2]
+            ),
+            axis=1
+        ) + low
+
+        return unique, index[linear], point
+
     offset = np.int64(1 << 20)
 
     packed = (
@@ -532,7 +578,7 @@ def lattice_cells(
 
     _, first, cell_of = np.unique(packed, return_index=True, return_inverse=True)
 
-    return keys[first], cell_of.reshape(-1), np.repeat(np.arange(n), 8)
+    return keys[first], cell_of.reshape(-1), point
 
 
 def lattice_hash(

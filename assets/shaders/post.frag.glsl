@@ -23,6 +23,10 @@ uniform float uBloomIntensity;
 uniform float uExposure;
 uniform float uGamma;
 
+// Eye adaptation: a 1x1 scale (exposure.frag.glsl).
+uniform sampler2D uAutoExposureTexture;
+uniform bool uAutoExposure;
+
 // Matches graphics/render_settings.py Tonemapper.
 uniform int uTonemapper;
 
@@ -58,6 +62,11 @@ void main()
     }
 
     hdr *= uExposure;
+
+    if (uAutoExposure)
+    {
+        hdr *= texelFetch(uAutoExposureTexture, ivec2(0), 0).r;
+    }
 
     vec3 mapped;
 

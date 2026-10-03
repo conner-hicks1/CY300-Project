@@ -1,3 +1,12 @@
+# PyOpenGL checks glGetError after every call by default,
+# a round trip per call that costs milliseconds a frame. GL
+# errors still reach the log through the driver's debug
+# output (graphics/gl_debug.py). Must be set before
+# OpenGL.GL is first imported.
+import OpenGL
+
+OpenGL.ERROR_CHECKING = False
+
 import math
 
 from pathlib import Path

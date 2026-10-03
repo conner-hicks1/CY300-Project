@@ -3,6 +3,10 @@
 #include "include/blocks.glsl"
 #include "include/atmosphere.glsl"
 
+// Sun disc brightness relative to its illuminance; far
+// brighter than the sky, so it blooms (graphics/atmosphere.py).
+const float SUN_DISC_BRIGHTNESS = 40.0;
+
 
 // =========================================================
 // Sky and Aerial Perspective
@@ -129,7 +133,7 @@ void main()
         inScattered +=
             disc
             * uSunIlluminance.rgb
-            * uSunIlluminance.w
+            * SUN_DISC_BRIGHTNESS
             * transmittance;
     }
 

@@ -27,7 +27,132 @@ struct TerrainSurface
     vec3 albedo;
     float roughness;
     vec3 emissive;      // glowing lava
+
+    // 0..1: how much micro-relief shading applies (none on
+    // water, little on snow).
+    float relief;
 };
+
+
+// ---------------------------------------------------------
+// Close-up Detail
+// ---------------------------------------------------------
+//
+// The chunks' vertices carry the terrain's shape and
+// climate; between them, rock, soil and plants still vary.
+// Fractal value noise in planet-local coordinates (km)
+// adds that per pixel: brightness and hue variation, and a
+// micro-relief height for bump shading. Octaves run from
+// ~8 km down to ~20 m and fade out once smaller than a
+// pixel, so distant ground does not shimmer.
+//
+// Cells are hashed as integers: exact at planet scale
+// (a float hash of coordinates ~1e5 would lose its bits).
+
+struct TerrainDetail
+{
+    float albedo;       // ~-1 .. 1
+    float height;       // meters
+};
+
+float terrainHash(
+    ivec3 cell
+)
+{
+    uvec3 v = uvec3(cell) * uvec3(1597334673u, 3812015801u, 2798796415u);
+
+    uint n = (v.x ^ v.y ^ v.z) * 1597334673u;
+
+    n ^= n >> 16u;
+    n *= 2246822519u;
+    n ^= n >> 13u;
+
+    return float(n) * (1.0 / 4294967295.0);
+}
+
+float terrainValueNoise(
+    vec3 p
+)
+{
+    vec3 cellFloor = floor(p);
+    ivec3 i = ivec3(cellFloor);
+    vec3 f = p - cellFloor;
+
+    f = f * f * (3.0 - 2.0 * f);
+
+    float a = mix(terrainHash(i), terrainHash(i + ivec3(1, 0, 0)), f.x);
+    float b = mix(terrainHash(i + ivec3(0, 1, 0)), terrainHash(i + ivec3(1, 1, 0)), f.x);
+    float c = mix(terrainHash(i + ivec3(0, 0, 1)), terrainHash(i + ivec3(1, 0, 1)), f.x);
+    float d = mix(terrainHash(i + ivec3(0, 1, 1)), terrainHash(i + ivec3(1, 1, 1)), f.x);
+
+    return mix(mix(a, b, f.y), mix(c, d, f.y), f.z) * 2.0 - 1.0;
+}
+
+TerrainDetail terrainDetail(
+    vec3 position,      // planet-local, km
+    float footprint     // km per pixel
+)
+{
+    TerrainDetail detail;
+    detail.albedo = 0.0;
+    detail.height = 0.0;
+
+    float wavelength = 8.0;     // km
+    float weight = 0.5;
+    float total = 0.0;
+
+    for (int octave = 0; octave < 9; ++octave)
+    {
+        // Fade octaves that shrink below ~3 pixels.
+        float fade = 1.0 - smoothstep(1.5, 3.0, footprint / wavelength * 6.0);
+
+        if (fade <= 0.0)
+        {
+            break;
+        }
+
+        float n = terrainValueNoise(position / wavelength + float(octave) * 17.31);
+
+        detail.albedo += weight * fade * n;
+
+        // Fractal relief: amplitude in step with wavelength
+        // (slopes of ~10-20 degrees at every scale).
+        detail.height += 0.06 * wavelength * 1000.0 * fade * n;
+
+        total += weight;
+        weight *= 0.62;
+        wavelength *= 0.5;
+    }
+
+    detail.albedo /= max(total, 1e-3);
+
+    return detail;
+}
+
+// Bump-mapped normal from a height field, by screen-space
+// derivatives (Mikkelsen, "Bump Mapping Unparametrized
+// Surfaces on the GPU", 2010): no tangents needed.
+vec3 terrainBumpNormal(
+    vec3 normal,
+    vec3 position,      // camera-relative, m
+    float height        // m
+)
+{
+    vec3 dpdx = dFdx(position);
+    vec3 dpdy = dFdy(position);
+
+    float dhdx = dFdx(height);
+    float dhdy = dFdy(height);
+
+    vec3 r1 = cross(dpdy, normal);
+    vec3 r2 = cross(normal, dpdx);
+
+    float det = dot(dpdx, r1);
+
+    vec3 gradient = sign(det) * (dhdx * r1 + dhdy * r2);
+
+    return normalize(abs(det) * normal - gradient);
+}
 
 // Per planet (its material; planet/bodies.py profiles):
 uniform float uSurfacePalette;  // 0 biomes, 1 mineral, 2 cloud bands
@@ -111,12 +236,14 @@ TerrainSurface terrainSurface(
     float precipitation,
     float temperature,
     float crust,
-    float water
+    float water,
+    float detail
 )
 {
     TerrainSurface surface;
 
     surface.emissive = vec3(0.0);
+    surface.relief = 0.0;
 
     int palette = int(uSurfacePalette + 0.5);
     int liquid = int(uLiquid + 0.5);
@@ -194,6 +321,15 @@ TerrainSurface terrainSurface(
         land = mix(land, TERRAIN_SNOW, snow);
     }
 
+    // Close-up variation: patchy soil, rock and plants
+    // (warmer and lighter, cooler and darker), subtler on
+    // snow.
+    float snowy = smoothstep(0.55, 0.75, dot(land, vec3(0.33)));
+
+    land *= 1.0 + detail * mix(vec3(0.24, 0.22, 0.17), vec3(0.05), snowy);
+
+    float landRelief = mix(1.0, 0.4, snowy);
+
     // -----------------------------------------------------
     // Rivers, lakes and glaciers on land
     // -----------------------------------------------------
@@ -216,6 +352,8 @@ TerrainSurface terrainSurface(
         land = mix(land, river, water);
 
         landRoughness = mix(0.9, mix(0.08, 0.5, frozen), water);
+
+        landRelief *= 1.0 - water;
     }
 
     // -----------------------------------------------------
@@ -227,6 +365,7 @@ TerrainSurface terrainSurface(
         // Dry world: basins are just low ground.
         surface.albedo = land;
         surface.roughness = landRoughness;
+        surface.relief = landRelief;
 
         return surface;
     }
@@ -282,9 +421,13 @@ TerrainSurface terrainSurface(
     // Open liquid is glossy (sun glint); ice and land rough.
     surface.roughness = mix(landRoughness, seaRoughness, wet);
 
+    surface.relief = landRelief * (1.0 - wet);
+
     if (liquid == 3)
     {
-        surface.emissive = wet * vec3(4.0, 0.9, 0.12);
+        // Mostly crusted over: a dull red glow in visible
+        // light (bright only on the night side).
+        surface.emissive = wet * vec3(0.7, 0.14, 0.02);
     }
 
     return surface;

@@ -101,6 +101,30 @@ class HydrologyField:
     # Carving (per sample)
     # -----------------------------------------------------
 
+    def near_water(
+        self,
+        directions: np.ndarray
+    ) -> np.ndarray:
+        """
+        Points a river or lake might reach (within two
+        routing cells): the rest need no meander noise.
+        """
+
+        grid = self.grid
+
+        cell = grid.cell_of(directions)
+        near = grid.neighbors[cell]
+
+        has_river = self.segment_of_cell >= 0
+
+        reach = (
+            has_river[cell]
+            | has_river[near].any(axis=1)
+            | has_river[grid.neighbors[near].reshape(len(cell), -1)].any(axis=1)
+        )
+
+        return reach | (grid.sample(self.lake, directions) > 0.0)
+
     def apply(
         self,
         directions: np.ndarray,

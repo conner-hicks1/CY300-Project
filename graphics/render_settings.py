@@ -37,6 +37,13 @@ class RenderSettings:
 
     # Tuned for a sun of intensity ~5 plus sky light.
     exposure: float = 0.75
+
+    # Eye adaptation (assets/shaders/exposure.frag.glsl):
+    # dim scenes (Titan's surface, dusk) are brightened and
+    # glaring ones darkened, partially (0 = none, 1 = full),
+    # over about half a second.
+    auto_exposure: bool = True
+    exposure_adaptation: float = 0.7
     tonemapper: Tonemapper = Tonemapper.ACES
     gamma: float = 2.2
 

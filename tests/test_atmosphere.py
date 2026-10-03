@@ -6,7 +6,6 @@ import pytest
 from ecs.components import AtmosphereComponent
 from graphics.atmosphere import (
     SUN_ANGULAR_RADIUS,
-    SUN_DISC_BRIGHTNESS,
     AtmosphereParameters,
     AtmosphereSky,
     pack_atmosphere_block
@@ -167,7 +166,7 @@ def test_block_layout(earth):
     assert v[6, 1] == 32.0
     assert v[6, 3] == 0.0                   # Earth's air is thin
     np.testing.assert_allclose(v[7], (0.0, 1.0, 0.0, 1.0))
-    np.testing.assert_allclose(v[8], (5.0, 4.0, 3.0, SUN_DISC_BRIGHTNESS))
+    np.testing.assert_allclose(v[8], (5.0, 4.0, 3.0, 0.0))
 
 
 def test_block_without_sun(earth):
