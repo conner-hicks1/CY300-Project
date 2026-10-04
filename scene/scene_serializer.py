@@ -18,8 +18,11 @@ from ecs.components import (
     HierarchyComponent,
     MeshRendererComponent,
     NameComponent,
+    ClockComponent,
+    OrbitComponent,
     PlanetComponent,
     RingsComponent,
+    StarComponent,
     PointLightComponent,
     RotatorComponent,
     SpotLightComponent,
@@ -668,12 +671,30 @@ COMPONENT_CODECS: tuple[ComponentCodec, ...] = (
     ),
 
     _dataclass_codec(
+        "Orbit",
+        OrbitComponent,
+        create_default=lambda _: OrbitComponent()
+    ),
+
+    _dataclass_codec(
         "DirectionalLight",
         DirectionalLightComponent,
         create_default=lambda _: DirectionalLightComponent(),
 
         # Replaced by image-based lighting.
         removed_fields=frozenset({"ambient"})
+    ),
+
+    _dataclass_codec(
+        "Star",
+        StarComponent,
+        create_default=lambda _: StarComponent()
+    ),
+
+    _dataclass_codec(
+        "Clock",
+        ClockComponent,
+        create_default=lambda _: ClockComponent()
     ),
 
     _dataclass_codec(

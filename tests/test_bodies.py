@@ -35,16 +35,17 @@ def test_all_presets_load(presets):
     expected = {
         "mercury", "venus", "earth", "moon", "mars", "jupiter", "io", "europa",
         "ganymede", "callisto", "saturn", "enceladus", "titan", "uranus",
-        "neptune", "triton", "pluto",
+        "neptune", "triton", "pluto", "phobos", "deimos", "vesta", "ceres",
+        "haumea", "churyumov_gerasimenko",
     }
 
     assert set(presets) == expected
 
-    # Ordered outward: Mercury first, Pluto last; moons right
+    # Ordered outward: Mercury first, Haumea last; moons right
     # after their planet.
     order = list(presets)
 
-    assert order[0] == "mercury" and order[-1] == "pluto"
+    assert order[0] == "mercury" and order[-1] == "haumea"
     assert order.index("moon") == order.index("earth") + 1
 
 
@@ -52,7 +53,8 @@ def test_groups(presets):
 
     groups = preset_groups(presets)
 
-    assert [p.id for p in groups["Dwarf planets"]] == ["pluto"]
+    assert [p.id for p in groups["Dwarf planets"]] == ["ceres", "pluto", "haumea"]
+    assert [p.id for p in groups["Asteroids & comets"]] == ["vesta", "churyumov_gerasimenko"]
     assert "titan" in [p.id for p in groups["Moons"]]
     assert "jupiter" in [p.id for p in groups["Planets"]]
 

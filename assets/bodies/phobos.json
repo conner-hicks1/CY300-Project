@@ -1,0 +1,76 @@
+{
+  "format": 1,
+  "name": "Phobos",
+  "kind": "moon",
+  "seed": 187,
+  "orbits": "Mars",
+  "description": "Mars's larger moon: a dark, cratered rubble pile 27 km long, gouged by the 9 km Stickney crater, slowly spiralling in toward Mars.",
+  "physical": {
+    "radius_km": 11.08,
+    "mass_kg": 1.0659e+16,
+    "rotation_hours": 7.6538,
+    "solar_day_hours": 7.66,
+    "axial_tilt_deg": 0.0,
+    "oblateness": 0.0,
+    "bond_albedo": 0.071
+  },
+  "orbit": {
+    "distance_au": 1.524,
+    "eccentricity": 0.0151,
+    "period_days": 0.31891,
+    "parent_distance_km": 9376.0,
+    "inclination_deg": 1.075,
+    "ascending_node_deg": 0.0,
+    "periapsis_arg_deg": 150.0,
+    "mean_anomaly_deg": 92.0
+  },
+  "rotation": {
+    "tidally_locked": true
+  },
+  "star": {
+    "luminosity_solar": 1.0,
+    "temperature_k": 5772,
+    "radius_solar": 1.0
+  },
+  "surface": {
+    "mean_temperature_c": -40.0,
+    "liquid": "none",
+    "ice": "none",
+    "palette": "mineral",
+    "colors": {
+      "low": [0.055, 0.05, 0.045],
+      "high": [0.09, 0.08, 0.07],
+      "steep": [0.07, 0.062, 0.055],
+      "ice": [0.6, 0.6, 0.6]
+    }
+  },
+  "terrain": {
+    "continent_frequency": 2.0,
+    "continent_height": 150.0,
+    "land_bias": 0.0,
+    "mountain_frequency": 30.0,
+    "mountain_height": 0.0,
+    "detail_height": 25.0
+  },
+  "atmosphere": null,
+  "geology": {
+    "regime": "none",
+    "plate_count": 0
+  },
+  "climate": {
+    "humidity": 0.0
+  },
+  "shape": {
+    "axes_km": [11.4, 9.1, 13.0],
+    "lumpiness": 0.06,
+    "basins": [
+      {
+        "name": "Stickney",
+        "latitude_deg": -1.0,
+        "longitude_deg": -49.0,
+        "diameter_km": 9.0,
+        "depth_km": 1.6
+      }
+    ]
+  }
+}

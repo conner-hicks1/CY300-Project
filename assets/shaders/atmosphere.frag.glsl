@@ -1,6 +1,11 @@
 #version 450 core
 
 #include "include/blocks.glsl"
+#include "include/bodies.glsl"
+#include "include/rings.glsl"
+
+#define ATMOSPHERE_ECLIPSES
+
 #include "include/atmosphere.glsl"
 #include "include/clouds.glsl"
 
@@ -29,6 +34,11 @@ const float SUN_DISC_BRIGHTNESS = 40.0;
 in vec2 vTexCoord;
 
 uniform sampler2D uSceneDepth;
+
+// 1 = another body's air, seen from afar: drawn before the
+// camera's own (whose sky goes over it), so it leaves the
+// background visible around it and draws no sun.
+uniform float uDistantAtmosphere;
 
 layout(location = 0, index = 0) out vec4 outInScattered;
 layout(location = 0, index = 1) out vec4 outTransmittance;
@@ -159,6 +169,16 @@ void main()
         return;
     }
 
+    // Another body's air against space: its glow over
+    // whatever is behind it.
+    if (uDistantAtmosphere > 0.5)
+    {
+        outInScattered = vec4(inScattered, 0.0);
+        outTransmittance = vec4(transmittance, 1.0);
+
+        return;
+    }
+
     // Sky: the sun's disc where nothing blocks it.
     if (uAtmosphereSunDirection.w > 0.5 && groundHit < 0.0)
     {
@@ -180,6 +200,8 @@ void main()
             * transmittance;
     }
 
+    // Over the (black) background: whatever lies beyond the
+    // air shows through it (another body's glowing limb).
     outInScattered = vec4(inScattered, 1.0);
-    outTransmittance = vec4(0.0);
+    outTransmittance = vec4(transmittance, 0.0);
 }

@@ -89,7 +89,11 @@ def build_chunk(
         else elevation
     )
 
-    positions = directions * (radius + surface)[:, None]
+    # Relief stands on the body's shape (a flattened or
+    # irregular body's base height; 0 on a sphere).
+    base = terrain.base_height(directions)
+
+    positions = directions * (radius + base + surface)[:, None]
 
     size = n + 2
 
@@ -106,6 +110,24 @@ def build_chunk(
 
     normals /= np.linalg.norm(normals, axis=1, keepdims=True)
 
+    # "Up" for slopes: away from the center on a sphere; on
+    # a shaped body, the normal of the shape itself (a flat
+    # plain on the flank of a potato is not a cliff).
+    if terrain.shape is not None:
+
+        ground = (directions * (radius + base)[:, None]).reshape(size, size, 3)
+
+        up = np.cross(
+            ground[1:-1, 2:] - ground[1:-1, :-2],
+            ground[2:, 1:-1] - ground[:-2, 1:-1]
+        ).reshape(-1, 3)
+
+        up /= np.linalg.norm(up, axis=1, keepdims=True)
+
+    else:
+
+        up = None
+
     # -----------------------------------------------------
     # Interior samples
     # -----------------------------------------------------
@@ -119,7 +141,7 @@ def build_chunk(
     elevation = interior(elevation[:, None], 1)[:, 0]
     water = interior(water[:, None], 1)[:, 0]
 
-    slope = np.einsum("ij,ij->i", normals, directions)
+    slope = np.einsum("ij,ij->i", normals, directions if up is None else up)
 
     # Terrain inputs for the per-pixel biome shading
     # (assets/shaders/include/terrain.glsl): color = (elevation,

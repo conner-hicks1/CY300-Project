@@ -8,6 +8,7 @@ from ecs.components import (
     AtmosphereComponent,
     BodyComponent,
     ClimateComponent,
+    OrbitComponent,
     PlanetComponent,
     RingsComponent,
     TectonicsComponent
@@ -31,10 +32,6 @@ from ecs.components import (
 # the engine needs but the files do not list are derived
 # here (surface gravity, sunlight, equilibrium temperature,
 # atmospheric scale height, light scattering).
-#
-# Not modeled yet (stored for later steps): oblateness,
-# rings, eccentric-orbit seasons, star brightness in the
-# renderer's light.
 
 PROFILE_FORMAT = 1
 
@@ -43,6 +40,7 @@ BODIES_DIRECTORY = Path("assets/bodies")
 from graphics.rings import flat_bands
 from planet.phases import ICES, SUBSTANCES, frost_point
 from planet.regimes import DEFAULT_TIME_STEPS
+from planet.shape import MAX_BASINS, flat_basins
 from planet.volcanoes import max_volcano_height
 
 GRAVITATIONAL_CONSTANT = 6.674e-11
@@ -52,7 +50,7 @@ SOLAR_CONSTANT = 1361.0                         # W / m^2 at 1 AU
 SOLAR_RADIUS_M = 6.957e8
 AU_M = 1.495978707e11
 
-KINDS = ("terrestrial", "moon", "dwarf", "gas_giant", "ice_giant")
+KINDS = ("terrestrial", "moon", "dwarf", "gas_giant", "ice_giant", "asteroid", "comet")
 
 KELVIN = 273.15
 
@@ -262,6 +260,28 @@ class BodyProfile:
     # Seed of the body's terrain and tectonics (each body
     # its own layout of basins and craters).
     seed: int = 1
+
+    # Irregular shape (planet/shape.py): (semi-axes, center,
+    # lobe center, lobe semi-axes, all in units of the
+    # radius; lumpiness; basins as (lat, lon deg, diameter,
+    # depth, peak m) groups), or None for a sphere flattened
+    # by its oblateness.
+    shape: tuple | None = None
+
+    # Orbit orientation (deg; J2000) and its reference plane
+    # ("ecliptic", or "equator" = the parent's), and spin:
+    # the IAU north pole and prime meridian angle (deg; None
+    # = from the axial tilt), or locked by tides.
+    inclination_deg: float = 0.0
+    ascending_node_deg: float = 0.0
+    periapsis_arg_deg: float = 0.0
+    mean_anomaly_deg: float = 0.0
+    orbit_plane: str = "ecliptic"
+    node_rate_deg_per_year: float = 0.0
+    orbit_theory: str = ""
+    periapsis_rate_deg_per_year: float = 0.0
+    pole: tuple[float, float, float] | None = None
+    tidally_locked: bool = False
 
     # -----------------------------------------------------
     # Derived physics
@@ -678,6 +698,100 @@ def parse_profile(
             color(rings.get("color", [0.8, 0.72, 0.6]), "rings.color"),
         )
 
+    shape = None
+
+    raw_shape = data.get("shape")
+
+    if raw_shape is not None:
+
+        if not isinstance(raw_shape, dict):
+            fail("'shape' must be an object")
+
+        radius_km = number(physical, "radius_km", 0.1)
+
+        def vector(parent, name, default, positive=False):
+
+            value = parent.get(name, default)
+
+            if (
+                not isinstance(value, list)
+                or len(value) != 3
+                or not all(isinstance(v, (int, float)) and not isinstance(v, bool) for v in value)
+                or (positive and not all(v > 0 for v in value))
+            ):
+                fail(f"'{name}' must be three {'positive ' if positive else ''}numbers (km)")
+
+            return tuple(float(v) / radius_km for v in value)
+
+        lobe_center = lobe_axes = (0.0, 0.0, 0.0)
+
+        raw_lobe = raw_shape.get("lobe")
+
+        if raw_lobe is not None:
+
+            if not isinstance(raw_lobe, dict):
+                fail("'shape.lobe' must be an object")
+
+            lobe_center = vector(raw_lobe, "center_km", None)
+            lobe_axes = vector(raw_lobe, "axes_km", None, positive=True)
+
+        raw_basins = raw_shape.get("basins", [])
+
+        if not isinstance(raw_basins, list) or len(raw_basins) > MAX_BASINS:
+            fail(f"'shape.basins' must be a list of up to {MAX_BASINS} basins")
+
+        basins = []
+
+        for basin in raw_basins:
+
+            if not isinstance(basin, dict):
+                fail("each basin must be an object")
+
+            basins.append((
+                number(basin, "latitude_deg", -90.0),
+                number(basin, "longitude_deg", -360.0),
+                number(basin, "diameter_km", 0.001) * 1000.0,
+                number(basin, "depth_km", 0.0) * 1000.0,
+                number(basin, "peak_km", 0.0, default=0.0) * 1000.0,
+            ))
+
+        shape = (
+            vector(raw_shape, "axes_km", [radius_km] * 3, positive=True),
+            vector(raw_shape, "center_km", [0.0, 0.0, 0.0]),
+            lobe_center,
+            lobe_axes,
+            number(raw_shape, "lumpiness", 0.0, default=0.0),
+            tuple(basins),
+        )
+
+    rotation = data.get("rotation", {})
+
+    if not isinstance(rotation, dict):
+        fail("'rotation' must be an object")
+
+    locked = rotation.get("tidally_locked", False)
+
+    if not isinstance(locked, bool):
+        fail("'tidally_locked' must be true or false")
+
+    pole = None
+
+    if "pole_ra_deg" in rotation:
+
+        pole = (
+            number(rotation, "pole_ra_deg", -360.0),
+            number(rotation, "pole_dec_deg", -90.0),
+            number(rotation, "prime_meridian_deg", default=0.0),
+        )
+
+        if pole[1] > 90.0:
+            fail("'pole_dec_deg' must be at most 90")
+
+    orbit_plane = orbit.get("plane", "equator" if data.get("orbits", "Sun") != "Sun" else "ecliptic")
+
+    if orbit_plane not in ("ecliptic", "equator"):
+        fail("'plane' must be ecliptic or equator")
+
     # Ice caps and life.
     ice = surface.get("ice", "none")
 
@@ -738,7 +852,18 @@ def parse_profile(
         storm=storm,
         ovals=ovals,
         polar_hexagon=polar_hexagon,
-        seed=int(number(data, "seed", 0.0, default=1))
+        seed=int(number(data, "seed", 0.0, default=1)),
+        shape=shape,
+        inclination_deg=number(orbit, "inclination_deg", default=0.0),
+        ascending_node_deg=number(orbit, "ascending_node_deg", default=0.0),
+        periapsis_arg_deg=number(orbit, "periapsis_arg_deg", default=0.0),
+        mean_anomaly_deg=number(orbit, "mean_anomaly_deg", default=0.0),
+        orbit_plane=orbit_plane,
+        node_rate_deg_per_year=number(orbit, "node_rate_deg_per_year", default=0.0),
+        orbit_theory=str(orbit.get("theory", "")),
+        periapsis_rate_deg_per_year=number(orbit, "periapsis_rate_deg_per_year", default=0.0),
+        pole=pole,
+        tidally_locked=locked
     )
 
     if profile.bond_albedo >= 1.0:
@@ -771,12 +896,42 @@ def load_presets(
     }
 
 
+def system_members(
+    presets: dict[str, "BodyProfile"],
+    profile_id: str,
+    limit: int = 7
+) -> list[str]:
+    """
+    The other bodies of a profile's planetary system among
+    the presets: a planet's moons, or a moon's planet and its
+    sibling moons (none for bodies orbiting only the star).
+    """
+
+    focus = presets[profile_id]
+
+    by_name = {profile.name: profile for profile in presets.values()}
+
+    planet = by_name.get(focus.orbits, focus) if focus.orbits != "Sun" else focus
+
+    members = [planet] + sorted(
+        (p for p in presets.values() if p.orbits == planet.name and p.orbits != "Sun"),
+        key=lambda p: p.parent_distance_km or 0.0
+    )
+
+    return [p.id for p in members if p.id != profile_id][:limit]
+
+
 def preset_groups(
     presets: dict[str, BodyProfile]
 ) -> dict[str, list[BodyProfile]]:
     """Planets, moons (by parent) and dwarf planets, for menus."""
 
-    groups: dict[str, list[BodyProfile]] = {"Planets": [], "Moons": [], "Dwarf planets": []}
+    groups: dict[str, list[BodyProfile]] = {
+        "Planets": [],
+        "Moons": [],
+        "Dwarf planets": [],
+        "Asteroids & comets": [],
+    }
 
     for profile in presets.values():
 
@@ -784,6 +939,8 @@ def preset_groups(
             groups["Moons"].append(profile)
         elif profile.kind == "dwarf":
             groups["Dwarf planets"].append(profile)
+        elif profile.kind in ("asteroid", "comet"):
+            groups["Asteroids & comets"].append(profile)
         else:
             groups["Planets"].append(profile)
 
@@ -803,6 +960,7 @@ class BodyComponents:
     climate: ClimateComponent | None
     tectonics: TectonicsComponent | None
     rings: RingsComponent | None = None
+    orbit: OrbitComponent | None = None
 
     def all(
         self
@@ -810,7 +968,9 @@ class BodyComponents:
 
         return [
             component
-            for component in (self.planet, self.body, self.atmosphere, self.climate, self.tectonics, self.rings)
+            for component in (
+                self.planet, self.body, self.atmosphere, self.climate, self.tectonics, self.rings, self.orbit
+            )
             if component is not None
         ]
 
@@ -862,7 +1022,9 @@ def components_for(
         **volcano_settings(profile),
         **erosion_settings(profile),
         bands=profile.band_count if bands else 0,
-        **giant_settings(profile)
+        **giant_settings(profile),
+        **shape_fields(profile),
+        max_depth=detail_depth(profile.radius_m)
     )
 
     body = BodyComponent(
@@ -936,11 +1098,70 @@ def components_for(
 
     return BodyComponents(
         rings=rings,
+        orbit=orbit_for(profile),
         planet=planet,
         body=body,
         atmosphere=atmosphere_for(profile),
         climate=climate,
         tectonics=tectonics
+    )
+
+
+def orbit_for(
+    profile: BodyProfile
+) -> OrbitComponent:
+    """
+    The body's orbit and spin. Planets orbit the star at
+    distance_au; moons their planet at parent_distance_km.
+    Without a profile pole, the axis leans by the axial tilt
+    from the orbit's pole (toward ecliptic longitude 90 deg).
+    """
+
+    moon = profile.orbits != "Sun"
+
+    if moon and profile.parent_distance_km:
+        semi_major_axis = profile.parent_distance_km * 1000.0
+    else:
+        semi_major_axis = profile.distance_au * AU_M
+
+    if profile.pole is not None:
+
+        pole_ra, pole_dec, prime_meridian = profile.pole
+
+    else:
+
+        # Tilt about the vernal equinox direction, as a pole
+        # in Earth-equatorial coordinates.
+        tilt = math.radians(profile.axial_tilt_deg)
+
+        ecliptic = (0.0, -math.sin(tilt), math.cos(tilt))
+
+        c, s = math.cos(math.radians(23.4392911)), math.sin(math.radians(23.4392911))
+
+        x, y, z = ecliptic[0], ecliptic[1] * c - ecliptic[2] * s, ecliptic[1] * s + ecliptic[2] * c
+
+        pole_ra = math.degrees(math.atan2(y, x)) % 360.0
+        pole_dec = math.degrees(math.asin(max(-1.0, min(1.0, z))))
+        prime_meridian = 0.0
+
+    return OrbitComponent(
+        parent=profile.orbits if moon else "",
+        semi_major_axis=semi_major_axis,
+        eccentricity=profile.eccentricity,
+        inclination=profile.inclination_deg,
+        ascending_node=profile.ascending_node_deg,
+        periapsis=profile.periapsis_arg_deg,
+        mean_anomaly=profile.mean_anomaly_deg,
+        period=profile.period_days * 86_400.0,
+        plane=profile.orbit_plane,
+        node_rate=profile.node_rate_deg_per_year,
+        theory=profile.orbit_theory,
+        periapsis_rate=profile.periapsis_rate_deg_per_year,
+        pole_ra=pole_ra,
+        pole_dec=pole_dec,
+        prime_meridian=prime_meridian,
+        rotation_period=profile.rotation_hours * 3_600.0,
+        tidally_locked=profile.tidally_locked
     )
 
 
@@ -966,7 +1187,9 @@ def crater_settings(
     pressure = air.surface_pressure_bar if air is not None else 0.0
 
     return {
-        "crater_density": 1.0,
+        # Comets shed their surface each pass by the Sun:
+        # few craters survive.
+        "crater_density": 0.15 if profile.kind == "comet" else 1.0,
         "surface_age": 4_000.0,
         "crater_transition": 15_000.0 * 1.62 / max(profile.surface_gravity, 0.05),
         "crater_min_diameter": 100.0 * pressure ** 0.75,
@@ -1077,7 +1300,6 @@ def giant_settings(
         return {}
 
     settings = {
-        "oblateness": profile.oblateness,
         "ovals": profile.ovals,
         "polar_hexagon": profile.polar_hexagon,
     }
@@ -1095,6 +1317,48 @@ def giant_settings(
         )
 
     return settings
+
+
+def shape_fields(
+    profile: BodyProfile
+) -> dict:
+    """
+    PlanetComponent shape fields: every body is flattened by
+    its spin (Jupiter 6.5%, Earth 0.3%); small ones have
+    irregular shapes of their own.
+    """
+
+    settings = {"oblateness": profile.oblateness}
+
+    if profile.shape is None:
+        return settings
+
+    axes, center, lobe_center, lobe_axes, lumpiness, basins = profile.shape
+
+    settings.update(
+        shape_axes=axes,
+        shape_center=center,
+        lobe_center=lobe_center,
+        lobe_axes=lobe_axes,
+        lumpiness=lumpiness,
+        basins=flat_basins(basins),
+    )
+
+    return settings
+
+
+# Finest vertex spacing worth building: ~10 m on a planet,
+# down to half a meter on a comet (the deepest level the
+# quadtree goes, at most 15).
+def detail_depth(
+    radius: float
+) -> int:
+
+    target = max(0.5, 1.5e-6 * radius)
+
+    edge = math.pi * 0.5 * radius / 32.0
+
+    return int(min(15, max(6, math.ceil(math.log2(max(edge / target, 1.0))))))
 
 
 def relief_scale(

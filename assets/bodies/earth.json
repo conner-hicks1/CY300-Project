@@ -7,7 +7,7 @@
   "physical": {
     "radius_km": 6371.0,
     "mass_kg": 5.972e+24,
-    "rotation_hours": 23.934,
+    "rotation_hours": 23.9344712,
     "solar_day_hours": 24.0,
     "axial_tilt_deg": 23.44,
     "oblateness": 0.00335,
@@ -16,7 +16,16 @@
   "orbit": {
     "distance_au": 1.0,
     "eccentricity": 0.0167,
-    "period_days": 365.256
+    "period_days": 365.256,
+    "inclination_deg": 0.0,
+    "ascending_node_deg": 0.0,
+    "periapsis_arg_deg": 102.93768,
+    "mean_anomaly_deg": 357.52689
+  },
+  "rotation": {
+    "pole_ra_deg": 0.0,
+    "pole_dec_deg": 90.0,
+    "prime_meridian_deg": 190.147
   },
   "star": {
     "luminosity_solar": 1.0,

@@ -9,6 +9,7 @@ OpenGL.ERROR_CHECKING = False
 
 import math
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -40,7 +41,10 @@ from ecs.components import (
     BodyComponent,
     CameraComponent,
     ClimateComponent,
+    ClockComponent,
+    OrbitComponent,
     PlanetComponent,
+    StarComponent,
     RingsComponent,
     TectonicsComponent,
     CameraControllerComponent,
@@ -71,8 +75,10 @@ from planet.bodies import (
     load_presets,
     preset_groups,
     star_color,
-    sun_intensity
+    sun_intensity,
+    system_members
 )
+from planet.orbits import DAY, seconds_since_j2000
 from planet.spawn import find_spawn
 from planet.tectonics import TectonicField, simulation_for
 from planet.terrain import Terrain
@@ -82,9 +88,10 @@ from resources.resources import Resources
 from systems.camera_controller_system import (
     CameraControllerSystem
 )
-from systems.planet_system import PlanetSystem, terrain_settings_for
+from systems.planet_system import PlanetSystem, planet_extent, terrain_settings_for
 from systems.tectonics_system import TectonicsSystem, tectonic_settings_for
 from systems.climate_system import ClimateSystem, climate_settings_for, compute_climate
+from systems.orbit_system import OrbitSystem, body_states
 from systems.render_system import RenderSystem
 from systems.rotator_system import RotatorSystem
 from systems.transform_system import TransformSystem
@@ -184,6 +191,7 @@ class Application:
         self.tectonics_panel: TectonicsPanel | None = None
         self.climate_system: ClimateSystem | None = None
         self.climate_panel: ClimatePanel | None = None
+        self.orbit_system: OrbitSystem | None = None
 
         # -------------------------------------------------
         # UI
@@ -309,6 +317,7 @@ class Application:
 
         self.transform_system = TransformSystem()
         self.rotator_system = RotatorSystem()
+        self.orbit_system = OrbitSystem()
         self.camera_controller_system = CameraControllerSystem()
 
         self.jobs = JobSystem()
@@ -342,8 +351,10 @@ class Application:
             tectonic_field=self.tectonics_system.field
         )
 
-        # Clouds form where the climate rains.
+        # Clouds form where the climate rains; the sun's size
+        # follows each body's distance from it.
         self.render_system.climate_provider = self.climate_system.field
+        self.render_system.star_provider = self.orbit_system.star_distance
 
         self.planet_system = PlanetSystem(
             self.resources,
@@ -713,6 +724,7 @@ class Application:
             ClimateComponent,
             TectonicsComponent,
             RingsComponent,
+            OrbitComponent,
         ):
 
             if scene.has_component(entity, component_type):
@@ -727,6 +739,17 @@ class Application:
 
         if name is not None:
             name.name = profile.name
+
+        # Its old moons (or planet) leave; the new body's
+        # system arrives.
+        for other, _ in list(scene.registry.view_with(OrbitComponent)):
+
+            if other != entity:
+                scene.destroy_entity(other)
+
+        self._add_system_members(profile_id)
+
+        self.orbit_system.anchor_to(scene, entity)
 
         camera = next(
             (
@@ -744,7 +767,7 @@ class Application:
                 dtype=np.float64
             )[:3, 3]
 
-            self.editor.frame_planet(camera, center, parts.planet.radius)
+            self.editor.frame_planet(camera, center, planet_extent(parts.planet))
 
         self.editor.record(f"Become {profile.name}")
 
@@ -886,6 +909,73 @@ class Application:
     # The built-in demo and File > New Demo Scene.
     DEMO_BODY = "earth"
 
+    # Bodies smaller than this (km) start with the camera in
+    # space, the whole body in view.
+    SMALL_BODY_KM = 400.0
+
+    # The date new planets start on (then moved on to the
+    # morning where the camera is).
+    START_DATE = datetime(2026, 4, 20, 12, 0, tzinfo=timezone.utc)
+
+    def _add_system_members(
+        self,
+        body_id: str
+    ):
+        """
+        Add the other bodies of a body's planetary system
+        (OrbitSystem places them; their simulations run in
+        the background).
+        """
+
+        for member_id in system_members(self.body_presets, body_id):
+
+            member = self.body_presets[member_id]
+
+            self._create_entity(
+                member.name,
+                Transform(),
+                *components_for(member).all()
+            )
+
+    def _time_of_day(
+        self,
+        entity: Entity,
+        direction: np.ndarray,
+        start: float,
+        hour: float
+    ) -> float:
+        """
+        The first time from `start` at which it is `hour`
+        (local solar time) at a direction on a body.
+        """
+
+        scene = self.scene
+
+        bodies = list(scene.registry.view_with(TransformComponent, OrbitComponent))
+
+        body = scene.try_get_component(entity, BodyComponent)
+
+        solar_day = abs(body.solar_day_hours) * 3_600.0 if body is not None and body.solar_day_hours else DAY
+
+        moment = start
+
+        # The sun moves on in the sky while the body turns:
+        # the first step goes forward to that hour, then
+        # small corrections.
+        for step in range(4):
+
+            position, frame = body_states(scene, bodies, moment)[entity]
+
+            sun = frame.T @ (-position / np.linalg.norm(position))
+
+            now, _, _ = solar.solar_time(direction, sun)
+
+            error = (hour - now) % 24.0 if step == 0 else (hour - now + 12.0) % 24.0 - 12.0
+
+            moment += error / 24.0 * solar_day
+
+        return moment
+
     def _populate_demo_scene(
         self,
         scene: Scene
@@ -963,7 +1053,11 @@ class Application:
 
         up = np.array([0.0, 1.0, 0.0])
 
-        if profile.has_solid_surface:
+        # Giants have no ground to stand on, and small bodies
+        # are best seen whole: the camera starts in space.
+        from_space = not profile.has_solid_surface or profile.radius_km < self.SMALL_BODY_KM
+
+        if not from_space:
 
             spawn = find_spawn(terrain)
 
@@ -975,6 +1069,17 @@ class Application:
                 if terrain_settings.has_liquid
                 else spawn.elevation
             )
+
+            # Relief stands on the body's shape.
+            ground_height += float(terrain.base_height(spawn_direction[None, :])[0])
+
+        elif profile.has_solid_surface:
+
+            # Over the equator, side-on to an irregular body's
+            # long axis (z).
+            spawn_direction = np.array([np.cos(np.radians(20.0)), np.sin(np.radians(20.0)), 0.0])
+            view_direction = np.array([0.0, 0.0, 1.0])
+            ground_height = 0.0
 
         else:
 
@@ -1010,7 +1115,7 @@ class Application:
 
         fov = 60.0
 
-        if profile.has_solid_surface:
+        if not from_space:
 
             camera_position = (0.0, 500.0, 0.0)
 
@@ -1022,13 +1127,17 @@ class Application:
         else:
 
             # Back far enough for the whole planet to fit.
-            distance = planet.radius / math.sin(math.radians(fov) * 0.5) * 1.25
+            distance = planet_extent(planet) / math.sin(math.radians(fov) * 0.5) * 1.25
 
             camera_position = (0.0, distance - ground, 0.0)
 
+            # Giants: north up the screen; small bodies: their
+            # spin axis up, so a long body lies across it.
             camera_orientation = quaternion.look_rotation(
                 np.array([0.0, -1.0, 0.0]),
                 np.array([0.0, 0.0, -1.0])
+                if not profile.has_solid_surface
+                else quaternion.rotate_vector(orientation, np.array([0.0, 1.0, 0.0]))
             )
 
         self._create_entity(
@@ -1055,32 +1164,27 @@ class Application:
         )
 
         # -------------------------------------------------
-        # Sun: mid-morning in the spawn point's spring
+        # Sun and clock (OrbitSystem moves everything)
         # -------------------------------------------------
 
-        tilt = min(profile.axial_tilt_deg, 180.0 - profile.axial_tilt_deg)
-
-        sun_world = quaternion.rotate_vector(
-            orientation,
-            solar.sun_direction(
-                spawn_direction,
-                hour=10.5,
-                declination=math.radians(min(15.0, tilt))
-            )
-        )
+        clock = ClockComponent(time=seconds_since_j2000(self.START_DATE))
 
         self._create_entity(
             "Sun",
-            Transform(
-                orientation=sun_orientation(sun_world)
-            ),
+            Transform(),
             # The star's color from its temperature; intensity
             # compressed from the real range (see
             # planet/bodies.py sun_intensity).
             DirectionalLightComponent(
                 color=star_color(profile.star_temperature_k),
                 intensity=sun_intensity(profile.sunlight)
-            )
+            ),
+            StarComponent(
+                luminosity=profile.star_luminosity,
+                temperature=profile.star_temperature_k,
+                radius=profile.star_radius * 6.957e8
+            ),
+            clock
         )
 
         # -------------------------------------------------
@@ -1095,6 +1199,16 @@ class Application:
             ),
             *parts.all()
         )
+
+        # Its moons, or its planet and sibling moons, in the
+        # sky; their geology and climate stream in later.
+        self._add_system_members(body_id)
+
+        # Mid-morning where the camera stands; the system
+        # placed around this body.
+        clock.time = self._time_of_day(planet_entity, spawn_direction, clock.time, 10.5)
+
+        self.orbit_system.anchor_to(scene, planet_entity)
 
         if parts.tectonics is not None:
             self.tectonics_system.prime(planet_entity, planet, parts.tectonics, initial)
@@ -1364,6 +1478,18 @@ class Application:
         # -------------------------------------------------
         # Camera
         # -------------------------------------------------
+
+        # -------------------------------------------------
+        # Orbits: the clock, the bodies and the sun
+        # -------------------------------------------------
+
+        with profiler.scope("Orbits"):
+
+            self.orbit_system.update(
+                self.scene,
+                dt,
+                self.render_system.camera_position(self.scene)
+            )
 
         with profiler.scope("Camera"):
 

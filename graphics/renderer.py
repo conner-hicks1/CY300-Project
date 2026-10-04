@@ -42,12 +42,14 @@ from graphics.texture import Texture2D
 from graphics.uniform_blocks import (
     CAMERA_BLOCK,
     ATMOSPHERE_BLOCK,
+    BODIES_BLOCK,
     LIGHTS_BLOCK,
     LightingFrame,
     pack_camera_block,
     pack_lights_block
 )
 from graphics.vertex_array import VertexArray
+from graphics.bodies_block import pack_bodies_block
 
 from math3d.camera import Camera
 
@@ -127,6 +129,12 @@ class Renderer:
         "uColorSteep": (0.16, 0.14, 0.12),
         "uColorIce": (0.8, 0.82, 0.86),
         "uFrostPoint": -2.0,
+
+        # Planet terrain: the body the surface belongs to
+        # (center relative to the camera in km, w 0 = none;
+        # its frame). See lit.frag.glsl.
+        "uBodyCenter": (0.0, 0.0, 0.0, 0.0),
+        "uBodyFrame": (0.0, 0.0, 0.0, 1.0),
     }
 
     # =====================================================
@@ -156,6 +164,16 @@ class Renderer:
 
         self._atmosphere_buffer.set_data(
             bytes(ATMOSPHERE_BLOCK.size)
+        )
+
+        # No bodies, no rings until a scene sets them.
+        self._bodies_buffer = UniformBuffer(
+            BODIES_BLOCK.size,
+            BODIES_BLOCK.binding
+        )
+
+        self._bodies_buffer.set_data(
+            pack_bodies_block((), (0.0, 0.0, 0.0), 0.0)
         )
 
         # Core profile requires a bound VAO even for a
@@ -381,6 +399,17 @@ class Renderer:
         """
 
         self._atmosphere_buffer.set_data(data)
+
+    def set_bodies(
+        self,
+        data: bytes
+    ):
+        """
+        Upload the BodiesBlock (graphics/bodies_block.py
+        pack_bodies_block): eclipses and the ring system.
+        """
+
+        self._bodies_buffer.set_data(data)
 
     # =====================================================
     # Batched Draws
@@ -837,6 +866,7 @@ class Renderer:
         self._camera_buffer.delete()
         self._lights_buffer.delete()
         self._atmosphere_buffer.delete()
+        self._bodies_buffer.delete()
         self._empty_vertex_array.delete()
 
         glDeleteBuffers(

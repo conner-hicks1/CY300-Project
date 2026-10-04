@@ -1,0 +1,74 @@
+{
+  "format": 1,
+  "name": "Haumea",
+  "kind": "dwarf",
+  "seed": 231,
+  "orbits": "Sun",
+  "description": "A dwarf planet of crystalline ice spinning so fast (3.9 hours) that it is stretched into an egg twice as long as it is thick, circled by a thin ring.",
+  "physical": {
+    "radius_km": 780.0,
+    "mass_kg": 4.006e+21,
+    "rotation_hours": 3.9155,
+    "solar_day_hours": 3.9155,
+    "axial_tilt_deg": 0.0,
+    "oblateness": 0.0,
+    "bond_albedo": 0.51
+  },
+  "orbit": {
+    "distance_au": 43.116,
+    "eccentricity": 0.19642,
+    "period_days": 103468.0,
+    "inclination_deg": 28.2137,
+    "ascending_node_deg": 122.167,
+    "periapsis_arg_deg": 239.041,
+    "mean_anomaly_deg": 190.8
+  },
+  "rotation": {
+    "pole_ra_deg": 282.6,
+    "pole_dec_deg": -13.0,
+    "prime_meridian_deg": 0.0
+  },
+  "star": {
+    "luminosity_solar": 1.0,
+    "temperature_k": 5772,
+    "radius_solar": 1.0
+  },
+  "surface": {
+    "mean_temperature_c": -241.0,
+    "liquid": "none",
+    "ice": "none",
+    "palette": "mineral",
+    "colors": {
+      "low": [0.66, 0.66, 0.68],
+      "high": [0.8, 0.8, 0.83],
+      "steep": [0.58, 0.58, 0.6],
+      "ice": [0.9, 0.9, 0.92]
+    }
+  },
+  "terrain": {
+    "continent_frequency": 1.4,
+    "continent_height": 1200.0,
+    "land_bias": 0.0,
+    "mountain_frequency": 60.0,
+    "mountain_height": 800.0,
+    "detail_height": 120.0
+  },
+  "atmosphere": null,
+  "geology": {
+    "regime": "none",
+    "plate_count": 0
+  },
+  "climate": {
+    "humidity": 0.0
+  },
+  "shape": {
+    "axes_km": [840.0, 537.0, 1050.0],
+    "lumpiness": 0.0
+  },
+  "rings": {
+    "inner_km": 2252.0,
+    "outer_km": 2322.0,
+    "bands": [[2252.0, 2322.0, 0.5]],
+    "color": [0.55, 0.55, 0.57]
+  }
+}

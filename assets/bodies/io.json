@@ -18,7 +18,14 @@
     "distance_au": 5.204,
     "eccentricity": 0.0041,
     "period_days": 1.769,
-    "parent_distance_km": 421700.0
+    "parent_distance_km": 421700.0,
+    "inclination_deg": 0.05,
+    "ascending_node_deg": 0.0,
+    "periapsis_arg_deg": 0.0,
+    "mean_anomaly_deg": 106.08
+  },
+  "rotation": {
+    "tidally_locked": true
   },
   "star": {
     "luminosity_solar": 1.0,

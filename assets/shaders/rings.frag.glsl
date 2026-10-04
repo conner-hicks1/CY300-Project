@@ -1,7 +1,7 @@
 #version 450 core
 
 #include "include/blocks.glsl"
-#include "include/atmosphere.glsl"
+#include "include/bodies.glsl"
 #include "include/rings.glsl"
 
 
@@ -89,9 +89,9 @@ float ringlets(
 
 void main()
 {
-    float radius = length(vDisc) * uRings.y;
+    float radius = length(vDisc) * uRingParams.y;
 
-    if (radius < uRings.x || radius > uRings.y)
+    if (radius < uRingParams.x || radius > uRingParams.y)
     {
         discard;
     }
@@ -146,11 +146,20 @@ void main()
 
     vec3 sun = uLightCounts.z != 0 ? uDirectionalColor.rgb * uDirectionalColor.a : vec3(0.0);
 
-    // The planet's shadow (in atmosphere space it is a
-    // sphere of the ground radius), with a soft penumbra.
-    vec3 position = toAtmosphereSpace(vWorldPosition * 0.001 - uPlanetCenter.xyz);
+    // The planet's shadow, with a soft penumbra (in its
+    // frame with y stretched by 1 / (1 - flattening) it is
+    // a sphere of the equatorial radius). Other bodies'
+    // shadows: eclipses.
+    float squash = 1.0 - uRingShape.x;
 
-    vec3 towardSun = uAtmosphereSunDirection.xyz;
+    vec3 position = rotateByQuaternion(uRingFrame, vWorldPosition * 0.001 - uRingCenter.xyz);
+
+    position.y /= squash;
+
+    vec3 towardSun = rotateByQuaternion(uRingFrame, l);
+
+    towardSun.y /= squash;
+    towardSun = normalize(towardSun);
 
     float along = dot(position, towardSun);
 
@@ -160,10 +169,12 @@ void main()
     {
         float miss = length(position - along * towardSun);
 
-        shadow = smoothstep(groundRadius() * 0.99, groundRadius() * 1.01, miss);
+        shadow = smoothstep(uRingCenter.w * 0.99, uRingCenter.w * 1.01, miss);
     }
 
-    vec3 radiance = uRingColor * reflectance * phase * sun * shadow / ATMOSPHERE_PI;
+    vec3 others = eclipse(vWorldPosition * 0.001, l, uRingCenter.xyz);
+
+    vec3 radiance = uRingColor * reflectance * phase * sun * shadow * others / BODIES_PI;
 
     float alpha = 1.0 - exp(-tau / muV);
 

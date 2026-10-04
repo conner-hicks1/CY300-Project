@@ -8,6 +8,9 @@ from ecs.components import (
     CameraComponent,
     CameraControllerComponent,
     ClimateComponent,
+    ClockComponent,
+    OrbitComponent,
+    StarComponent,
     DirectionalLightComponent,
     HierarchyComponent,
     MeshRendererComponent,
@@ -561,6 +564,23 @@ def _edit_planet(
     inspector.slider(component, "mountain_height", "Mountain height", 0.0, 20_000.0, "%.0f")
     inspector.slider(component, "detail_height", "Detail height", 0.0, 2_000.0, "%.0f")
 
+    imgui.separator_text("Shape")
+
+    inspector.slider(component, "oblateness", "Flattening", 0.0, 0.5, "%.4f")
+    imgui.set_item_tooltip("(Equatorial - polar) / equatorial radius, from the spin. Jupiter 0.065, Earth 0.0034.")
+    inspector.vec3(component, "shape_axes", "Axes / radius", 0.005)
+    imgui.set_item_tooltip("Semi-axes of an irregular body (x, y = spin axis, z = longitude 0).")
+    inspector.slider(component, "lumpiness", "Lumpiness", 0.0, 0.3, "%.3f")
+    imgui.set_item_tooltip("Large-scale lumps, as a fraction of the radius (small bodies).")
+
+    if min(component.lobe_axes) > 0.0:
+        imgui.text_disabled("Two lobes (a contact binary).")
+
+    basins = sum(1 for i in range(2, len(component.basins), 5) if component.basins[i] > 0.0)
+
+    if basins:
+        imgui.text_disabled(f"{basins} giant basin(s) from the body profile.")
+
     imgui.separator_text("Craters")
 
     inspector.slider(component, "crater_density", "Impact rate", 0.0, 4.0, "%.2f x Moon")
@@ -814,6 +834,78 @@ def body_facts(
     return facts
 
 
+def _edit_orbit(
+    inspector: _Inspector,
+    component: OrbitComponent
+):
+
+    imgui.text(f"Orbits {component.parent or 'the star'}")
+
+    inspector.slider(component, "semi_major_axis", "Distance (m)", 1.0e6, 1.0e13, "%.4g", logarithmic=True)
+    imgui.set_item_tooltip("Semi-major axis: the orbit's mean distance.")
+    inspector.slider(component, "eccentricity", "Eccentricity", 0.0, 0.95, "%.4f")
+    inspector.slider(component, "inclination", "Inclination", 0.0, 180.0, "%.3f deg")
+    inspector.slider(component, "ascending_node", "Ascending node", 0.0, 360.0, "%.2f deg")
+    inspector.slider(component, "periapsis", "Periapsis", 0.0, 360.0, "%.2f deg")
+    inspector.slider(component, "mean_anomaly", "Mean anomaly (J2000)", 0.0, 360.0, "%.2f deg")
+    inspector.slider(component, "period", "Period (s)", 1.0e3, 1.0e10, "%.5g", logarithmic=True)
+
+    imgui.separator_text("Spin")
+
+    inspector.checkbox(component, "tidally_locked", "Locked by tides")
+
+    if component.tidally_locked:
+
+        imgui.text_disabled("The same face always toward its planet.")
+
+    else:
+
+        inspector.slider(component, "pole_ra", "Pole RA", 0.0, 360.0, "%.3f deg")
+        inspector.slider(component, "pole_dec", "Pole Dec", -90.0, 90.0, "%.3f deg")
+        inspector.slider(component, "prime_meridian", "Meridian (J2000)", 0.0, 360.0, "%.2f deg")
+
+        changed, hours = imgui.input_float("Rotation (h)", component.rotation_period / 3_600.0, 0.0, 0.0, "%.5f")
+
+        if changed and hours != 0.0:
+            component.rotation_period = hours * 3_600.0
+
+        inspector.discrete(changed, "Rotation")
+
+        imgui.set_item_tooltip("Sidereal; negative = retrograde.")
+
+    imgui.text_disabled(
+        "Placed by the orbit system from the\n"
+        "clock (Sun entity); edits to its\n"
+        "Transform are overwritten."
+    )
+
+
+def _edit_star(
+    inspector: _Inspector,
+    component: StarComponent
+):
+
+    inspector.slider(component, "luminosity", "Luminosity (Suns)", 1.0e-4, 1.0e4, "%.4g", logarithmic=True)
+    inspector.slider(component, "temperature", "Temperature (K)", 2_000.0, 40_000.0, "%.0f", logarithmic=True)
+    inspector.slider(component, "radius", "Radius (m)", 1.0e7, 1.0e11, "%.4g", logarithmic=True)
+
+    imgui.text_disabled("Sets this light's color, brightness and\nthe sun's size in the sky.")
+
+
+def _edit_clock(
+    inspector: _Inspector,
+    component: ClockComponent
+):
+
+    from planet.orbits import date_of
+
+    imgui.text(date_of(component.time).strftime("%Y-%m-%d %H:%M:%S UTC"))
+
+    inspector.slider(component, "rate", "Rate (x real time)", -1.0e7, 1.0e7, "%.4g", logarithmic=True)
+
+    imgui.text_disabled("Planet panel > Sun & time: friendlier controls.")
+
+
 def _edit_directional_light(
     inspector: _Inspector,
     component: DirectionalLightComponent
@@ -886,4 +978,7 @@ _COMPONENT_EDITORS = {
     PointLightComponent: _edit_point_light,
     SpotLightComponent: _edit_spot_light,
     RotatorComponent: _edit_rotator,
+    OrbitComponent: _edit_orbit,
+    StarComponent: _edit_star,
+    ClockComponent: _edit_clock,
 }

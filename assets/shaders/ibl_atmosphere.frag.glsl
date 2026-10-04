@@ -1,6 +1,11 @@
 #version 450 core
 
 #include "include/cubemap.glsl"
+#include "include/bodies.glsl"
+#include "include/rings.glsl"
+
+#define ATMOSPHERE_ECLIPSES
+
 #include "include/atmosphere.glsl"
 #include "include/clouds.glsl"
 

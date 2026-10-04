@@ -56,14 +56,30 @@ def test_giant_terrain_is_the_ellipsoid_within_bounds():
 
     terrain = Terrain(settings)
 
-    assert settings.min_elevation == pytest.approx(-0.065 * JUPITER_RADIUS)
+    # No relief: the cloud tops are the shape itself.
+    assert settings.min_elevation == 0.0
+
+    low, high = terrain.base_bounds
+
+    assert low <= -0.065 * JUPITER_RADIUS < high
+    assert abs(high) < 0.002 * JUPITER_RADIUS
+
+    a, b = JUPITER_RADIUS, JUPITER_RADIUS * (1.0 - 0.065)
 
     for key in (ChunkKey(2, 0, 0, 0), ChunkKey(2, 3, 4, 7)):
 
         data = build_chunk(key, terrain, 9)
 
-        assert settings.min_elevation - 1.0 <= data.min_elevation
-        assert data.max_elevation <= terrain.max_elevation + 1.0
+        assert data.min_elevation == data.max_elevation == 0.0
+
+        # Every vertex (skirts aside) on the ellipsoid.
+        points = (data.mesh.positions[:81] + data.center).astype(np.float64)
+
+        np.testing.assert_allclose(
+            (points[:, 0] / a) ** 2 + (points[:, 1] / b) ** 2 + (points[:, 2] / a) ** 2,
+            1.0,
+            atol=1e-5
+        )
 
 
 def test_atmosphere_space_makes_the_ellipsoid_a_sphere():
@@ -90,7 +106,7 @@ def test_sun_is_packed_in_atmosphere_space():
     v = np.frombuffer(
         pack_atmosphere_block(earth, sun_direction=sun, sun_illuminance=(1.0, 1.0, 1.0), flattening=0.2, no_surface=True),
         dtype=np.float32
-    ).reshape(14, 4)
+    ).reshape(13, 4)
 
     expected = np.array([0.6, 0.8 / 0.8, 0.0])
     expected /= np.linalg.norm(expected)
@@ -126,11 +142,22 @@ def test_giants_get_shape_and_weather(presets):
     # Neptune's Great Dark Spot is dark.
     assert max(neptune.storm_color) < 0.5
 
-    # Solid worlds are not flattened (their oceans would
-    # flood the poles).
-    assert earth.oblateness == 0.0
-    assert terrain_settings_for(earth).oblateness == 0.0
+    # Every body is flattened by its spin; seas follow the
+    # shape (relief is measured from it), so the poles stay
+    # dry land or ice, not flooded.
+    assert earth.oblateness == pytest.approx(0.00335)
+    assert terrain_settings_for(earth).oblateness == pytest.approx(0.00335)
     assert terrain_settings_for(jupiter).oblateness == pytest.approx(0.06487)
+
+    terrain = Terrain(terrain_settings_for(earth))
+
+    pole = np.array([[0.0, 1.0, 0.0], [1.0, 0.0, 0.0]])
+
+    np.testing.assert_allclose(
+        terrain.base_height(pole),
+        (-0.00335 * earth.radius, 0.0),
+        atol=1.0
+    )
 
 
 # =========================================================

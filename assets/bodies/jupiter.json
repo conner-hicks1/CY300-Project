@@ -8,7 +8,7 @@
   "physical": {
     "radius_km": 69911.0,
     "mass_kg": 1.898e+27,
-    "rotation_hours": 9.925,
+    "rotation_hours": 9.9249198,
     "solar_day_hours": 9.926,
     "axial_tilt_deg": 3.13,
     "oblateness": 0.06487,
@@ -17,7 +17,16 @@
   "orbit": {
     "distance_au": 5.204,
     "eccentricity": 0.0489,
-    "period_days": 4332.59
+    "period_days": 4332.59,
+    "inclination_deg": 1.3044,
+    "ascending_node_deg": 100.47391,
+    "periapsis_arg_deg": 274.25457,
+    "mean_anomaly_deg": 19.66796
+  },
+  "rotation": {
+    "pole_ra_deg": 268.056595,
+    "pole_dec_deg": 64.495303,
+    "prime_meridian_deg": 284.95
   },
   "star": {
     "luminosity_solar": 1.0,
@@ -69,7 +78,13 @@
   "bands": {
     "count": 14,
     "colors": [[0.48, 0.33, 0.2], [0.82, 0.76, 0.64]],
-    "storm": {"latitude_deg": -22.0, "longitude_deg": 20.0, "size_km": 8000.0, "color": [0.62, 0.26, 0.13], "strength": 1.0},
+    "storm": {
+      "latitude_deg": -22.0,
+      "longitude_deg": 20.0,
+      "size_km": 8000.0,
+      "color": [0.62, 0.26, 0.13],
+      "strength": 1.0
+    },
     "ovals": 0.6
   }
 }

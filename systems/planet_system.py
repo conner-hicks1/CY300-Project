@@ -20,14 +20,16 @@ from ecs.entity import Entity
 from graphics.draw_list import DrawItem
 from graphics.mesh import Mesh
 
+from math3d import quaternion
 from math3d.matrices import translation
 
 from planet.chunk import ChunkData, build_chunk
 from planet.cube_sphere import ChunkKey, edge_length
 from planet.lod import LodSelector
 from planet.phases import SUBSTANCES
+from planet.shape import shape_settings
 from planet.spawn import SpawnPoint, find_spawn
-from planet.terrain import Terrain, TerrainSettings
+from planet.terrain import Terrain, TerrainSettings, body_shape
 
 from resources.resources import Resources
 from scene.scene import Scene
@@ -110,18 +112,22 @@ class _Planet:
         self.previous: "_Planet | None" = None
         self.resolution = component.resolution
 
+        base_low, base_high = self.terrain.base_bounds
+
         self.selector = LodSelector(
             radius=settings.radius,
-            max_elevation=self.terrain.max_elevation,
+            max_elevation=self.terrain.max_elevation + base_high,
             max_depth=component.max_depth,
             split_factor=component.split_factor,
-            min_elevation=self.terrain.min_elevation
+            min_elevation=self.terrain.min_elevation + base_low,
+            shape=self.terrain.base_height if self.terrain.shape is not None else None
         )
 
         self.chunks: dict[ChunkKey, _Chunk] = {}
 
         self.draw: list[ChunkKey] = []
         self.wanted: list[ChunkKey] = []
+        self.wanted_sizes: list[float] = []
 
         # Bumped whenever `draw` is replaced.
         self.draw_version = 0
@@ -146,20 +152,22 @@ class _Planet:
         self.last_camera: np.ndarray | None = None
         self.dirty = True
 
-        self.ground_cache: tuple[np.ndarray, float] | None = None
+        self.ground_cache: tuple[np.ndarray, float, float] | None = None
 
         self.spawn: SpawnPoint | None = None
 
         self.alive = True
 
-    def ground_elevation(
+    def ground(
         self,
         direction: np.ndarray
-    ) -> float:
+    ) -> tuple[float, float]:
         """
-        Terrain elevation under a unit direction. Cached:
-        re-evaluated (about a millisecond) only after
-        moving a quarter of the finest vertex spacing.
+        (base height of the body's shape, visible surface
+        above it: the liquid's over seas) under a unit
+        direction, in m. Cached: re-evaluated (about a
+        millisecond) only after moving a quarter of the
+        finest vertex spacing.
         """
 
         cached = self.ground_cache
@@ -167,18 +175,25 @@ class _Planet:
         tolerance = 0.25 * self.finest_spacing / self.terrain.settings.radius
 
         if cached is not None and float(np.linalg.norm(direction - cached[0])) < tolerance:
-            return cached[1]
+            return cached[1], cached[2]
+
+        terrain = self.terrain
 
         elevation = float(
-            self.terrain.elevation(
+            terrain.elevation(
                 direction[None, :],
                 spacing=self.finest_spacing
             )[0]
         )
 
-        self.ground_cache = (direction.copy(), elevation)
+        if terrain.settings.has_liquid:
+            elevation = max(elevation, 0.0)
 
-        return elevation
+        base = float(terrain.base_height(direction[None, :])[0])
+
+        self.ground_cache = (direction.copy(), base, elevation)
+
+        return base, elevation
 
     def ready(
         self,
@@ -303,6 +318,8 @@ class PlanetSystem:
 
         queued = 0
 
+        requests = []
+
         for entity, transform, component in scene.registry.view_with(
             TransformComponent,
             PlanetComponent
@@ -342,6 +359,21 @@ class PlanetSystem:
 
             world = _rigid(transform.world_matrix)
 
+            # Which body the terrain belongs to (lit.frag.glsl):
+            # where it is, its frame, and whether it is a
+            # (flattened) sphere.
+            shape = planet.terrain.shape
+
+            material.set_vec4(
+                "uBodyCenter",
+                (
+                    *((world[:3, 3] - camera_position) / 1000.0),
+                    1.0 if shape is None or shape.spheroid else 2.0
+                )
+            )
+
+            material.set_vec4("uBodyFrame", world_to_body(world))
+
             camera_local = (
                 np.linalg.inv(world)
                 @ np.append(camera_position, 1.0)
@@ -350,25 +382,19 @@ class PlanetSystem:
             self._select(planet, camera_local)
 
             # ---------------------------------------------
-            # Build requests
+            # Build requests (all planets share the workers)
             # ---------------------------------------------
 
-            for key in planet.wanted:
+            for key, size in zip(planet.wanted, planet.wanted_sizes):
 
                 chunk = planet.chunks.get(key)
 
                 if chunk is not None and (chunk.mesh is not None or chunk.job is not None):
                     continue
 
-                if building >= self.MAX_BUILDING:
-
-                    queued += 1
-
-                    continue
-
-                self._request(planet, key)
-
-                building += 1
+                # Every body whole first (its coarsest levels),
+                # then detail where it looks largest.
+                requests.append((key.depth > 1, -size, len(requests), planet, key))
 
             # ---------------------------------------------
             # Draw items
@@ -417,6 +443,20 @@ class PlanetSystem:
             items.extend(previous.items if previous is not None else planet.items)
 
             self._evict(planet)
+
+        requests.sort(key=lambda request: request[:3])
+
+        for _, _, _, planet, key in requests:
+
+            if building >= self.MAX_BUILDING:
+
+                queued += 1
+
+                continue
+
+            self._request(planet, key)
+
+            building += 1
 
         # Planets whose entity is gone.
         for entity in [e for e in self._planets if e not in seen]:
@@ -604,12 +644,16 @@ class PlanetSystem:
 
         return planet.spawn
 
-    def ground_elevation(
+    def ground(
         self,
         entity: Entity,
         direction
-    ) -> float | None:
-        """Terrain elevation (m) under a planet-space direction."""
+    ) -> tuple[float, float] | None:
+        """
+        (base height of the shape, visible surface above it),
+        m, under a planet-space direction: sea level is at
+        radius + base, the ground at radius + base + surface.
+        """
 
         planet = self._planets.get(entity)
 
@@ -619,7 +663,22 @@ class PlanetSystem:
         direction = np.asarray(direction, dtype=np.float64)
 
         # Shares the camera-ground cache.
-        return planet.ground_elevation(direction / np.linalg.norm(direction))
+        return planet.ground(direction / np.linalg.norm(direction))
+
+    def extent(
+        self,
+        entity: Entity
+    ) -> float | None:
+        """Farthest point of the planet's surface from its center (m)."""
+
+        planet = self._planets.get(entity)
+
+        if planet is None:
+            return None
+
+        terrain = planet.terrain
+
+        return terrain.settings.radius + terrain.base_bounds[1] + max(terrain.max_elevation, 0.0)
 
     # =====================================================
     # Selection
@@ -660,6 +719,7 @@ class PlanetSystem:
         planet.draw = selection.draw
         planet.draw_version += 1
         planet.wanted = selection.wanted
+        planet.wanted_sizes = selection.wanted_sizes
         planet.in_use = in_use
 
         planet.last_camera = camera_local
@@ -887,9 +947,15 @@ class PlanetSystem:
 
             position = np.append(transform.transform.position, 1.0)
 
+            # The planet whose surface is nearest (between a
+            # planet and its moon, the one the camera is
+            # flying over).
             world, planet = min(
                 planets,
-                key=lambda entry: float(np.linalg.norm(entry[0][:3, 3] - position[:3]))
+                key=lambda entry: (
+                    float(np.linalg.norm(entry[0][:3, 3] - position[:3]))
+                    - entry[1].terrain.settings.radius
+                )
             )
 
             local = (np.linalg.inv(world) @ position)[:3]
@@ -899,18 +965,13 @@ class PlanetSystem:
             if distance <= 0.0:
                 continue
 
-            elevation = planet.ground_elevation(
-                local / distance
-            )
+            # The ground: the liquid's surface over seas, the
+            # basin floor on dry worlds, on the body's shape.
+            base, elevation = planet.ground(local / distance)
 
             controller.planet_center = tuple(float(v) for v in world[:3, 3])
 
-            # The ground: the liquid's surface over seas, the
-            # basin floor on dry worlds.
-            if planet.terrain.settings.has_liquid:
-                elevation = max(elevation, 0.0)
-
-            controller.planet_radius = planet.terrain.settings.radius + elevation
+            controller.planet_radius = planet.terrain.settings.radius + base + elevation
 
             # Giants: no ground, only ever-thicker air below the
             # cloud tops (opaque well within this depth).
@@ -957,7 +1018,16 @@ def terrain_settings_for(
             and not getattr(climate, "liquid_boiled", False)
         ),
         bands=max(0, int(component.bands)) if component.palette == "bands" else 0,
-        oblateness=float(component.oblateness) if component.palette == "bands" else 0.0,
+        oblateness=float(component.oblateness),
+        shape=shape_settings(
+            axes=component.shape_axes,
+            main_center=component.shape_center,
+            lobe_center=component.lobe_center,
+            lobe_axes=component.lobe_axes,
+            lumpiness=component.lumpiness,
+            basins=component.basins,
+            seed=component.seed
+        ),
         crater_density=max(0.0, float(component.crater_density)),
         surface_age=float(component.surface_age),
         crater_erosion=max(0.0, float(component.crater_erosion)),
@@ -974,6 +1044,16 @@ def terrain_settings_for(
         dune_max_latitude=float(component.dune_max_latitude),
         dune_darkening=float(min(max(component.dune_darkening, 0.0), 1.0))
     )
+
+
+def planet_extent(
+    component: PlanetComponent
+) -> float:
+    """Farthest point of a planet's shape from its center (m)."""
+
+    shape = body_shape(terrain_settings_for(component))
+
+    return component.radius if shape is None else shape.extent
 
 
 def _data_version(
@@ -999,6 +1079,16 @@ def _config_of(
         component.max_depth,
         component.split_factor
     )
+
+
+def world_to_body(
+    world: np.ndarray
+) -> tuple[float, float, float, float]:
+    """Quaternion (xyzw) taking world directions into a rigid world matrix's frame."""
+
+    q = quaternion.conjugate(quaternion.from_matrix3(np.asarray(world, dtype=np.float64)[:3, :3]))
+
+    return tuple(float(v) for v in q)
 
 
 def _rigid(
@@ -1029,8 +1119,8 @@ def _below_cloud_tops(
     if distance <= 0.0:
         return True
 
-    tops = planet.terrain.settings.radius + float(
-        planet.terrain.elevation((camera_local / distance)[None, :])[0]
-    )
+    direction = (camera_local / distance)[None, :]
+
+    tops = planet.terrain.settings.radius + float(planet.terrain.base_height(direction)[0])
 
     return distance < tops - 50.0

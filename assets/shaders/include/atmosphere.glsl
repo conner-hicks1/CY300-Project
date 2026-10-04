@@ -33,8 +33,6 @@ layout(std140) uniform AtmosphereBlock
     vec4 uShape;                    // x flattening, y 1 = no solid surface
                                     // (giants), z opaque depth (km), w depth
                                     // where the deep air begins (km)
-    vec4 uRings;                    // x inner, y outer radius (km), z 1 =
-                                    // rings, w optical depth scale
 };
 
 // ---------------------------------------------------------
@@ -381,6 +379,44 @@ vec3 sunTransmittanceAtWorld(
 
 
 // ---------------------------------------------------------
+// Eclipses
+// ---------------------------------------------------------
+//
+// Shaders that define ATMOSPHERE_ECLIPSES (and include
+// include/bodies.glsl and include/rings.glsl first) dim
+// the sunlight in the air under another body's shadow and
+// the rings': the sky darkens in a total solar eclipse,
+// with sunset colors all around the horizon where the air
+// beyond the umbra is still lit; Saturn's haze is dark in
+// its rings' shadow.
+
+#ifdef ATMOSPHERE_ECLIPSES
+
+vec3 eclipseInAtmosphere(
+    vec3 p
+)
+{
+    int count = int(uBodyParams.z + 0.5);
+
+    if (count == 0 && !ringsPresent())
+    {
+        return vec3(1.0);
+    }
+
+    // Atmosphere space -> camera-relative world (km).
+    vec4 toWorld = vec4(-uPlanetFrame.xyz, uPlanetFrame.w);
+
+    vec3 world = uPlanetCenter.xyz + rotateByQuaternion(toWorld, atmosphereToPlanetFrame(p));
+
+    vec3 sun = normalize(rotateByQuaternion(toWorld, atmosphereToPlanetFrame(uAtmosphereSunDirection.xyz)));
+
+    return eclipseFrom(world, sun, uPlanetCenter.xyz, count) * ringShadow(world - uRingCenter.xyz, sun);
+}
+
+#endif
+
+
+// ---------------------------------------------------------
 // Raymarch
 // ---------------------------------------------------------
 //
@@ -455,6 +491,16 @@ void marchSegment(
 
         vec3 sunLight = sunTransmittance(r, sunCosZenith);
         vec3 multiple = multipleScattering(r, sunCosZenith);
+
+#ifdef ATMOSPHERE_ECLIPSES
+        vec3 shade = eclipseInAtmosphere(p);
+
+        sunLight *= shade;
+
+        // Light scattered in from the sunlit air around the
+        // umbra keeps a total eclipse's sky deep blue.
+        multiple *= mix(shade, vec3(1.0), 0.03);
+#endif
 
         vec3 inScattering =
             rayleighScattering * (phaseR * sunLight + multiple)

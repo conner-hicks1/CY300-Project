@@ -5,6 +5,7 @@
 #include "include/shadows.glsl"
 #include "include/atmosphere.glsl"
 #include "include/clouds.glsl"
+#include "include/bodies.glsl"
 #include "include/rings.glsl"
 #include "include/terrain.glsl"
 
@@ -60,6 +61,14 @@ uniform float uTerrainShading;
 // terrainOverlay() in include/terrain.glsl.
 uniform float uTerrainView;
 
+// The body this surface belongs to (PlanetSystem): its
+// center relative to the camera (km), w 0 = none (a prop,
+// on the atmosphere's planet), 1 = a body, 2 = an
+// irregular one (no sphere horizon); and the quaternion
+// taking world directions into its frame.
+uniform vec4 uBodyCenter;
+uniform vec4 uBodyFrame;
+
 
 // =========================================================
 // Image-Based Lighting (baked from the sky)
@@ -105,6 +114,39 @@ vec3 surfaceNormal(
 
 
 // =========================================================
+// Which Body
+// =========================================================
+//
+// The atmosphere block describes one body's air (the one
+// the camera is at). Its sunset light, cloud shadows and
+// sky light belong to surfaces of that body; other bodies
+// (a moon in the sky) are lit by the sun alone, as in
+// space.
+
+bool hasBody()
+{
+    return uBodyCenter.w > 0.5;
+}
+
+bool onAtmosphereBody()
+{
+    if (!atmospherePresent())
+    {
+        return false;
+    }
+
+    if (!hasBody())
+    {
+        return true;
+    }
+
+    // An irregular body is no sphere: the atmosphere's
+    // horizon test would cut its lit side.
+    return uBodyCenter.w < 1.5 && distance(uBodyCenter.xyz, uPlanetCenter.xyz) < 1.0;
+}
+
+
+// =========================================================
 // Main
 // =========================================================
 
@@ -131,15 +173,19 @@ void main()
     // Micro-relief height (m) for bump shading.
     float terrainRelief = 0.0;
 
+    bool atmosphereBody = onAtmosphereBody();
+
     if (uTerrainShading > 0.5)
     {
         // Planet-local position (km) for the detail noise.
-        vec3 local = vWorldPosition * 0.001 - uPlanetCenter.xyz;
+        vec3 local = vWorldPosition * 0.001 - (hasBody() ? uBodyCenter.xyz : uPlanetCenter.xyz);
 
         TerrainDetail detail = terrainDetail(local, length(fwidth(local)));
 
         // The planet's own frame (giants' bands and storms).
-        vec3 planetDirection = normalize(toPlanetFrame(local));
+        vec3 planetDirection = normalize(
+            hasBody() ? rotateByQuaternion(uBodyFrame, local) : toPlanetFrame(local)
+        );
 
         TerrainSurface terrain = terrainSurface(
             vColor.r,
@@ -225,14 +271,21 @@ void main()
         // On a planet with an atmosphere, the light is the
         // sun above the air: what reaches this point is
         // reddened near the horizon and gone at night.
-        if (atmospherePresent())
+        if (atmosphereBody)
         {
             radiance *= sunTransmittanceAtWorld(vWorldPosition);
 
-            // Cloud and ring shadows.
             radiance *= cloudShadow(vWorldPosition * 0.001 - uPlanetCenter.xyz);
-            radiance *= ringShadow(vWorldPosition * 0.001 - uPlanetCenter.xyz, L);
         }
+
+        // The rings' shadow, and other bodies' (eclipses).
+        radiance *= ringShadow(vWorldPosition * 0.001 - uRingCenter.xyz, L);
+
+        radiance *= eclipse(
+            vWorldPosition * 0.001,
+            L,
+            hasBody() ? uBodyCenter.xyz : vec3(1e30)
+        );
 
         // Geometric normal for the shadow lookup: the
         // normal map must not move where occluders are.
@@ -350,7 +403,11 @@ void main()
 
     vec3 specular = prefiltered * (F * brdf.x + brdf.y);
 
-    color += (kD * diffuse + specular) * occlusion * uLightParams.x;
+    // Sky light is the camera's sky: other bodies get none
+    // (the night side of a moon in the sky is dark).
+    float skyLight = (atmosphereBody || !hasBody()) ? 1.0 : 0.0;
+
+    color += (kD * diffuse + specular) * occlusion * uLightParams.x * skyLight;
 
     color += emissive;
 

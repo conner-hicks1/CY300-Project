@@ -56,7 +56,11 @@ class UniformBlockSpec:
 #
 # Injected into every shader by the preprocessor.
 
+# Bodies in the bodies block (eclipses).
+MAX_BODIES = 8
+
 ENGINE_SHADER_DEFINES: dict[str, object] = {
+    "MAX_BODIES": MAX_BODIES,
     "MAX_POINT_LIGHTS": MAX_POINT_LIGHTS,
     "MAX_SPOT_LIGHTS": MAX_SPOT_LIGHTS,
     "MAX_CASCADES": MAX_CASCADES,
@@ -350,7 +354,36 @@ def pack_lights_block(
 ATMOSPHERE_BLOCK = UniformBlockSpec(
     name="AtmosphereBlock",
     binding=2,
-    size=14 * 16
+    size=13 * 16
+)
+
+
+# =========================================================
+# Bodies Block
+# =========================================================
+#
+# Every body in the scene as a sphere (eclipses: one body's
+# shadow on another), and the ring system (graphics/
+# bodies_block.py pack_bodies_block):
+#
+#     vec4 uBodyParams;                 x bodies, y sun angular radius
+#                                       (rad), z bodies (first ones)
+#                                       eclipsing the atmosphere's planet
+#     vec4 uBodySpheres[MAX_BODIES];    xyz center relative to the camera
+#                                       (km), w radius (km)
+#     vec4 uBodyGlow[MAX_BODIES];       rgb sunlight its air bends into
+#                                       its umbra (fraction; 0 = airless)
+#     vec4 uRingCenter;                 xyz ringed planet's center relative
+#                                       to the camera (km), w its radius (km)
+#     vec4 uRingFrame;                  quaternion: world -> its frame
+#     vec4 uRingParams;                 x inner, y outer radius (km), z 1 =
+#                                       rings, w optical depth scale
+#     vec4 uRingShape;                  x the planet's flattening
+
+BODIES_BLOCK = UniformBlockSpec(
+    name="BodiesBlock",
+    binding=3,
+    size=(1 + 2 * MAX_BODIES + 4) * 16
 )
 
 
@@ -358,6 +391,7 @@ UNIFORM_BLOCKS: tuple[UniformBlockSpec, ...] = (
     CAMERA_BLOCK,
     LIGHTS_BLOCK,
     ATMOSPHERE_BLOCK,
+    BODIES_BLOCK,
 )
 
 

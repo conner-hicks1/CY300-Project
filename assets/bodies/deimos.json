@@ -1,0 +1,76 @@
+{
+  "format": 1,
+  "name": "Deimos",
+  "kind": "moon",
+  "seed": 198,
+  "orbits": "Mars",
+  "description": "Mars's small outer moon: smooth and dusty, its craters half buried under a blanket of fine regolith.",
+  "physical": {
+    "radius_km": 6.2,
+    "mass_kg": 1476200000000000.0,
+    "rotation_hours": 30.312,
+    "solar_day_hours": 30.35,
+    "axial_tilt_deg": 0.0,
+    "oblateness": 0.0,
+    "bond_albedo": 0.068
+  },
+  "orbit": {
+    "distance_au": 1.524,
+    "eccentricity": 0.00033,
+    "period_days": 1.263,
+    "parent_distance_km": 23463.2,
+    "inclination_deg": 1.788,
+    "ascending_node_deg": 0.0,
+    "periapsis_arg_deg": 0.0,
+    "mean_anomaly_deg": 296.0
+  },
+  "rotation": {
+    "tidally_locked": true
+  },
+  "star": {
+    "luminosity_solar": 1.0,
+    "temperature_k": 5772,
+    "radius_solar": 1.0
+  },
+  "surface": {
+    "mean_temperature_c": -40.0,
+    "liquid": "none",
+    "ice": "none",
+    "palette": "mineral",
+    "colors": {
+      "low": [0.06, 0.055, 0.05],
+      "high": [0.095, 0.085, 0.075],
+      "steep": [0.075, 0.068, 0.06],
+      "ice": [0.6, 0.6, 0.6]
+    }
+  },
+  "terrain": {
+    "continent_frequency": 1.5,
+    "continent_height": 80.0,
+    "land_bias": 0.0,
+    "mountain_frequency": 30.0,
+    "mountain_height": 0.0,
+    "detail_height": 10.0
+  },
+  "atmosphere": null,
+  "geology": {
+    "regime": "none",
+    "plate_count": 0
+  },
+  "climate": {
+    "humidity": 0.0
+  },
+  "shape": {
+    "axes_km": [6.1, 5.5, 7.5],
+    "lumpiness": 0.05,
+    "basins": [
+      {
+        "name": "South polar depression",
+        "latitude_deg": -78.0,
+        "longitude_deg": 10.0,
+        "diameter_km": 10.0,
+        "depth_km": 0.8
+      }
+    ]
+  }
+}

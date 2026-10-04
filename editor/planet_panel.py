@@ -13,6 +13,8 @@ from ecs.components import (
     BodyComponent,
     CameraComponent,
     ClimateComponent,
+    ClockComponent,
+    OrbitComponent,
     CameraControllerComponent,
     DirectionalLightComponent,
     NameComponent,
@@ -26,6 +28,7 @@ from editor.inspector_panel import body_facts
 from math3d import quaternion
 
 from planet import solar
+from planet.orbits import date_of, seconds_since_j2000
 
 from systems.planet_system import TERRAIN_VIEWS, PlanetSystem
 
@@ -161,7 +164,12 @@ class PlanetPanel:
 
         context = self._context()
 
-        if self.animate_day and context is not None and context.sun is not None:
+        if (
+            self.animate_day
+            and context is not None
+            and context.sun is not None
+            and context.clock() is None
+        ):
             self._advance_day(context, delta_time)
 
         self._track_speed(context, delta_time)
@@ -289,6 +297,9 @@ class PlanetPanel:
         if context.sun is not None and imgui.collapsing_header("Sun & time", imgui.TreeNodeFlags_.default_open.value):
             self._draw_sun_section(context)
 
+        if context.has_system() and imgui.collapsing_header("System", imgui.TreeNodeFlags_.default_open.value):
+            self._draw_system_section(context)
+
         if imgui.collapsing_header("Terrain", imgui.TreeNodeFlags_.default_open.value):
             self._draw_terrain_section(context)
 
@@ -398,7 +409,7 @@ class PlanetPanel:
             self._editor.frame_planet(
                 context.camera,
                 context.planet_center(),
-                context.planet_component.radius
+                self._planets.extent(context.planet) or context.planet_component.radius
             )
 
         imgui.set_item_tooltip("Back off until the planet fits the view (F).")
@@ -445,7 +456,9 @@ class PlanetPanel:
         up = rotation @ spawn.direction
         view = rotation @ spawn.view_direction
 
-        ground = context.planet_component.radius + max(spawn.elevation, 0.0)
+        base, surface = self._planets.ground(context.planet, spawn.direction) or (0.0, max(spawn.elevation, 0.0))
+
+        ground = context.planet_component.radius + base + surface
 
         transform = context.camera_transform()
 
@@ -506,6 +519,14 @@ class PlanetPanel:
         if current is None:
 
             imgui.text_disabled("Needs a camera to define \"local\" time.")
+
+            return
+
+        clock = context.clock()
+
+        if clock is not None:
+
+            self._draw_clock_section(context, clock, current)
 
             return
 
@@ -577,6 +598,180 @@ class PlanetPanel:
                 "%.1f h/s",
                 imgui.SliderFlags_.logarithmic.value
             )
+
+    # Simulated time per real second: (label, seconds).
+    CLOCK_RATES = (
+        ("Stopped", 0.0),
+        ("Real time", 1.0),
+        ("1 minute / s", 60.0),
+        ("10 minutes / s", 600.0),
+        ("1 hour / s", 3_600.0),
+        ("6 hours / s", 21_600.0),
+        ("1 day / s", 86_400.0),
+        ("1 week / s", 604_800.0),
+        ("1 month / s", 2_629_800.0),
+    )
+
+    def _draw_clock_section(
+        self,
+        context: "_PlanetContext",
+        clock: ClockComponent,
+        current
+    ):
+        """
+        The simulation clock: the date, how fast time runs,
+        and local time at the camera (moving the clock, so
+        the whole system follows: moons, seasons, eclipses).
+        """
+
+        hour, declination, elevation = current
+
+        imgui.text(date_of(clock.time).strftime("%Y-%m-%d  %H:%M UTC"))
+
+        names = [name for name, _ in self.CLOCK_RATES]
+
+        rates = [rate for _, rate in self.CLOCK_RATES]
+
+        index = min(range(len(rates)), key=lambda i: abs(rates[i] - clock.rate))
+
+        changed, index = imgui.combo("Time runs", index, names)
+
+        if changed:
+
+            clock.rate = rates[index]
+
+            self._editor.record("Clock rate")
+
+        body = context.scene.try_get_component(context.planet, BodyComponent)
+
+        solar_day = (
+            abs(body.solar_day_hours) * 3_600.0
+            if body is not None and body.solar_day_hours
+            else 86_400.0
+        )
+
+        hours = int(hour)
+        minutes = int((hour - hours) * 60.0)
+
+        changed, new_hour = imgui.slider_float(
+            "Time of day",
+            hour,
+            0.0,
+            24.0,
+            f"{hours:02d}:{minutes:02d}"
+        )
+
+        if changed:
+
+            # The nearest way round to the new hour.
+            difference = (new_hour - hour + 12.0) % 24.0 - 12.0
+
+            clock.time += difference / 24.0 * solar_day
+
+        self._record_on_release("Time of day")
+
+        imgui.set_item_tooltip(
+            "Local solar time where the camera is (12:00 = sun highest).\n"
+            "Moves the clock: the moons and the season follow."
+        )
+
+        width = (imgui.get_content_region_avail().x - 3 * imgui.get_style().item_spacing.x) / 4.0
+
+        for label, days in (("-30 d", -30.0), ("-1 d", -1.0), ("+1 d", 1.0), ("+30 d", 30.0)):
+
+            if imgui.button(label, (width, 0)):
+
+                # Whole local days (the same time of day) where
+                # days are short; Earth days otherwise.
+                clock.time += days * (solar_day if solar_day <= 2.0 * 86_400.0 else 86_400.0)
+
+                self._editor.record("Clock date")
+
+            imgui.same_line()
+
+        imgui.new_line()
+
+        if imgui.button("Now"):
+
+            from datetime import datetime, timezone
+
+            clock.time = seconds_since_j2000(datetime.now(timezone.utc))
+
+            self._editor.record("Clock to now")
+
+        imgui.set_item_tooltip("The real date and time.")
+
+        imgui.same_line()
+
+        imgui.text_disabled(f"Season: sun at {math.degrees(declination):+.1f} deg latitude")
+
+        if elevation > 0.0:
+            imgui.text_disabled(f"Sun {math.degrees(elevation):.1f} deg above the horizon")
+        else:
+            imgui.text_disabled(f"Night: sun {-math.degrees(elevation):.1f} deg below the horizon")
+
+    # -----------------------------------------------------
+    # System
+    # -----------------------------------------------------
+
+    def _draw_system_section(
+        self,
+        context: "_PlanetContext"
+    ):
+        """The bodies of the planetary system, and a way to each."""
+
+        scene = context.scene
+
+        camera = context.camera
+
+        position = (
+            np.asarray(context.camera_transform().position, dtype=np.float64)
+            if camera is not None
+            else None
+        )
+
+        for entity, transform, orbit in list(scene.registry.view_with(TransformComponent, OrbitComponent)):
+
+            planet = scene.try_get_component(entity, PlanetComponent)
+
+            if planet is None:
+                continue
+
+            name = scene.try_get_component(entity, NameComponent)
+
+            label = name.name if name is not None else "Body"
+
+            center = np.asarray(transform.world_matrix, dtype=np.float64)[:3, 3]
+
+            imgui.push_id(int(entity.index))
+
+            if imgui.small_button("Go") and camera is not None:
+
+                extent = self._planets.extent(entity) or planet.radius
+
+                self._editor.frame_planet(camera, center, extent)
+
+                self._editor.select(entity)
+
+            imgui.set_item_tooltip("Fly there: the whole body in view.")
+
+            imgui.same_line()
+
+            if position is not None:
+
+                distance = float(np.linalg.norm(center - position)) - planet.radius
+
+                imgui.text(f"{label}")
+
+                imgui.same_line()
+
+                imgui.text_disabled(_distance(max(distance, 0.0)) + " away" if distance > 1.0 else "here")
+
+            else:
+
+                imgui.text(label)
+
+            imgui.pop_id()
 
     def _advance_day(
         self,
@@ -862,16 +1057,20 @@ class PlanetPanel:
 
             local = context.planet_rotation().T @ (offset / max(distance, 1e-9))
 
-            ground = self._planets.ground_elevation(context.planet, local)
+            ground = self._planets.ground(context.planet, local)
 
-            above_sea = distance - radius
+            # Sea level (the datum on dry worlds): the body's
+            # shape.
+            base, surface = ground if ground is not None else (0.0, 0.0)
+
+            above_sea = distance - radius - base
 
             if ground is not None and context.planet_component.palette == "bands":
 
                 # Giants: no ground, cloud tops (and below them,
                 # air ever thicker: ~1 bar at the tops, x e per
                 # scale height down).
-                above_tops = above_sea - ground
+                above_tops = above_sea
 
                 if above_tops >= 0.0:
 
@@ -895,7 +1094,7 @@ class PlanetPanel:
 
             elif ground is not None:
 
-                above_ground = above_sea - max(ground, 0.0)
+                above_ground = above_sea - surface
 
                 imgui.text(f"Altitude  {_distance(above_ground)} above ground")
 
@@ -917,6 +1116,11 @@ class PlanetPanel:
             )
 
             current = context.solar_time()
+
+            clock = context.clock()
+
+            if clock is not None:
+                imgui.text(f"Date      {date_of(clock.time).strftime('%Y-%m-%d %H:%M UTC')}")
 
             if current is not None:
 
@@ -997,6 +1201,19 @@ class _PlanetContext:
     ) -> np.ndarray:
 
         return self._planet_world()[:3, :3]
+
+    def clock(
+        self
+    ) -> ClockComponent | None:
+
+        return next((c for _, c in self.scene.registry.view_with(ClockComponent)), None)
+
+    def has_system(
+        self
+    ) -> bool:
+        """Several bodies on orbits."""
+
+        return sum(1 for _ in self.scene.registry.view_with(OrbitComponent)) > 1
 
     def camera_transform(self):
 

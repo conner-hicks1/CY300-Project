@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -6,6 +6,7 @@ from planet.climate import fallback_surface
 from planet.craters import CraterSettings, Craters
 from planet.dunes import DuneSettings, Dunes
 from planet.hydrology import meander_offsets
+from planet.shape import BodyShape, ShapeSettings
 from planet.volcanoes import VolcanoSettings, Volcanoes
 
 # Crust brightness of fresh ejecta and rays (1 = the
@@ -57,9 +58,14 @@ class TerrainSettings:
     # (no relief). 0 = solid surface.
     bands: int = 0
 
-    # Giants: flattening of the cloud tops (an ellipsoid of
-    # revolution about the local y axis).
+    # The surface the relief stands on (planet/shape.py):
+    # flattening by the spin ((equatorial - polar) /
+    # equatorial radius; an ellipsoid of revolution about the
+    # local y axis), and for irregular bodies a triaxial,
+    # lumpy or two-lobed shape with giant basins. Relief and
+    # sea level are measured from it.
     oblateness: float = 0.0
+    shape: ShapeSettings | None = None
 
     # Impact craters (planet/craters.py): rate relative to
     # the Moon's (0 = none), surface age where no tectonic
@@ -96,10 +102,7 @@ class TerrainSettings:
     ) -> float:
         """Lower bound of the visible surface (0 under a liquid)."""
 
-        if self.bands:
-            return -min(max(self.oblateness, 0.0), 0.5) * self.radius
-
-        if self.has_liquid:
+        if self.bands or self.has_liquid:
             return 0.0
 
         return -(2.0 * self.continent_height + self.detail_height + 7_000.0)
@@ -173,6 +176,8 @@ class Terrain:
         self.settings = settings
         self.field = field
         self.climate = climate
+
+        self.shape = body_shape(settings)
 
         self.craters = None
 
@@ -304,12 +309,43 @@ class Terrain:
 
         return min(self._field_min, 0.0) - s.detail_height - self._coast_noise - 200.0 - depth
 
+    # -----------------------------------------------------
+    # Shape
+    # -----------------------------------------------------
+
+    def base_height(
+        self,
+        directions: np.ndarray
+    ) -> np.ndarray:
+        """
+        Height (m) of the body's shape above the reference
+        radius (0 for a sphere); relief stands on it.
+        """
+
+        if self.shape is None:
+            return np.zeros(len(directions))
+
+        return self.shape.height(directions)
+
+    @property
+    def base_bounds(
+        self
+    ) -> tuple[float, float]:
+        """Lowest and highest base heights (m)."""
+
+        if self.shape is None:
+            return 0.0, 0.0
+
+        return self.shape.min_height, self.shape.max_height
+
     def elevation(
         self,
         directions: np.ndarray,
         spacing: float = 0.0
     ) -> np.ndarray:
         """
+        Relief (m) above the body's shape (sea level).
+
         directions: (n, 3) unit vectors.
         spacing: distance between samples in meters (0 =
             full detail).
@@ -395,9 +431,9 @@ class Terrain:
 
         if s.bands:
 
-            # Cloud tops of a giant: a smooth, flattened
-            # ellipsoid (polar radius = (1 - f) x equatorial).
-            return oblate_offset(directions, s.radius, s.oblateness)
+            # Cloud tops of a giant: no relief on its shape
+            # (the flattened ellipsoid).
+            return np.zeros(len(directions))
 
         radius = s.radius
 
@@ -697,6 +733,29 @@ def _smoothstep(
     t = np.clip((x - edge0) / (edge1 - edge0), 0.0, 1.0)
 
     return t * t * (3.0 - 2.0 * t)
+
+
+def body_shape(
+    settings: TerrainSettings
+) -> BodyShape | None:
+    """The settings' shape with the flattening folded in, or None for a sphere."""
+
+    f = min(max(float(settings.oblateness), 0.0), 0.5)
+
+    shape = settings.shape
+
+    if shape is None and f == 0.0:
+        return None
+
+    shape = shape or ShapeSettings()
+
+    if f > 0.0:
+        shape = replace(shape, axes=(shape.axes[0], shape.axes[1] * (1.0 - f), shape.axes[2]))
+
+    if shape.spherical:
+        return None
+
+    return BodyShape(shape, settings.radius)
 
 
 def oblate_offset(

@@ -17,8 +17,19 @@
   "orbit": {
     "distance_au": 1.0,
     "eccentricity": 0.0549,
-    "period_days": 27.32,
-    "parent_distance_km": 384400.0
+    "period_days": 27.55455,
+    "parent_distance_km": 384400.0,
+    "inclination_deg": 5.145,
+    "ascending_node_deg": 125.0445479,
+    "periapsis_arg_deg": 318.3085,
+    "mean_anomaly_deg": 134.9633964,
+    "plane": "ecliptic",
+    "node_rate_deg_per_year": -19.3413618,
+    "periapsis_rate_deg_per_year": 60.0315,
+    "theory": "moon"
+  },
+  "rotation": {
+    "tidally_locked": true
   },
   "star": {
     "luminosity_solar": 1.0,

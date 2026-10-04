@@ -1,6 +1,8 @@
 import math
 import time
 
+from dataclasses import dataclass
+
 import numpy as np
 
 from OpenGL.GL import (
@@ -14,6 +16,7 @@ from OpenGL.GL import (
     GL_ONE_MINUS_SRC_ALPHA,
     GL_SRC1_COLOR,
     GL_SRC_ALPHA,
+    GL_TEXTURE_2D,
     GL_TEXTURE_2D_ARRAY,
     glBlendColor,
     glBlendFunc,
@@ -49,6 +52,13 @@ from graphics.atmosphere import (
     pack_atmosphere_block
 )
 from graphics.bloom import Bloom
+from graphics.bodies_block import (
+    BodySphere,
+    RingSystem,
+    eclipsing as shadow_reaches,
+    pack_bodies_block,
+    umbra_glow
+)
 from graphics.draw_list import (
     DrawItem,
     frustum_planes,
@@ -60,7 +70,7 @@ from graphics.environment import (
 )
 from graphics.clouds import CloudParameters, cloud_cover_map
 from graphics.mesh import Mesh
-from graphics.rings import disc_mesh_data, ring_profile, unflat_bands
+from graphics.rings import RingProfileTexture, disc_mesh_data, ring_profile, unflat_bands
 from graphics.framebuffer import (
     ColorFormat,
     ColorTarget,
@@ -90,7 +100,7 @@ from graphics.shadows import (
     to_render_space
 )
 from graphics.texture import Texture2D
-from graphics.uniform_blocks import LightingFrame
+from graphics.uniform_blocks import MAX_BODIES, LightingFrame
 
 from math3d import quaternion
 from math3d.camera import Camera
@@ -243,8 +253,26 @@ class RenderSystem:
         )
 
         # (world matrix, outer radius m, color) of the ring
-        # system to draw this frame, if any.
+        # system to draw this frame, if any, and its radial
+        # profile.
         self._rings_to_draw = None
+        self._ring_system: RingSystem | None = None
+        self._ring_profile = RingProfileTexture()
+
+        # The camera's atmosphere (packed block, body), other
+        # bodies' air to draw before it (block, parameters,
+        # lookup tables, bodies block), and their lookup
+        # tables by entity.
+        self._primary_atmosphere = None
+        self._distant_atmospheres: list = []
+        self._distant_luts: dict[Entity, AtmosphereLuts] = {}
+
+        self._bodies_block = b""
+        self._sun_angular_radius = 0.0
+
+        # entity -> (distance to its star m, star radius m),
+        # live from the orbits; set by the application.
+        self.star_provider = lambda entity: None
 
         # -------------------------------------------------
         # GPU Resources
@@ -485,6 +513,7 @@ class RenderSystem:
                 ),
                 **self._environment.textures(),
                 **self._atmosphere_luts.textures(),
+                "uRingProfile": (self._ring_profile.texture_id, GL_TEXTURE_2D),
             }
         )
 
@@ -504,8 +533,12 @@ class RenderSystem:
 
             hdr.bind()
 
+            # Under an atmosphere the background is space: the
+            # sky goes over it (through it, in a thin one).
             RenderCommand.set_clear_color(
-                (*settings.clear_color, 1.0)
+                (0.0, 0.0, 0.0, 1.0)
+                if atmosphere is not None
+                else (*settings.clear_color, 1.0)
             )
 
             RenderCommand.clear()
@@ -527,19 +560,19 @@ class RenderSystem:
 
                 with profiler.scope("Atmosphere"):
 
-                    self._render_atmosphere(hdr)
-
-            if self._rings_to_draw is not None:
-
-                with profiler.scope("Rings"):
-
-                    self._render_rings()
+                    self._render_atmospheres(hdr)
 
             elif settings.show_sky:
 
                 with profiler.scope("Sky"):
 
                     self._render_sky(sky)
+
+            if self._rings_to_draw is not None:
+
+                with profiler.scope("Rings"):
+
+                    self._render_rings()
 
             if settings.show_light_gizmos:
 
@@ -865,6 +898,59 @@ class RenderSystem:
     # =====================================================
     # Atmosphere
     # =====================================================
+    #
+    # Every planet and moon is gathered once per frame:
+    #
+    # - the one the camera is at (nearest surface) gives the
+    #   atmosphere block: the sky, haze, sunset light and the
+    #   image-based lighting;
+    # - other bodies with air are drawn as seen from afar
+    #   (Earth's blue limb and clouds from the Moon), each
+    #   with lookup tables of its own, before the camera's
+    #   sky goes over them;
+    # - all of them are spheres in the bodies block, for
+    #   eclipses, with the ring system of the nearest ringed
+    #   planet.
+
+    # Other bodies' air drawn per frame, nearest first.
+    MAX_DISTANT_ATMOSPHERES = 2
+
+    def _gather_bodies(
+        self,
+        registry: Registry,
+        camera: Camera
+    ) -> list["_Body"]:
+
+        camera_position = np.asarray(camera.position, dtype=np.float64)
+
+        bodies = []
+
+        for entity, transform, planet in registry.view_with(
+            TransformComponent,
+            PlanetComponent
+        ):
+
+            world = np.asarray(transform.world_matrix, dtype=np.float64)
+
+            center = world[:3, 3]
+
+            distance = float(np.linalg.norm(center - camera_position))
+
+            bodies.append(
+                _Body(
+                    entity=entity,
+                    transform=transform,
+                    planet=planet,
+                    atmosphere=registry.try_get(entity, AtmosphereComponent),
+                    body=registry.try_get(entity, BodyComponent),
+                    rings=registry.try_get(entity, RingsComponent),
+                    center=center,
+                    distance=distance,
+                    surface_distance=distance - planet.radius
+                )
+            )
+
+        return bodies
 
     def _prepare_atmosphere(
         self,
@@ -873,80 +959,15 @@ class RenderSystem:
         lighting: LightEnvironment
     ) -> AtmosphereSky | None:
         """
-        Find the planet atmosphere (first one) and upload
-        the AtmosphereBlock. Returns the sky description
-        for the environment bake, or None (the block is
-        then uploaded disabled).
+        Upload the atmosphere block of the body the camera is
+        at, the bodies block, and plan the other bodies' air.
+        Returns the sky description for the environment bake,
+        or None (the block is then uploaded disabled).
         """
 
-        found = None
+        bodies = self._gather_bodies(registry, camera)
 
-        if self.settings.atmosphere_enabled:
-
-            # The first planet; one without air gets a vacuum
-            # (black sky) rather than the procedural sky.
-            for entity, transform, planet in registry.view_with(
-                TransformComponent,
-                PlanetComponent
-            ):
-
-                found = (
-                    transform,
-                    planet,
-                    registry.try_get(entity, AtmosphereComponent),
-                    registry.try_get(entity, BodyComponent),
-                    entity
-                )
-
-                break
-
-        if found is None:
-
-            self._renderer.set_atmosphere(pack_atmosphere_block(None))
-
-            return None
-
-        transform, planet, component, body, planet_entity = found
-
-        if component is not None:
-
-            parameters = AtmosphereParameters.from_components(
-                planet.radius,
-                component
-            )
-
-        else:
-
-            parameters = AtmosphereParameters.vacuum(planet.radius)
-
-        # The sun's apparent size: from the body's distance to
-        # its star (Earth's sky without a body profile).
-        sun_angular_radius = SUN_ANGULAR_RADIUS
-
-        if body is not None and body.orbit_distance_au > 0.0:
-
-            sun_angular_radius = math.degrees(
-                math.atan(
-                    body.star_radius * SOLAR_RADIUS_M
-                    / (body.orbit_distance_au * AU_M)
-                )
-            )
-
-        center = np.asarray(transform.world_matrix, dtype=np.float64)[:3, 3]
-
-        camera_offset = np.asarray(camera.position, dtype=np.float64) - center
-
-        clouds, cloud_key = self._prepare_clouds(planet_entity, planet, component)
-
-        rings = self._prepare_rings(registry.try_get(planet_entity, RingsComponent), transform)
-
-        cloud_drift = 0.0
-
-        if clouds is not None:
-
-            elapsed = time.perf_counter() - self._clock_start
-
-            cloud_drift = (elapsed * clouds.speed / max(planet.radius, 1.0)) % (2.0 * math.pi)
+        camera_position = np.asarray(camera.position, dtype=np.float64)
 
         directional = lighting.directional
 
@@ -966,30 +987,91 @@ class RenderSystem:
             sun_direction = None
             sun_illuminance = (0.0, 0.0, 0.0)
 
-        self._renderer.set_atmosphere(
-            pack_atmosphere_block(
-                parameters,
-                planet_center_relative=-camera_offset,
-                sun_direction=sun_direction,
-                sun_illuminance=sun_illuminance,
-                steps=self.settings.atmosphere_samples,
-                aerial_perspective=(
-                    self.settings.aerial_perspective
-                    and not self.suppress_haze
-                ),
-                sun_angular_radius=sun_angular_radius,
-                clouds=clouds,
-                cloud_drift=cloud_drift,
-                planet_frame=_inverse_rotation(transform.world_matrix),
-                flattening=planet.oblateness if planet.palette == "bands" else 0.0,
-                no_surface=planet.palette == "bands",
-                rings=rings
-            )
+        self._prepare_rings(bodies, camera_position)
+
+        self._distant_atmospheres = []
+
+        if not bodies or not self.settings.atmosphere_enabled:
+
+            self._renderer.set_atmosphere(pack_atmosphere_block(None))
+
+            self._sun_angular_radius = math.radians(SUN_ANGULAR_RADIUS)
+
+            self._upload_bodies(bodies, None, sun_direction, camera_position)
+
+            return None
+
+        # The body the camera is at; one without air gets a
+        # vacuum (black sky) rather than the procedural sky.
+        primary = min(bodies, key=lambda b: b.surface_distance)
+
+        self._sun_angular_radius = self._sun_radius(primary)
+
+        parameters, block, cloud_key = self._atmosphere_block(
+            primary,
+            self._atmosphere_luts,
+            camera_position,
+            sun_direction,
+            sun_illuminance,
+            steps=self.settings.atmosphere_samples
         )
 
-        distance = float(np.linalg.norm(camera_offset))
+        self._renderer.set_atmosphere(block)
 
-        up = camera_offset / distance if distance > 0.0 else np.array([0.0, 1.0, 0.0])
+        self._primary_atmosphere = (block, primary)
+
+        self._upload_bodies(bodies, primary, sun_direction, camera_position)
+
+        # Other bodies' air, as seen from here (farthest drawn
+        # first, under nearer ones).
+        distant = sorted(
+            (
+                b for b in bodies
+                if b is not primary and b.atmosphere is not None
+            ),
+            key=lambda b: b.distance
+        )[:self.MAX_DISTANT_ATMOSPHERES]
+
+        for body in reversed(distant):
+
+            luts = self._distant_luts.get(body.entity)
+
+            if luts is None:
+
+                luts = AtmosphereLuts(self._renderer, self._shader)
+
+                self._distant_luts[body.entity] = luts
+
+            distant_parameters, distant_block, _ = self._atmosphere_block(
+                body,
+                luts,
+                camera_position,
+                sun_direction,
+                sun_illuminance,
+                steps=max(8, self.settings.atmosphere_samples // 2)
+            )
+
+            self._distant_atmospheres.append(
+                (
+                    distant_block,
+                    distant_parameters,
+                    luts,
+                    self._pack_bodies(bodies, body, sun_direction, camera_position)
+                )
+            )
+
+        # Bodies whose air is no longer drawn free their
+        # lookup tables.
+        drawn = {b.entity for b in distant}
+
+        for entity in [e for e in self._distant_luts if e not in drawn]:
+            self._distant_luts.pop(entity).delete()
+
+        distance = primary.distance
+
+        offset = camera_position - primary.center
+
+        up = offset / distance if distance > 0.0 else np.array([0.0, 1.0, 0.0])
 
         return AtmosphereSky(
             parameters=parameters,
@@ -1000,31 +1082,198 @@ class RenderSystem:
             textures=tuple(
                 (name, texture_id)
                 for name, (texture_id, _) in self._atmosphere_luts.textures().items()
-            ),
+            ) + (("uRingProfile", self._ring_profile.texture_id),),
             clouds=cloud_key
         )
 
+    def _atmosphere_block(
+        self,
+        body: "_Body",
+        luts: AtmosphereLuts,
+        camera_position: np.ndarray,
+        sun_direction,
+        sun_illuminance,
+        steps: int
+    ):
+        """(parameters, packed atmosphere block, cloud key) of a body's air."""
+
+        planet = body.planet
+
+        if body.atmosphere is not None:
+
+            parameters = AtmosphereParameters.from_components(
+                planet.radius,
+                body.atmosphere
+            )
+
+        else:
+
+            parameters = AtmosphereParameters.vacuum(planet.radius)
+
+        clouds, cloud_key = self._prepare_clouds(body.entity, planet, body.atmosphere, luts)
+
+        cloud_drift = 0.0
+
+        if clouds is not None:
+
+            elapsed = time.perf_counter() - self._clock_start
+
+            cloud_drift = (elapsed * clouds.speed / max(planet.radius, 1.0)) % (2.0 * math.pi)
+
+        block = pack_atmosphere_block(
+            parameters,
+            planet_center_relative=body.center - camera_position,
+            sun_direction=sun_direction,
+            sun_illuminance=sun_illuminance,
+            steps=steps,
+            aerial_perspective=(
+                self.settings.aerial_perspective
+                and not self.suppress_haze
+            ),
+            sun_angular_radius=math.degrees(self._sun_angular_radius),
+            clouds=clouds,
+            cloud_drift=cloud_drift,
+            planet_frame=_inverse_rotation(body.transform.world_matrix),
+            flattening=planet.oblateness,
+            no_surface=planet.palette == "bands"
+        )
+
+        return parameters, block, cloud_key
+
+    def _sun_radius(
+        self,
+        body: "_Body"
+    ) -> float:
+        """
+        The sun's apparent radius (rad) at a body: from its
+        distance to the star (live, with orbits), else its
+        profile's (Earth's sky without one).
+        """
+
+        star = self.star_provider(body.entity)
+
+        if star is not None:
+
+            distance, star_radius = star
+
+            return math.atan(star_radius / max(distance, 1.0))
+
+        info = body.body
+
+        if info is not None and info.orbit_distance_au > 0.0:
+
+            return math.atan(
+                info.star_radius * SOLAR_RADIUS_M
+                / (info.orbit_distance_au * AU_M)
+            )
+
+        return math.radians(SUN_ANGULAR_RADIUS)
+
+    def _pack_bodies(
+        self,
+        bodies: list["_Body"],
+        focus: "_Body | None",
+        sun_direction,
+        camera_position: np.ndarray
+    ) -> bytes:
+        """
+        The bodies block, with the bodies whose shadow can
+        fall on `focus` (and its air) first.
+        """
+
+        spheres = []
+
+        for b in bodies:
+
+            pressure = (
+                b.body.surface_pressure_bar
+                if b.body is not None
+                else (1.0 if b.atmosphere is not None else 0.0)
+            )
+
+            spheres.append(
+                BodySphere(
+                    center=tuple(float(v) for v in b.center),
+                    radius=float(b.planet.radius),
+                    glow=umbra_glow(pressure) if b.atmosphere is not None else (0.0, 0.0, 0.0)
+                )
+            )
+
+        # Nearest first if there are too many.
+        order = sorted(range(len(bodies)), key=lambda i: bodies[i].distance)[:MAX_BODIES]
+
+        eclipsing = []
+
+        if focus is not None and sun_direction is not None:
+
+            top = focus.planet.radius + (
+                focus.atmosphere.height if focus.atmosphere is not None else 0.0
+            )
+
+            eclipsing = [
+                i for i in order
+                if bodies[i] is not focus
+                and shadow_reaches(
+                    spheres[i],
+                    focus.center,
+                    top,
+                    sun_direction,
+                    self._sun_angular_radius
+                )
+            ]
+
+        rest = [i for i in order if i not in eclipsing]
+
+        return pack_bodies_block(
+            [spheres[i] for i in eclipsing + rest],
+            camera_position,
+            self._sun_angular_radius,
+            eclipsing_count=len(eclipsing),
+            rings=self._ring_system
+        )
+
+    def _upload_bodies(
+        self,
+        bodies,
+        focus,
+        sun_direction,
+        camera_position
+    ):
+
+        self._bodies_block = self._pack_bodies(bodies, focus, sun_direction, camera_position)
+
+        self._renderer.set_bodies(self._bodies_block)
+
     def _prepare_rings(
         self,
-        component,
-        transform
+        bodies: list["_Body"],
+        camera_position: np.ndarray
     ):
         """
-        The planet's ring system: rebuild its profile texture
-        when it changed, remember it for drawing, and return
-        (inner km, outer km, opacity) for the atmosphere
-        block (or None).
+        The ring system of the nearest ringed planet: rebuild
+        its profile texture when it changed, and remember it
+        for the bodies block and for drawing.
         """
 
-        profile = self._atmosphere_luts.ring_profile
+        profile = self._ring_profile
 
         self._rings_to_draw = None
+        self._ring_system = None
 
-        if component is None or component.outer_radius <= component.inner_radius:
+        ringed = [
+            b for b in bodies
+            if b.rings is not None and b.rings.outer_radius > b.rings.inner_radius
+        ]
+
+        if not ringed:
 
             profile.clear()
 
-            return None
+            return
+
+        body = min(ringed, key=lambda b: b.distance)
+
+        component = body.rings
 
         bands = unflat_bands(component.bands)
 
@@ -1033,16 +1282,22 @@ class RenderSystem:
             lambda: ring_profile(component.inner_radius, component.outer_radius, bands, component.seed)
         )
 
+        world = np.asarray(body.transform.world_matrix, dtype=np.float64)
+
         self._rings_to_draw = (
-            np.asarray(transform.world_matrix, dtype=np.float64),
+            world,
             float(component.outer_radius),
             tuple(float(c) for c in component.color)
         )
 
-        return (
-            component.inner_radius / 1000.0,
-            component.outer_radius / 1000.0,
-            max(float(component.opacity), 0.0)
+        self._ring_system = RingSystem(
+            center=tuple(float(v) for v in body.center),
+            frame=_inverse_rotation(world),
+            planet_radius=float(body.planet.radius),
+            flattening=float(body.planet.oblateness),
+            inner=float(component.inner_radius),
+            outer=float(component.outer_radius),
+            opacity=float(component.opacity)
         )
 
     def _render_rings(self):
@@ -1057,13 +1312,9 @@ class RenderSystem:
 
         shader.bind()
 
-        luts = self._atmosphere_luts.textures()
+        RenderCommand.bind_texture(self._ring_profile.texture_id, 0)
 
-        for unit, (name, (texture_id, _)) in enumerate(luts.items()):
-
-            RenderCommand.bind_texture(texture_id, unit)
-
-            shader.set_int(name, unit)
+        shader.set_int("uRingProfile", 0)
 
         shader.set_vec3("uRingColor", color)
 
@@ -1099,7 +1350,8 @@ class RenderSystem:
         self,
         entity,
         planet,
-        component
+        component,
+        luts: AtmosphereLuts
     ):
         """
         The planet's cloud layer (or None) and a key for it;
@@ -1107,7 +1359,7 @@ class RenderSystem:
         changes.
         """
 
-        cloud_map = self._atmosphere_luts.cloud_map
+        cloud_map = luts.cloud_map
 
         if component is None or component.cloud_coverage <= 0.0:
 
@@ -1143,9 +1395,41 @@ class RenderSystem:
 
         return clouds, key
 
-    def _render_atmosphere(
+    def _render_atmospheres(
         self,
         hdr: Framebuffer
+    ):
+        """
+        Other bodies' air (as seen from afar, farthest
+        first), then the camera's own sky and haze over
+        everything. Leaves the HDR framebuffer bound.
+        """
+
+        primary_block, _ = self._primary_atmosphere
+
+        for block, parameters, luts, bodies_block in self._distant_atmospheres:
+
+            self._renderer.set_atmosphere(block)
+            self._renderer.set_bodies(bodies_block)
+
+            self._fullscreen_state(True)
+
+            luts.update(parameters)
+
+            self._render_atmosphere(hdr, luts, distant=True)
+
+        if self._distant_atmospheres:
+
+            self._renderer.set_atmosphere(primary_block)
+            self._renderer.set_bodies(self._bodies_block)
+
+        self._render_atmosphere(hdr, self._atmosphere_luts, distant=False)
+
+    def _render_atmosphere(
+        self,
+        hdr: Framebuffer,
+        luts: AtmosphereLuts,
+        distant: bool
     ):
         """
         Sky + aerial perspective over the opaque scene
@@ -1176,19 +1460,27 @@ class RenderSystem:
 
         shader.bind()
 
-        luts = self._atmosphere_luts.textures()
+        textures = luts.textures()
 
-        for unit, (name, (texture_id, _)) in enumerate(luts.items()):
+        for unit, (name, (texture_id, _)) in enumerate(textures.items()):
 
             RenderCommand.bind_texture(texture_id, unit)
 
             shader.set_int(name, unit)
 
-        depth_unit = len(luts)
+        ring_unit = len(textures)
+
+        RenderCommand.bind_texture(self._ring_profile.texture_id, ring_unit)
+
+        shader.set_int("uRingProfile", ring_unit)
+
+        depth_unit = ring_unit + 1
 
         RenderCommand.bind_texture(hdr.depth_texture_id, depth_unit)
 
         shader.set_int("uSceneDepth", depth_unit)
+
+        shader.set_float("uDistantAtmosphere", 1.0 if distant else 0.0)
 
         self._fullscreen_state(True)
 
@@ -1753,6 +2045,13 @@ class RenderSystem:
 
         self._environment.delete()
         self._atmosphere_luts.delete()
+
+        for luts in self._distant_luts.values():
+            luts.delete()
+
+        self._distant_luts.clear()
+
+        self._ring_profile.delete()
         self._bloom.delete()
 
         if self._hdr_color_target is not None:
@@ -1760,6 +2059,23 @@ class RenderSystem:
             self._hdr_color_target.delete()
 
             self._hdr_color_target = None
+
+
+@dataclass(slots=True)
+class _Body:
+
+    # A planet or moon as the frame sees it.
+
+    entity: Entity
+    transform: TransformComponent
+    planet: PlanetComponent
+    atmosphere: AtmosphereComponent | None
+    body: BodyComponent | None
+    rings: RingsComponent | None
+
+    center: np.ndarray          # world (m)
+    distance: float             # from the camera to its center
+    surface_distance: float     # ... to its (mean) surface
 
 
 def _inverse_rotation(

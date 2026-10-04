@@ -26,8 +26,9 @@ building and saving scenes.
 ![Mars from orbit, the Moon's surface, Io, Venus's surface under its clouds, Titan's surface and Europa](docs/images/bodies.png)
 
 - Body profiles (`assets/bodies/*.json`, real data from NASA's fact sheets) for
-  Mercury, Venus, Earth, the Moon, Mars, Jupiter, Io, Europa, Ganymede,
-  Callisto, Saturn, Enceladus, Titan, Uranus, Neptune, Triton and Pluto:
+  Mercury, Venus, Earth, the Moon, Mars, Phobos, Deimos, Vesta, Ceres,
+  comet 67P, Jupiter, Io, Europa, Ganymede, Callisto, Saturn, Enceladus,
+  Titan, Uranus, Neptune, Triton, Pluto and Haumea:
   size, mass, rotation, tilt, orbit, star, temperature, surface liquid and
   colors, terrain relief, atmosphere (pressure, gases, aerosols), geology
 - Physics derived from them: surface gravity, sunlight, equilibrium and
@@ -78,7 +79,52 @@ building and saving scenes.
   particles and a forward-scattering glow): dense rings bright on their lit
   face and dark from below, sparse ones glowing from behind
 - The planet's shadow falls across the rings, and the rings' shadow bands
-  across the planet
+  across the planet (and its haze)
+
+**Shapes**
+
+![Phobos, Vesta with its giant south polar basin, Haumea and its ring, and the two-lobed comet 67P](docs/images/shapes.png)
+
+- Relief stands on a base shape instead of a sphere: every body is
+  flattened by its spin (Jupiter 6.5%, Ceres 7.5%, Earth 0.3%), and the
+  seas follow the flattened surface
+- Irregular small bodies: triaxial ellipsoids (Phobos 27 x 22 x 18 km, its
+  long axis toward Mars; Haumea stretched by its 3.9-hour spin into an egg
+  twice as long as it is thick), large-scale lumps, contact binaries of two
+  lobes joined by a smooth neck (comet 67P), and giant impact basins as big
+  as the body (Stickney on Phobos, Vesta's Rheasilvia with its 20 km
+  central peak)
+- Slopes are measured against the shape (a plain on a potato's flank is not
+  a cliff); level of detail, horizon culling and the camera's ground all
+  follow it; small bodies are first seen whole from space
+
+**Orbits, the clock and eclipses**
+
+![Jupiter from Io with a moon's shadow crossing it, the Moon's shadow on Earth in the 2027 eclipse, the red Moon of the March 2026 lunar eclipse, and Saturn from Enceladus](docs/images/orbits.png)
+
+- A simulation clock (Planet panel > Sun & time: the date, how fast time
+  runs, local time, Now) drives everything: planets on Keplerian orbits
+  from JPL's mean elements, moons around their planets, and every body's
+  spin from its IAU pole and prime meridian, so the sun's direction, day
+  and night, the seasons and the equation of time follow from the date
+  (12:00 UTC is solar noon at Greenwich, give or take a quarter hour)
+- The Moon follows the main terms of its own theory (the Sun's pull,
+  precessing nodes): eclipses fall on their real dates. New planets bring
+  their planetary system: Earth its Moon, Mars Phobos and Deimos, Jupiter
+  its Galilean moons, a moon its planet and siblings (Planet panel > System
+  flies to any of them)
+- The body the camera is nearest stays put while the sky wheels around it,
+  so the ground never slides away; flying to another body hands over
+  seamlessly
+- Eclipses from the overlap of the sun's disc with every other body's:
+  penumbra, umbra and annular phases, the sky darkening in a total solar
+  eclipse, Earth's air bending red light onto the eclipsed Moon, moons'
+  shadows crossing Jupiter. Moons and planets in the sky are lit by the
+  sun alone (their night sides dark), with their own air drawn as seen
+  from afar (Earth's blue limb and clouds from the Moon)
+- The star's brightness, color and apparent size follow the live distance;
+  chunk building is shared across all the bodies at once, every body whole
+  first, then detail where it looks largest
 
 **Plate tectonics**
 
@@ -297,7 +343,7 @@ building and saving scenes.
   under a per-frame time budget
 - Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
   output routed to the log
-- 535 unit tests for everything that does not need a GPU
+- 562 unit tests for everything that does not need a GPU
 
 ## Getting Started
 
@@ -365,9 +411,9 @@ The planet streams in over the first few seconds.
 | `main.py`, `application.py` | Entry point, main loop, demo content |
 | `core/` | Window, input, events, timer, logging, profiler, job system |
 | `ecs/` | Entity registry and components |
-| `systems/` | Transform, camera controller, rotator, tectonics, climate, planet streaming and render systems |
-| `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping and simulation grid, plate tectonics and other tectonic regimes, impact craters, volcanoes, rivers and dunes, climate, terrain, chunk building, level of detail, solar time |
-| `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, bloom |
+| `systems/` | Transform, camera controller, rotator, orbits and clock, tectonics, climate, planet streaming and render systems |
+| `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping and simulation grid, plate tectonics and other tectonic regimes, impact craters, volcanoes, rivers and dunes, climate, terrain, chunk building, level of detail, body shapes, orbits and spin, solar time |
+| `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, clouds, rings, eclipses, bloom |
 | `editor/` | Scene editor, hierarchy / inspector / planet panels, picking, undo history |
 | `scene/` | Scene container and scene file (de)serialization |
 | `resources/` | Handle-based resource managers |

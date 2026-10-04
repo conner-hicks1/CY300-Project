@@ -46,8 +46,11 @@ class LodSelection:
     # Nodes to draw this frame (all are ready).
     draw: list[ChunkKey] = field(default_factory=list)
 
-    # Nodes that should be built, most important first.
+    # Nodes that should be built, most important first, and
+    # how large each looks from the camera (edge length /
+    # distance), for sharing builds between planets.
     wanted: list[ChunkKey] = field(default_factory=list)
+    wanted_sizes: list[float] = field(default_factory=list)
 
     # Every node visited (drawn, split or wanted), for
     # keeping their chunks alive.
@@ -62,12 +65,17 @@ class LodSelector:
         max_elevation: float,
         max_depth: int,
         split_factor: float,
-        min_elevation: float = 0.0
+        min_elevation: float = 0.0,
+        shape: Callable[[np.ndarray], np.ndarray] | None = None
     ):
         """
         min_elevation: lowest possible surface (negative on dry
             worlds whose basins lie below the reference radius);
             the horizon test uses the sphere at that depth.
+            Both bounds include the body's shape.
+        shape: directions -> height (m) of the body's shape
+            (a flattened or irregular body), for distances to
+            its surface; None = a sphere.
         """
 
         self.radius = radius
@@ -75,6 +83,7 @@ class LodSelector:
         self.min_elevation = min(min_elevation, 0.0)
         self.max_depth = max_depth
         self.split_factor = split_factor
+        self.shape = shape
 
         self._split: set[ChunkKey] = set()
 
@@ -165,6 +174,11 @@ class LodSelector:
 
         selection.wanted = [key for _, _, key in wanted]
 
+        selection.wanted_sizes = [
+            edge_length(self.radius, depth) / max(distance, 1.0)
+            for depth, distance, _ in wanted
+        ]
+
         return selection
 
     # =====================================================
@@ -224,7 +238,12 @@ class LodSelector:
         near_a = np.where(facing, np.clip(cam_a, a0, a1), (a0 + a1) * 0.5)
         near_b = np.where(facing, np.clip(cam_b, b0, b1), (b0 + b1) * 0.5)
 
-        nearest = face_directions(face, near_a, near_b) * self.radius
+        nearest = face_directions(face, near_a, near_b)
+
+        if self.shape is not None:
+            nearest = nearest * (self.radius + self.shape(nearest))[:, None]
+        else:
+            nearest = nearest * self.radius
 
         distances = np.linalg.norm(nearest - camera, axis=1)
 

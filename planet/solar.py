@@ -11,12 +11,14 @@ import numpy as np
 # sun's direction has a latitude, its declination (the
 # season: +23.4 deg = northern summer solstice on Earth),
 # and a longitude. Local solar time at a point is the
-# sun's longitude relative to the point's:
+# point's longitude relative to the sun's (east positive):
 #
-#     hour = 12 + (sun longitude - point longitude) / 15 deg
+#     hour = 12 + (point longitude - sun longitude) / 15 deg
 #
 # so 12:00 is when the sun crosses the point's meridian
-# (highest in the sky) and 0:00 is midnight.
+# (highest in the sky), 0:00 is midnight, and in the
+# morning the sun is to the east. As a planet turns (x is
+# east of z), local time runs forward.
 #
 # Longitude is measured as atan2(x, z) in planet space.
 
@@ -50,7 +52,7 @@ def solar_time(
 
     hour = (
         12.0
-        + (_longitude(sun_direction) - _longitude(point_direction)) * 12.0 / math.pi
+        + (_longitude(point_direction) - _longitude(sun_direction)) * 12.0 / math.pi
     ) % 24.0
 
     elevation = math.asin(float(np.clip(np.dot(point_direction, sun_direction), -1.0, 1.0)))
@@ -65,7 +67,7 @@ def sun_direction(
 ) -> np.ndarray:
     """Planet-space unit direction toward the sun (inverse of solar_time)."""
 
-    longitude = _longitude(point_direction) + (hour - 12.0) * math.pi / 12.0
+    longitude = _longitude(point_direction) - (hour - 12.0) * math.pi / 12.0
 
     return np.array([
         math.cos(declination) * math.sin(longitude),

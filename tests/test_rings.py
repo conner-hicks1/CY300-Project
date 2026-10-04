@@ -3,8 +3,7 @@ import json
 import numpy as np
 import pytest
 
-from ecs.components import AtmosphereComponent, RingsComponent
-from graphics.atmosphere import AtmosphereParameters, pack_atmosphere_block
+from ecs.components import RingsComponent
 from graphics.rings import MAX_BANDS, PROFILE_SIZE, flat_bands, ring_profile, unflat_bands
 from planet.bodies import ProfileError, components_for, load_presets, parse_profile
 
@@ -126,12 +125,35 @@ def test_ring_bands_are_validated():
 
 def test_rings_are_packed():
 
-    p = AtmosphereParameters.from_components(58_232_000.0, AtmosphereComponent())
+    from graphics.bodies_block import RingSystem, pack_bodies_block
+    from graphics.uniform_blocks import BODIES_BLOCK, MAX_BODIES
 
-    v = np.frombuffer(pack_atmosphere_block(p, rings=(74_500.0, 140_500.0, 1.2)), dtype=np.float32).reshape(14, 4)
+    rings = RingSystem(
+        center=(0.0, -60_000_000.0, 0.0),
+        frame=(0.0, 0.0, 0.0, 1.0),
+        planet_radius=58_232_000.0,
+        flattening=0.098,
+        inner=74_500e3,
+        outer=140_500e3,
+        opacity=1.2
+    )
 
-    np.testing.assert_allclose(v[13], (74_500.0, 140_500.0, 1.0, 1.2))
+    raw = pack_bodies_block((), (0.0, 0.0, 0.0), 0.0047, rings=rings)
 
-    off = np.frombuffer(pack_atmosphere_block(p), dtype=np.float32).reshape(14, 4)
+    assert len(raw) == BODIES_BLOCK.size
 
-    assert off[13, 2] == 0.0
+    v = np.frombuffer(raw, dtype=np.float32).reshape(-1, 4)
+
+    ring = 1 + 2 * MAX_BODIES
+
+    # Center relative to the camera (km) and the planet's
+    # radius; frame; extent; flattening.
+    np.testing.assert_allclose(v[ring], (0.0, -60_000.0, 0.0, 58_232.0))
+    np.testing.assert_allclose(v[ring + 1], (0.0, 0.0, 0.0, 1.0))
+    np.testing.assert_allclose(v[ring + 2], (74_500.0, 140_500.0, 1.0, 1.2))
+    assert v[ring + 3, 0] == pytest.approx(0.098)
+
+    off = np.frombuffer(pack_bodies_block((), (0.0, 0.0, 0.0), 0.0047), dtype=np.float32).reshape(-1, 4)
+
+    assert off[ring + 2, 2] == 0.0
+    np.testing.assert_allclose(off[ring + 1], (0.0, 0.0, 0.0, 1.0))

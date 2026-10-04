@@ -61,3 +61,16 @@ def test_summer_noon_is_higher_in_the_north():
 
     assert math.degrees(summer) == pytest.approx(90.0 - 45.0 + 23.44)
     assert math.degrees(winter) == pytest.approx(90.0 - 45.0 - 23.44)
+
+
+def test_morning_sun_is_in_the_east():
+
+    # x is east of z (longitude = atan2(x, z)).
+    sun = sun_direction(EQUATOR, 9.0, 0.0)
+
+    assert sun[0] > 0.5
+
+    # A turning planet carries the point east: later.
+    later = np.array([math.sin(0.1), 0.0, math.cos(0.1)])
+
+    assert solar_time(later, sun)[0] > 9.0

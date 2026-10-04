@@ -311,14 +311,28 @@ class PlanetComponent:
     # Number of cloud bands ("bands" palette).
     bands: int = 0
 
-    # Giant planets ("bands" palette): flattening of the
-    # cloud tops ((equatorial - polar) / equatorial radius;
-    # Jupiter 0.065), the great storm (latitude, longitude in
-    # degrees, east-west size in m, 0 = none; color;
-    # strength 0..1: Jupiter's Great Red Spot, Neptune's
-    # Great Dark Spot), how many small white ovals, and
-    # Saturn's hexagonal north polar jet.
+    # Shape (planet/shape.py): flattening by the spin
+    # ((equatorial - polar) / equatorial radius; Jupiter
+    # 0.065, Earth 0.0034), and for irregular bodies the
+    # semi-axes in units of the radius (x, y = spin axis, z
+    # = longitude 0) and their center, a second lobe
+    # (contact binary; axes 0 = none), large-scale lumps (a
+    # fraction of the radius), and up to 4 giant basins
+    # (flattened lat, lon deg, diameter, depth, central peak
+    # m; diameter 0 = unused). Relief and seas stand on it.
     oblateness: float = 0.0
+    shape_axes: tuple[float, float, float] = (1.0, 1.0, 1.0)
+    shape_center: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    lobe_center: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    lobe_axes: tuple[float, float, float] = (0.0, 0.0, 0.0)
+    lumpiness: float = 0.0
+    basins: tuple[float, ...] = (0.0,) * 20
+
+    # Giant planets ("bands" palette): the great storm
+    # (latitude, longitude in degrees, east-west size in m,
+    # 0 = none; color; strength 0..1: Jupiter's Great Red
+    # Spot, Neptune's Great Dark Spot), how many small white
+    # ovals, and Saturn's hexagonal north polar jet.
     storm_latitude: float = 0.0
     storm_longitude: float = 0.0
     storm_size: float = 0.0
@@ -384,6 +398,79 @@ class RingsComponent:
     color: tuple[float, float, float] = (0.8, 0.72, 0.6)
     opacity: float = 1.0
     seed: int = 1
+
+
+# =========================================================
+# Orbit
+# =========================================================
+#
+# How the body on this entity moves and turns
+# (planet/orbits.py; OrbitSystem places it): a Keplerian
+# orbit around another body (by its entity's name) or the
+# star (""), and its spin. Elements are relative to the
+# ecliptic, or for "equator" to the parent's equator; the
+# mean anomaly is at J2000. Spin: the IAU north pole (right
+# ascension, declination) and prime meridian angle at J2000
+# (deg), the sidereal rotation period (s; negative =
+# retrograde), or locked by tides (its prime meridian
+# always toward its parent). A planet's elements are those
+# of the barycenter it shares with its moons.
+
+@dataclass(slots=True)
+class OrbitComponent:
+
+    parent: str = ""
+    semi_major_axis: float = 1.495978707e11     # m
+    eccentricity: float = 0.0
+    inclination: float = 0.0                    # deg
+    ascending_node: float = 0.0                 # deg
+    periapsis: float = 0.0                      # deg (argument)
+    mean_anomaly: float = 0.0                   # deg at J2000
+    period: float = 31_558_149.8                # s (anomalistic)
+    plane: str = "ecliptic"
+
+    # Precession (deg per year): the Moon's nodes regress
+    # once in 18.6 years and its perigee advances, which
+    # sets when eclipses happen.
+    node_rate: float = 0.0
+    periapsis_rate: float = 0.0
+
+    # "moon": our Moon's own theory instead of an ellipse
+    # (the Sun's pull; planet/orbits.py moon_offset).
+    theory: str = ""
+
+    pole_ra: float = 0.0                        # deg
+    pole_dec: float = 90.0                      # deg
+    prime_meridian: float = 0.0                 # deg at J2000
+    rotation_period: float = 86_164.1           # s
+    tidally_locked: bool = False
+
+
+# =========================================================
+# Star and Clock
+# =========================================================
+#
+# On the sun entity: the star the bodies orbit (its light's
+# brightness and color, its apparent size), and the
+# simulation clock that moves them: seconds since J2000
+# (2000-01-01 12:00 UTC) and how many simulated seconds
+# pass per real second (0 = stopped). With these, the sun's
+# direction, day and night, seasons and the moons in the
+# sky all follow the time.
+
+@dataclass(slots=True)
+class StarComponent:
+
+    luminosity: float = 1.0                     # Suns
+    temperature: float = 5772.0                 # K
+    radius: float = 6.957e8                     # m
+
+
+@dataclass(slots=True)
+class ClockComponent:
+
+    time: float = 0.0                           # s since J2000
+    rate: float = 0.0                           # simulated s per real s
 
 
 # =========================================================

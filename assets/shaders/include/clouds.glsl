@@ -249,6 +249,10 @@ CloudSample shadeCloud(
 
     cloud.radiance = light * uCloudColor.rgb;
 
+#ifdef ATMOSPHERE_ECLIPSES
+    cloud.radiance *= eclipseInAtmosphere(position);
+#endif
+
     return cloud;
 }
 
