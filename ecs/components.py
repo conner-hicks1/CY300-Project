@@ -328,6 +328,12 @@ class PlanetComponent:
     lumpiness: float = 0.0
     basins: tuple[float, ...] = (0.0,) * 20
 
+    # Real maps of the body (planet/maps.py dataset ids; ""
+    # = generated): measured heights as the terrain's base,
+    # and surface colors. Needs tools/fetch_maps.py.
+    elevation_map: str = ""
+    color_map: str = ""
+
     # Giant planets ("bands" palette): the great storm
     # (latitude, longitude in degrees, east-west size in m,
     # 0 = none; color; strength 0..1: Jupiter's Great Red
@@ -573,6 +579,12 @@ class TectonicsComponent:
     # Other regimes: relief multiplier (weaker gravity
     # holds up taller mountains).
     relief_scale: float = 1.0
+
+    # Stagnant lids: strength of the crustal dichotomy (one
+    # hemisphere low, 1 = default), and the share of the
+    # surface in the low one.
+    dichotomy: float = 1.0
+    lowlands: float = 0.5
 
     # Grid cells per cube-face edge (6 * n^2 cells).
     resolution: int = 128

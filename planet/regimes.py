@@ -5,7 +5,7 @@ import numpy as np
 
 from planet.noise import Perlin, fbm
 from planet.sphere_grid import SphereGrid, sphere_grid
-from planet.tectonics import PlateInfo, TectonicSettings, TectonicState
+from planet.tectonics import CachedStates, PlateInfo, TectonicSettings, TectonicState
 
 
 # =========================================================
@@ -79,7 +79,7 @@ AGE_SCALES = {
 }
 
 
-class RegimeSimulation:
+class RegimeSimulation(CachedStates):
 
     # Shared by the regimes: the grid, the state's
     # bookkeeping, and geometry helpers.
@@ -103,7 +103,7 @@ class RegimeSimulation:
     # Simulation interface (planet/tectonics.py)
     # -----------------------------------------------------
 
-    def initial_state(
+    def _initial_state(
         self
     ) -> TectonicState:
         """The surface as it is today."""
@@ -131,7 +131,7 @@ class RegimeSimulation:
 
         return state
 
-    def step(
+    def _step(
         self,
         state: TectonicState
     ) -> TectonicState:
@@ -304,12 +304,18 @@ class StagnantLid(RegimeSimulation):
         s = self.relief
 
         # Crustal dichotomy: one hemisphere higher, its
-        # boundary wandering (Mars's southern highlands).
+        # boundary wandering (Mars's southern highlands),
+        # with the body's share of lowlands (checked against
+        # MOLA and LOLA with tools/compare_terrain.py).
         axis = _random_direction(rng)
 
-        dichotomy = np.tanh(3.0 * (0.6 * (self.directions @ axis) + self.noise(1, 1.2, 4)))
+        side = 0.6 * (self.directions @ axis) + self.noise(1, 1.2, 4)
 
-        height = 1_500.0 * s * dichotomy + 500.0 * s * self.noise(2, 3.0, 5)
+        side = side - np.quantile(side, self.settings.lowlands)
+
+        dichotomy = np.tanh(3.0 * side)
+
+        height = 1_500.0 * s * self.settings.dichotomy * dichotomy + 500.0 * s * self.noise(2, 3.0, 5)
 
         highland = _smoothstep(-0.3, 0.3, dichotomy)
 
@@ -354,17 +360,32 @@ class StagnantLid(RegimeSimulation):
 
             activity += rise
 
-        # Lava floods the lowest ground: flat, dark plains
-        # (maria, Mars's northern plains).
-        level = float(np.percentile(height, rng.uniform(12.0, 30.0)))
+        # Lava floods the lowest ground of each region: flat,
+        # dark plains (maria, Mars's northern plains), filling
+        # basins and low ground relative to their surroundings
+        # (a global level would fill a whole low hemisphere).
+        surroundings = self.diffuse(height, 0.5, 40)
 
-        flooded = _smoothstep(level + 300.0 * s, level - 300.0 * s, height)
+        local = height - surroundings
 
-        height = height + (level + 0.08 * (height - level) - height) * flooded
+        # Only in the low hemisphere (the Moon's near-side
+        # maria, Mars's north): the ancient highlands stay
+        # cratered.
+        lowland = 1.0 - highland
+
+        level = float(np.percentile(local[lowland > 0.5], rng.uniform(25.0, 50.0)))
+
+        flooded = _smoothstep(level + 300.0 * s, level - 300.0 * s, local) * lowland
+
+        height = height + (surroundings + level + 0.08 * (local - level) - height) * flooded
 
         age = age + (rng.uniform(3_200.0, 3_700.0) - age) * flooded
 
-        state.height = self.diffuse(height, 0.25, 2)
+        height = self.diffuse(height, 0.25, 2)
+
+        # Heights above the mean surface (the datum real maps
+        # use).
+        state.height = height - float(np.mean(height))
 
         # Bright highlands, mid-toned lowlands, dark lava.
         state.continental = (0.6 + 0.4 * highland) * (1.0 - flooded)

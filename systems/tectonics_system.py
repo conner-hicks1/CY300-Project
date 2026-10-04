@@ -457,5 +457,7 @@ def tectonic_settings_for(
         resolution=max(16, int(component.resolution)),
         radius=float(planet.radius),
         regime=component.regime,
-        relief_scale=float(component.relief_scale)
+        relief_scale=float(component.relief_scale),
+        dichotomy=max(0.0, float(component.dichotomy)),
+        lowlands=float(min(max(component.lowlands, 0.05), 0.95))
     )

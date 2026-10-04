@@ -3,6 +3,8 @@ from functools import lru_cache
 
 import numpy as np
 
+from core.disk_cache import cache_key, cached
+
 from graphics.mesh_data import MeshData
 
 from planet.cube_sphere import (
@@ -36,6 +38,22 @@ class ChunkData:
 
     min_elevation: float
     max_elevation: float
+
+
+def build_cached_chunk(
+    key: ChunkKey,
+    terrain: Terrain,
+    resolution: int
+) -> ChunkData:
+    """build_chunk through the disk cache (core/disk_cache.py)."""
+
+    terrain_key = terrain.cache_key
+
+    return cached(
+        "chunks",
+        None if terrain_key is None else cache_key("chunk", terrain_key, key, resolution),
+        lambda: build_chunk(key, terrain, resolution)
+    )
 
 
 def build_chunk(

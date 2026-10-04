@@ -10,3 +10,6 @@ editor_layout*.ini
 
 # Office lock files
 ~$*
+
+# Downloaded maps and caches (tools/fetch_maps.py)
+data/

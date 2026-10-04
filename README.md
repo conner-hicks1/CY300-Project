@@ -126,6 +126,37 @@ building and saving scenes.
   chunk building is shared across all the bodies at once, every body whole
   first, then detail where it looks largest
 
+**Real maps**
+
+![Mars from MOLA heights and Viking colors, the Moon from LOLA heights and LROC colors, and Earth from ETOPO1 with its climate's biomes](docs/images/real_maps.png)
+
+- Measured terrain for the real bodies: Mars from MOLA's laser altimeter,
+  the Moon from LRO's LOLA, Earth's land and sea floor from ETOPO1, with
+  LROC and Viking color mosaics. `python tools/fetch_maps.py` downloads them
+  (~86 MB, public domain or free to redistribute) into `data/maps/`; they
+  are not part of the repository
+- Each map is read in its archive's own format (PDS images and labels,
+  classic netCDF, images), resampled once onto the cube-sphere and cached
+  (loads in milliseconds); hills and craters smaller than the map can show
+  are added on top, colors keep the generated fine variation
+- File > New Planet > Real maps (or Planet panel > Body > Real maps) shows
+  the body as measured; its climate, biomes and rivers then work on the real
+  topography (the Sahara comes out a desert), and the clock turns the real
+  continents to the sun at the right hours
+- Checking the generators against them: `python tools/compare_terrain.py`
+  measures the same statistics of the measured and the generated surface
+  (how much lies at each height, how relief grows with scale from 10 to
+  2,000 km, slopes) and draws both. That found real gaps, now calibrated:
+  Earth's sea floor was uniformly old and deep and its land twice too high;
+  the Moon was too smooth below 100 km and had no giant basins; lava flooded
+  Mars's whole northern lowlands up to a single level. After calibration
+  (generated vs measured): Earth's coasts, the 90th and 98th height
+  percentiles 0.09 / 0.85 / 3.3 km vs 0.08 / 0.72 / 2.6; the Moon's relief at
+  10, 100 and 1,000 km 0.60 / 1.36 / 2.65 km vs 0.68 / 1.58 / 2.73; Mars's
+  lowest and highest 2% -5.1 / +5.5 km vs -5.2 / +5.5
+
+![Shaded relief, measured (left) and generated (right): Mars, the Moon, Earth](docs/images/terrain_check.png)
+
 **Plate tectonics**
 
 ![Crust-age view after a few hundred million years: young sea floor (red) at the ridges, older floor (blue), continents (tan)](docs/images/tectonics.png)
@@ -343,7 +374,20 @@ building and saving scenes.
   under a per-frame time budget
 - Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
   output routed to the log
-- 562 unit tests for everything that does not need a GPU
+- The simulations' heaviest steps on the GPU (compute shaders): the
+  climate's radiative balance (Newton steps, each a conjugate-gradient solve
+  inside one workgroup), the rivers' basin filling and discharge, and the
+  plates' crust tracking. Simulation threads hand them to the main thread,
+  which runs a few milliseconds of them per frame, so a solve spreads over
+  frames instead of stalling one or holding the Python lock: the climate
+  solve goes from 1.6 s to 0.2 s (30 s to 0.4 s at 4x the cells). Each keeps
+  its NumPy twin, the reference it is tested against and the fallback
+  without compute shaders
+- A disk cache (`data/cache/`) of tectonic states step by step, climates and
+  terrain chunks, keyed by their inputs and the generators' source code:
+  reopening a planet loads instead of simulating (startup 1.9 s to 0.7 s,
+  chunks streaming in ~70% faster); oldest entries pruned past 2 GB
+- 587 unit tests (the GPU kernels' run where a GPU is available)
 
 ## Getting Started
 
@@ -409,23 +453,24 @@ The planet streams in over the first few seconds.
 | Path | Contents |
 | --- | --- |
 | `main.py`, `application.py` | Entry point, main loop, demo content |
-| `core/` | Window, input, events, timer, logging, profiler, job system |
+| `core/` | Window, input, events, timer, logging, profiler, job system, disk cache |
 | `ecs/` | Entity registry and components |
 | `systems/` | Transform, camera controller, rotator, orbits and clock, tectonics, climate, planet streaming and render systems |
-| `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping and simulation grid, plate tectonics and other tectonic regimes, impact craters, volcanoes, rivers and dunes, climate, terrain, chunk building, level of detail, body shapes, orbits and spin, solar time |
-| `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, clouds, rings, eclipses, bloom |
+| `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping and simulation grid, plate tectonics and other tectonic regimes, impact craters, volcanoes, rivers and dunes, climate, terrain, chunk building, level of detail, body shapes, orbits and spin, solar time, real maps |
+| `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, clouds, rings, eclipses, bloom, GPU compute and the simulations' kernels |
 | `editor/` | Scene editor, hierarchy / inspector / planet panels, picking, undo history |
 | `scene/` | Scene container and scene file (de)serialization |
 | `resources/` | Handle-based resource managers |
 | `math3d/` | Transforms, camera, matrix helpers |
 | `ui/` | ImGui integration, docked layout and panel registry, render / stats / profiler panels |
 | `assets/` | Shaders, textures, scenes, body profiles (`bodies/`) |
-| `tools/` | Asset generator and micro-benchmarks |
+| `tools/` | Asset generator, micro-benchmarks, real map downloader, terrain checker |
+| `data/` | Downloaded maps and caches (not in the repository) |
 | `tests/` | pytest suite (`tests/fixtures/` holds the OBJ / glTF test models) |
 
 ## Development
 
-Run the tests (no GPU needed):
+Run the tests (the GPU kernel tests skip without a GPU):
 
 ```bash
 python -m pytest
@@ -442,6 +487,20 @@ Benchmark the per-frame hot paths:
 ```bash
 python tools/benchmark_hot_paths.py
 ```
+
+Download the real maps (~86 MB; `--list` shows what and from where), then
+compare the generators with them:
+
+```bash
+python tools/fetch_maps.py
+```
+
+```bash
+python tools/compare_terrain.py --image terrain_check.png
+```
+
+Switches (environment variables): `ENGINE_NO_GPU_SIMULATION` keeps every
+simulation on the CPU, `ENGINE_NO_DISK_CACHE` disables the disk cache.
 
 Shaders live in `assets/shaders/` and reload automatically when saved. The
 Profiler window (bottom of the screen) shows CPU and GPU time per render pass;

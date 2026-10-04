@@ -135,6 +135,8 @@ class Renderer:
         # its frame). See lit.frag.glsl.
         "uBodyCenter": (0.0, 0.0, 0.0, 0.0),
         "uBodyFrame": (0.0, 0.0, 0.0, 1.0),
+        "uColorMapStrength": 0.0,
+        "uColorMapScale": 1.0,
     }
 
     # =====================================================

@@ -4,6 +4,9 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
+from core.disk_cache import cache_key, cached
+
+from planet.acceleration import accelerator
 from planet.noise import Perlin, fbm
 from planet.sphere_grid import SphereGrid, sphere_grid
 
@@ -76,6 +79,13 @@ class TectonicSettings:
     # gravity holds up taller mountains).
     relief_scale: float = 1.0
 
+    # Stagnant lids: how strong the crustal dichotomy is
+    # (1 = the default step), and how much of the surface
+    # lies in the low hemisphere (Mars's northern lowlands:
+    # a third).
+    dichotomy: float = 1.0
+    lowlands: float = 0.5
+
 
 # Uplift per 5 Myr at convergent boundaries (m).
 UPLIFT_COLLISION = 700.0
@@ -111,6 +121,9 @@ DIFFUSION = 0.12
 
 RIDGE_DEPTH = -2_600.0
 ABYSSAL_DEPTH = -5_600.0
+
+# The oldest sea floor at the start (Myr).
+MAX_OCEAN_AGE = 180.0
 
 # Sea floor reaches most of its final depth within a few
 # times this many Myr (the "plate model" of cooling: deep
@@ -159,6 +172,10 @@ class TectonicState:
 
     regime: str = "plate_tectonics"
 
+    # Identifies the state for the disk cache: its settings
+    # and every step that led here ("" = unknown history).
+    key: str = ""
+
     @property
     def plate_total(
         self
@@ -205,6 +222,22 @@ def surface_elevation(
     return ocean + (state.land_height - ocean) * land
 
 
+def rotated_cells(
+    directions: np.ndarray,
+    rotations: np.ndarray,
+    resolution: int
+) -> np.ndarray:
+    """
+    (rotations, cells) sphere-grid cell of each direction
+    rotated by each 3x3 rotation. (The reference for the GPU
+    version, graphics/gpu_simulation.py.)
+    """
+
+    grid = sphere_grid(resolution)
+
+    return np.stack([grid.cell_of(directions @ rotation.T) for rotation in rotations])
+
+
 def plate_velocities(
     state: TectonicState,
     directions: np.ndarray,
@@ -221,7 +254,46 @@ def plate_velocities(
 # Simulation
 # =========================================================
 
-class TectonicSimulation:
+class CachedStates:
+
+    # Simulations whose states come from the disk cache when
+    # they were computed before (core/disk_cache.py): the
+    # initial state by its settings, each step by the key of
+    # the state it followed. Subclasses implement
+    # _initial_state() and _step().
+
+    def initial_state(
+        self
+    ) -> TectonicState:
+        """The starting state (deterministic for the settings)."""
+
+        key = cache_key("tectonics", self.settings)
+
+        state = cached("tectonics", key, self._initial_state)
+
+        state.key = key
+
+        return state
+
+    def step(
+        self,
+        state: TectonicState
+    ) -> TectonicState:
+        """One time step; returns a new state (the input is untouched)."""
+
+        if not state.key:
+            return self._step(state)
+
+        key = cache_key("tectonics step", self.settings, state.key)
+
+        new = cached("tectonics", key, lambda: self._step(state))
+
+        new.key = key
+
+        return new
+
+
+class TectonicSimulation(CachedStates):
 
     def __init__(
         self,
@@ -236,7 +308,7 @@ class TectonicSimulation:
     # Initial state
     # -----------------------------------------------------
 
-    def initial_state(
+    def _initial_state(
         self
     ) -> TectonicState:
 
@@ -294,21 +366,30 @@ class TectonicSimulation:
         # first collision.
         ridge = 1.0 - np.abs(fbm(Perlin(s.seed * 4241), directions * 2.5, 4))
 
-        belts = _smoothstep(0.9, 0.985, ridge) * continental
+        belts = _smoothstep(0.93, 0.99, ridge) * continental
+
+        # Low coastal plains rising inland (on Earth, half
+        # the land is below ~450 m, and coasts are lowest).
+        inland = np.clip((noise - threshold) * 3.0, 0.0, 1.0)
 
         land_height = (
-            CONTINENT_BASE
-            + 600.0 * np.clip((noise - threshold) * 4.0, 0.0, 1.0)
+            40.0
+            + 1_100.0 * inland ** 1.5
             + INITIAL_BELT_HEIGHT * belts
         ).astype(np.float32)
 
-        # Ocean floor of mixed ages; continents are old.
-        age_noise = fbm(Perlin(s.seed * 104_729), directions * 2.5, 3) * 0.5 + 0.5
+        # Ocean floor of mixed ages, mostly young (as on
+        # Earth, where the area of sea floor falls off
+        # steadily with age up to ~180 Myr: half of it is
+        # younger than ~55 Myr). Continents are old.
+        age_noise = fbm(Perlin(s.seed * 104_729), directions * 2.5, 3)
+
+        rank = np.argsort(np.argsort(age_noise)) / max(len(age_noise) - 1, 1)
 
         age = np.where(
             continental > 0.5,
             1_000.0,
-            20.0 + 160.0 * np.clip(age_noise, 0.0, 1.0)
+            MAX_OCEAN_AGE * (1.0 - np.sqrt(1.0 - rank))
         ).astype(np.float32)
 
         zeros = np.zeros(grid.cell_count, dtype=np.float32)
@@ -351,11 +432,10 @@ class TectonicSimulation:
     # Step
     # -----------------------------------------------------
 
-    def step(
+    def _step(
         self,
         state: TectonicState
     ) -> TectonicState:
-        """One time step; returns a new state (the input is untouched)."""
 
         started = time.perf_counter()
 
@@ -382,20 +462,29 @@ class TectonicSimulation:
 
         sources = np.full((plates, cells), -1, dtype=np.int64)
 
-        rotations = {}
+        rotations = {
+            k: _rotation_matrix(state.axes[k], -state.speeds[k] * dt)
+            for k in range(plates)
+            if np.any(state.plate == k)
+        }
 
-        for k in range(plates):
+        if rotations:
 
-            if not np.any(state.plate == k):
-                continue
+            # Every plate at once (on the GPU when there is
+            # one: planet/acceleration.py).
+            gpu = accelerator()
 
-            rotation = _rotation_matrix(state.axes[k], -state.speeds[k] * dt)
+            found = (gpu.rotated_cells if gpu is not None else rotated_cells)(
+                directions,
+                np.stack(list(rotations.values())),
+                grid.n
+            )
 
-            rotations[k] = rotation
+            for row, k in enumerate(rotations):
 
-            source = grid.cell_of(directions @ rotation.T)
+                source = found[row]
 
-            sources[k] = np.where(state.plate[source] == k, source, -1)
+                sources[k] = np.where(state.plate[source] == k, source, -1)
 
         claimed = sources >= 0
 
@@ -523,16 +612,6 @@ class TectonicSimulation:
                 np.exp(-dt / COLLISION_MEMORY)
             )
 
-        else:
-
-            collisions = _accumulate_collisions(
-                state.collisions,
-                np.zeros(0, dtype=np.int64),
-                np.zeros(0, dtype=np.int64),
-                plates,
-                np.exp(-dt / COLLISION_MEMORY)
-            )
-
             orogeny = (orogeny + uplift).astype(np.float32)
 
             # Colliding continents weld together; island
@@ -548,6 +627,16 @@ class TectonicSimulation:
                 np.minimum(continental + 0.04 * scale, 1.0),
                 continental
             ).astype(np.float32)
+
+        else:
+
+            collisions = _accumulate_collisions(
+                state.collisions,
+                np.zeros(0, dtype=np.int64),
+                np.zeros(0, dtype=np.int64),
+                plates,
+                np.exp(-dt / COLLISION_MEMORY)
+            )
 
         # -------------------------------------------------
         # 4. Erosion, relaxation, spreading of relief
@@ -814,6 +903,9 @@ class TectonicField:
     # Crust age shown as "old" in the Crust age view (Myr).
     age_scale: float = 400.0
 
+    # The state's cache key (TectonicState.key).
+    content_key: str = ""
+
     @classmethod
     def from_state(
         cls,
@@ -839,7 +931,8 @@ class TectonicField:
             time=state.time,
             version=version,
             regime=state.regime,
-            age_scale=age_scale
+            age_scale=age_scale,
+            content_key=state.key
         )
 
     def sample(

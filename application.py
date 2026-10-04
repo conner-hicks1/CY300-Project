@@ -8,6 +8,7 @@ import OpenGL
 OpenGL.ERROR_CHECKING = False
 
 import math
+import os
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -18,6 +19,7 @@ from imgui_bundle import imgui
 
 from core.assertions import engine_assert
 from core.cprofile_capture import CProfileCapture
+from core.disk_cache import DiskCache, disk_cache, set_disk_cache
 from core.events import (
     EventDispatcher,
     MouseButtonPressedEvent,
@@ -55,7 +57,9 @@ from ecs.components import (
 )
 from ecs.entity import Entity
 
+from graphics.compute import GpuQueue, compute_supported
 from graphics.framebuffer import Framebuffer
+from graphics.gpu_simulation import GpuSimulation
 from graphics.gpu_timer import GpuTimer
 from graphics.material import Material
 from graphics.mesh_factory import MeshFactory
@@ -69,6 +73,7 @@ from math3d import quaternion
 from math3d.transform import Transform
 
 from planet import solar
+from planet.acceleration import set_accelerator
 from planet.bodies import (
     ProfileError,
     components_for,
@@ -76,8 +81,10 @@ from planet.bodies import (
     preset_groups,
     star_color,
     sun_intensity,
-    system_members
+    system_members,
+    use_real_maps
 )
+from planet.maps import DATASETS
 from planet.orbits import DAY, seconds_since_j2000
 from planet.spawn import find_spawn
 from planet.tectonics import TectonicField, simulation_for
@@ -135,6 +142,10 @@ class Application:
     # Main-thread time per frame for job completions.
     JOB_BUDGET_SECONDS = 0.002
 
+    # Main-thread time per frame for the simulations' GPU
+    # work (each slice is one small dispatch).
+    GPU_BUDGET_SECONDS = 0.003
+
     # =====================================================
     # Construction
     # =====================================================
@@ -185,6 +196,12 @@ class Application:
         # Background work (mesh generation, loading);
         # results are handed back in update().
         self.jobs: JobSystem | None = None
+
+        # GPU work handed to the GL thread by simulation
+        # jobs, and the compute kernels behind it (None
+        # without compute shaders).
+        self.gpu_queue: GpuQueue | None = None
+        self.gpu_simulation: GpuSimulation | None = None
 
         self.planet_system: PlanetSystem | None = None
         self.tectonics_system: TectonicsSystem | None = None
@@ -271,6 +288,10 @@ class Application:
 
         self.renderer = Renderer()
 
+        # Simulations' heavy steps on the GPU (compute
+        # shaders, OpenGL 4.3); the NumPy versions otherwise.
+        self._start_gpu_simulation()
+
         if GpuTimer.is_supported():
 
             self.gpu_timer = GpuTimer()
@@ -321,6 +342,17 @@ class Application:
         self.camera_controller_system = CameraControllerSystem()
 
         self.jobs = JobSystem()
+
+        # Simulation states, climates and terrain chunks kept
+        # on disk between runs (core/disk_cache.py), oldest
+        # pruned in the background.
+        if not os.environ.get("ENGINE_NO_DISK_CACHE"):
+
+            cache = DiskCache()
+
+            set_disk_cache(cache)
+
+            self.jobs.submit(cache.prune, name="disk cache prune")
 
         self.render_system = RenderSystem(
             self.renderer,
@@ -384,8 +416,16 @@ class Application:
             load_model_material=self._load_model_material_handle,
             panels=PanelRegistry(),
             body_presets={
-                group: [(profile.id, profile.name) for profile in members]
-                for group, members in preset_groups(self.body_presets).items()
+                **{
+                    group: [(profile.id, profile.name) for profile in members]
+                    for group, members in preset_groups(self.body_presets).items()
+                },
+                # Bodies whose real maps are downloaded.
+                "Real maps": [
+                    (f"{profile.id}@real", f"{profile.name} (measured)")
+                    for profile in self.body_presets.values()
+                    if any(DATASETS[d].available for d in profile.maps if d)
+                ],
             },
             populate_body_scene=self._populate_body_scene
         )
@@ -398,6 +438,10 @@ class Application:
             apply_preset=self.apply_body_preset,
             descriptions={
                 profile.id: profile.description
+                for profile in self.body_presets.values()
+            },
+            maps={
+                profile.id: profile.maps
                 for profile in self.body_presets.values()
             }
         )
@@ -434,6 +478,43 @@ class Application:
         Logger.info(
             "[Application] Initialization complete."
         )
+
+    def _start_gpu_simulation(self):
+
+        if os.environ.get("ENGINE_NO_GPU_SIMULATION"):
+
+            Logger.info("[Application] GPU simulation switched off (ENGINE_NO_GPU_SIMULATION).")
+
+            return
+
+        if not compute_supported():
+
+            Logger.info("[Application] No compute shaders; simulations run on the CPU.")
+
+            return
+
+        try:
+
+            queue = GpuQueue()
+
+            simulation = GpuSimulation(queue)
+
+        except Exception as error:
+
+            Logger.error(
+                "[Application] GPU simulation unavailable (%s: %s); using the CPU.",
+                type(error).__name__,
+                error
+            )
+
+            return
+
+        self.gpu_queue = queue
+        self.gpu_simulation = simulation
+
+        set_accelerator(simulation)
+
+        Logger.info("[Application] Simulations' heavy steps run on the GPU.")
 
     # =====================================================
     # Initial Scene
@@ -919,22 +1000,29 @@ class Application:
 
     def _add_system_members(
         self,
-        body_id: str
+        body_id: str,
+        real: bool = False
     ):
         """
         Add the other bodies of a body's planetary system
         (OrbitSystem places them; their simulations run in
-        the background).
+        the background). real: with their real maps where
+        downloaded.
         """
 
         for member_id in system_members(self.body_presets, body_id):
 
             member = self.body_presets[member_id]
 
+            parts = components_for(member)
+
+            if real:
+                use_real_maps(parts.planet, member)
+
             self._create_entity(
                 member.name,
                 Transform(),
-                *components_for(member).all()
+                *parts.all()
             )
 
     def _time_of_day(
@@ -1011,11 +1099,19 @@ class Application:
             "The planet builder fills the application's scene."
         )
 
+        # "<id>@real": the body as measured (planet/maps.py).
+        body_id, _, variant = body_id.partition("@")
+
+        real = variant == "real"
+
         profile = self.body_presets[body_id]
 
         parts = components_for(profile)
 
         planet = parts.planet
+
+        if real:
+            use_real_maps(planet, profile)
 
         terrain_settings = terrain_settings_for(planet)
 
@@ -1202,7 +1298,7 @@ class Application:
 
         # Its moons, or its planet and sibling moons, in the
         # sky; their geology and climate stream in later.
-        self._add_system_members(body_id)
+        self._add_system_members(body_id, real)
 
         # Mid-morning where the camera stands; the system
         # placed around this body.
@@ -1474,6 +1570,15 @@ class Application:
             self.jobs.process_completions(
                 self.JOB_BUDGET_SECONDS
             )
+
+        # GPU work the simulation threads are waiting on.
+        if self.gpu_queue is not None:
+
+            with profiler.scope("GPU simulation", gpu=True):
+
+                self.gpu_queue.process(
+                    self.GPU_BUDGET_SECONDS
+                )
 
         # -------------------------------------------------
         # Camera
@@ -1981,11 +2086,42 @@ class Application:
         self.transform_system = None
         self.rotator_system = None
 
+        # Simulation threads waiting on the GPU give up (it
+        # is going away) instead of hanging.
+        if self.gpu_queue is not None:
+
+            self.gpu_queue.shutdown()
+
+            set_accelerator(None)
+
         if self.jobs is not None:
 
             self.jobs.shutdown()
 
             self.jobs = None
+
+        cache = disk_cache()
+
+        if cache is not None:
+
+            Logger.info("[Cache] %d hit(s), %d miss(es) this run.", cache.hits, cache.misses)
+
+            set_disk_cache(None)
+
+        if self.gpu_simulation is not None:
+
+            for name, (calls, seconds) in self.gpu_simulation.timings.items():
+
+                Logger.info(
+                    "[GPU] %s: %d call(s), %.2f s total (including frames waited).",
+                    name,
+                    calls,
+                    seconds
+                )
+
+            self.gpu_simulation.delete()
+
+            self.gpu_simulation = None
 
         self.handles.clear()
 

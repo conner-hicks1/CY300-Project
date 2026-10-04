@@ -230,6 +230,7 @@ class RenderSystem:
             ("uNormalMap", flat_normal),
             ("uOcclusionMap", white_linear),
             ("uEmissiveMap", white_srgb),
+            ("uColorMap", white_srgb),
         ):
 
             renderer.set_default_texture(

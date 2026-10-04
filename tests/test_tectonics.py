@@ -375,3 +375,21 @@ def test_system_drops_removed_planets(world):
     system.update(scene)
 
     assert system.field(entity) is None
+
+
+def test_collisions_raise_young_mountain_belts():
+
+    # Converging plates lift fresh mountain belts (recent
+    # uplift, "orogeny"), not just the ground.
+    simulation = TectonicSimulation(TectonicSettings(seed=3, resolution=32, plate_count=8))
+
+    state = simulation.initial_state()
+
+    for _ in range(4):
+        state = simulation.step(state)
+
+    converging = state.activity > 1.0
+
+    assert converging.any()
+
+    assert state.orogeny[converging].mean() > 2.0 * state.orogeny[~converging].mean()

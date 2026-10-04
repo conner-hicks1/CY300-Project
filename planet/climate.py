@@ -5,6 +5,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from planet.acceleration import accelerator
 from planet.sphere_grid import SphereGrid, sphere_grid
 
 
@@ -496,41 +497,17 @@ class ClimateModel:
         # conjugate gradients).
         conductance = (transport[:, None] + transport[neighbors]) * 0.125
 
-        total_conductance = conductance.sum(axis=1)
+        initial = max((absorbed.mean() / (emissivity * STEFAN_BOLTZMANN)) ** 0.25, 3.0)
 
-        def laplacian(values):
-            return total_conductance * values - (conductance * values[neighbors]).sum(axis=1)
+        emissivities = np.full(absorbed.shape, emissivity)
 
-        # Newton's method from the planet-wide equilibrium;
-        # each step solves the linearized balance exactly
-        # (a relaxation would take thousands of sweeps to
-        # spread heat across a thick atmosphere).
-        kelvin = np.full(
-            absorbed.shape,
-            max((absorbed.mean() / (emissivity * STEFAN_BOLTZMANN)) ** 0.25, 3.0)
-        )
+        # On the GPU when there is one (planet/acceleration.py).
+        gpu = accelerator()
 
-        for _ in range(40):
-
-            emitted = emissivity * STEFAN_BOLTZMANN * kelvin ** 4
-
-            residual = absorbed - emitted - laplacian(kelvin)
-
-            radiative_slope = 4.0 * emitted / kelvin
-
-            step = _conjugate_gradient(
-                lambda v: radiative_slope * v + laplacian(v),
-                residual,
-                radiative_slope + total_conductance
-            )
-
-            # Keep far-off first guesses from overshooting.
-            step = np.clip(step, -0.5 * kelvin, kelvin)
-
-            kelvin = np.maximum(kelvin + step, 3.0)
-
-            if np.abs(step).max() < 0.01:
-                break
+        if gpu is not None:
+            kelvin = gpu.solve_temperature(absorbed, emissivities, conductance, neighbors, initial)
+        else:
+            kelvin = solve_temperature(absorbed, emissivities, conductance, neighbors, initial)
 
         return kelvin - KELVIN
 
@@ -568,6 +545,57 @@ BIOMES = (
     "Savanna",
     "Tropical rainforest",
 )
+
+
+def solve_temperature(
+    absorbed: np.ndarray,
+    emissivity: np.ndarray,
+    conductance: np.ndarray,
+    neighbors: np.ndarray,
+    initial_kelvin: float
+) -> np.ndarray:
+    """
+    Steady temperatures (K) where each cell's absorbed
+    sunlight balances its emission and the heat its
+    neighbors take: absorbed = e sigma T^4 + sum_j c_ij (T_i -
+    T_j). (The reference for the GPU version,
+    graphics/gpu_simulation.py.)
+    """
+
+    total_conductance = conductance.sum(axis=1)
+
+    def laplacian(values):
+        return total_conductance * values - (conductance * values[neighbors]).sum(axis=1)
+
+    # Newton's method from the planet-wide equilibrium;
+    # each step solves the linearized balance exactly (a
+    # relaxation would take thousands of sweeps to spread
+    # heat across a thick atmosphere).
+    kelvin = np.full(absorbed.shape, float(initial_kelvin))
+
+    for _ in range(40):
+
+        emitted = emissivity * STEFAN_BOLTZMANN * kelvin ** 4
+
+        residual = absorbed - emitted - laplacian(kelvin)
+
+        radiative_slope = 4.0 * emitted / kelvin
+
+        step = _conjugate_gradient(
+            lambda v: radiative_slope * v + laplacian(v),
+            residual,
+            radiative_slope + total_conductance
+        )
+
+        # Keep far-off first guesses from overshooting.
+        step = np.clip(step, -0.5 * kelvin, kelvin)
+
+        kelvin = np.maximum(kelvin + step, 3.0)
+
+        if np.abs(step).max() < 0.01:
+            break
+
+    return kelvin
 
 
 def _conjugate_gradient(
@@ -675,6 +703,9 @@ class ClimateField:
     # Rivers, lakes, deltas and glaciers draining this
     # climate's rain (planet/hydrology.py), or None.
     hydrology: object = None
+
+    # The climate's cache key ("" = not cached).
+    content_key: str = ""
 
     @property
     def liquid_boiled(

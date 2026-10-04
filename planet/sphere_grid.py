@@ -78,6 +78,11 @@ class SphereGrid:
 
         return -1.0 + (np.asarray(index, dtype=np.float64) + 0.5) * (2.0 / self.n)
 
+    def __reduce__(self):
+
+        # Pickled (disk cache) as its size: the shared grid.
+        return (sphere_grid, (self.n,))
+
     # =====================================================
     # Lookups
     # =====================================================

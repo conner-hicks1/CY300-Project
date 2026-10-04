@@ -82,5 +82,8 @@
   },
   "climate": {
     "humidity": 1.0
+  },
+  "maps": {
+    "elevation": "etopo1_5min"
   }
 }

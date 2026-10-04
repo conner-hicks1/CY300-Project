@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from core.disk_cache import cache_key, cached
 from core.jobs import Job, JobSystem
 from core.logger import Logger
 
@@ -273,6 +274,21 @@ def compute_climate(
     Climate for a terrain: elevation sampled on the climate
     grid, then the model. Returns (field, seconds).
     """
+
+    terrain_key = terrain.cache_key
+
+    key = None if terrain_key is None else cache_key("climate", settings, terrain_key)
+
+    field, seconds = cached("climate", key, lambda: _compute_climate(settings, terrain, version))
+
+    return dataclasses.replace(field, version=version, content_key=key or ""), seconds
+
+
+def _compute_climate(
+    settings: ClimateSettings,
+    terrain: Terrain,
+    version: int
+) -> tuple[ClimateField, float]:
 
     model = ClimateModel(settings)
 

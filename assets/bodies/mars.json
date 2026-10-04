@@ -80,9 +80,15 @@
   },
   "geology": {
     "regime": "stagnant_lid",
-    "plate_count": 0
+    "plate_count": 0,
+    "dichotomy": 1.7,
+    "lowlands": 0.36
   },
   "climate": {
     "humidity": 0.0
+  },
+  "maps": {
+    "elevation": "mola_megdr_16",
+    "color": "viking_color_1024"
   }
 }

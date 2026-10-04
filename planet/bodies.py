@@ -40,6 +40,7 @@ BODIES_DIRECTORY = Path("assets/bodies")
 from graphics.rings import flat_bands
 from planet.phases import ICES, SUBSTANCES, frost_point
 from planet.regimes import DEFAULT_TIME_STEPS
+from planet.maps import DATASETS
 from planet.shape import MAX_BASINS, flat_basins
 from planet.volcanoes import max_volcano_height
 
@@ -282,6 +283,14 @@ class BodyProfile:
     periapsis_rate_deg_per_year: float = 0.0
     pole: tuple[float, float, float] | None = None
     tidally_locked: bool = False
+
+    # Real maps available for the body (planet/maps.py
+    # dataset ids, "" = none): elevation, color.
+    maps: tuple[str, str] = ("", "")
+
+    # Stagnant lids: crustal dichotomy strength and the share
+    # of lowlands.
+    dichotomy: tuple[float, float] = (1.0, 0.5)
 
     # -----------------------------------------------------
     # Derived physics
@@ -787,6 +796,22 @@ def parse_profile(
         if pole[1] > 90.0:
             fail("'pole_dec_deg' must be at most 90")
 
+    raw_maps = data.get("maps", {})
+
+    if not isinstance(raw_maps, dict):
+        fail("'maps' must be an object")
+
+    maps = []
+
+    for kind in ("elevation", "color"):
+
+        dataset = raw_maps.get(kind, "")
+
+        if dataset and (dataset not in DATASETS or DATASETS[dataset].kind != kind):
+            fail(f"unknown {kind} map '{dataset}'")
+
+        maps.append(dataset)
+
     orbit_plane = orbit.get("plane", "equator" if data.get("orbits", "Sun") != "Sun" else "ecliptic")
 
     if orbit_plane not in ("ecliptic", "equator"):
@@ -863,7 +888,12 @@ def parse_profile(
         orbit_theory=str(orbit.get("theory", "")),
         periapsis_rate_deg_per_year=number(orbit, "periapsis_rate_deg_per_year", default=0.0),
         pole=pole,
-        tidally_locked=locked
+        tidally_locked=locked,
+        maps=tuple(maps),
+        dichotomy=(
+            number(geology, "dichotomy", 0.0, default=1.0),
+            number(geology, "lowlands", 0.05, default=0.5),
+        )
     )
 
     if profile.bond_albedo >= 1.0:
@@ -1079,7 +1109,9 @@ def components_for(
             regime=profile.regime,
             seed=seed,
             time_step=DEFAULT_TIME_STEPS[profile.regime],
-            relief_scale=relief_scale(profile.surface_gravity)
+            relief_scale=relief_scale(profile.surface_gravity),
+            dichotomy=profile.dichotomy[0],
+            lowlands=profile.dichotomy[1]
         )
 
     rings = None
@@ -1105,6 +1137,21 @@ def components_for(
         climate=climate,
         tectonics=tectonics
     )
+
+
+def use_real_maps(
+    planet: PlanetComponent,
+    profile: BodyProfile
+):
+    """Give a planet its body's real maps, those downloaded."""
+
+    elevation, color = (
+        dataset if dataset and DATASETS[dataset].available else ""
+        for dataset in profile.maps
+    )
+
+    planet.elevation_map = elevation
+    planet.color_map = color
 
 
 def orbit_for(

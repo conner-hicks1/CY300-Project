@@ -1,6 +1,8 @@
 import math
 import time
 
+from functools import lru_cache
+
 from collections.abc import Callable
 from dataclasses import dataclass
 
@@ -19,14 +21,16 @@ from ecs.entity import Entity
 
 from graphics.draw_list import DrawItem
 from graphics.mesh import Mesh
+from graphics.texture import Texture2D
 
 from math3d import quaternion
 from math3d.matrices import translation
 
-from planet.chunk import ChunkData, build_chunk
+from planet.chunk import ChunkData, build_cached_chunk
 from planet.cube_sphere import ChunkKey, edge_length
 from planet.lod import LodSelector
 from planet.phases import SUBSTANCES
+from planet.maps import color_map_path
 from planet.shape import shape_settings
 from planet.spawn import SpawnPoint, find_spawn
 from planet.terrain import Terrain, TerrainSettings, body_shape
@@ -554,7 +558,42 @@ class PlanetSystem:
         material.set_float("uOvals", float(max(component.ovals, 0.0)))
         material.set_float("uPolarHexagon", 1.0 if component.polar_hexagon else 0.0)
 
+        self._apply_color_map(material, component)
+
         return material
+
+    def _apply_color_map(
+        self,
+        material,
+        component: PlanetComponent
+    ):
+        """
+        A real color map (planet/maps.py) as the surface's
+        albedo, brought to the body's own brightness (map
+        images are stretched for display).
+        """
+
+        path = color_map_path(component.color_map) if component.color_map else None
+
+        if path is None:
+
+            material.set_float("uColorMapStrength", 0.0)
+
+            return
+
+        handle = self._resources.textures.load(
+            f"maps/{component.color_map}",
+            lambda: Texture2D(str(path), srgb=True)
+        )
+
+        material.set_texture("uColorMap", handle)
+        material.set_float("uColorMapStrength", 1.0)
+
+        target = 0.5 * (
+            _luminance(component.color_low) + _luminance(component.color_high)
+        )
+
+        material.set_float("uColorMapScale", target / max(_map_luminance(str(path)), 1e-4))
 
     @staticmethod
     def _liquid_phase(
@@ -767,7 +806,7 @@ class PlanetSystem:
             )
 
         chunk.job = self._jobs.submit(
-            lambda: build_chunk(key, terrain, resolution),
+            lambda: build_cached_chunk(key, terrain, resolution),
             on_complete=on_complete,
             on_error=on_error,
             name=f"planet chunk {key.face}/{key.depth}/{key.x},{key.y}"
@@ -1019,6 +1058,7 @@ def terrain_settings_for(
         ),
         bands=max(0, int(component.bands)) if component.palette == "bands" else 0,
         oblateness=float(component.oblateness),
+        elevation_map=component.elevation_map,
         shape=shape_settings(
             axes=component.shape_axes,
             main_center=component.shape_center,
@@ -1079,6 +1119,35 @@ def _config_of(
         component.max_depth,
         component.split_factor
     )
+
+
+def _luminance(
+    color
+) -> float:
+
+    r, g, b = color
+
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b
+
+
+@lru_cache(maxsize=8)
+def _map_luminance(
+    path: str
+) -> float:
+    """Mean linear luminance of a color map image (area-weighted)."""
+
+    from PIL import Image
+
+    image = np.asarray(Image.open(path).convert("RGB").resize((256, 128)), dtype=np.float64) / 255.0
+
+    linear = np.where(image <= 0.04045, image / 12.92, ((image + 0.055) / 1.055) ** 2.4)
+
+    luminance = linear @ np.array([0.2126, 0.7152, 0.0722])
+
+    # Rows nearer the poles cover less ground.
+    weights = np.cos(np.radians(90.0 - (np.arange(128) + 0.5) * 180.0 / 128.0))[:, None]
+
+    return float((luminance * weights).sum() / (weights.sum() * 256))
 
 
 def world_to_body(

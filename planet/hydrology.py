@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
+from planet.acceleration import accelerator
 from planet.noise import Perlin, fbm
 from planet.sphere_grid import SphereGrid, sphere_grid
 
@@ -344,44 +345,24 @@ _DELTA_NOISE = Perlin(4_242)
 # Computation
 # =========================================================
 
-def compute_hydrology(
-    terrain,
-    climate,
-    settings: HydrologySettings
-) -> HydrologyField | None:
+def drainage(
+    elevation: np.ndarray,
+    ocean: np.ndarray,
+    neighbors: np.ndarray,
+    runoff: np.ndarray
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Rivers, lakes and deltas for a terrain (planet/terrain.py,
-    without hydrology) under a climate (planet/climate.py
-    ClimateField). None without seas to drain into.
+    (filled surface, receiver per cell, discharge): a
+    priority flood from the coasts fills every basin to its
+    spill point and gives each land cell the neighbor it
+    drains to; runoff is then summed downstream. (The
+    reference for the GPU version, graphics/gpu_simulation.py.)
     """
-
-    started = time.perf_counter()
-
-    grid = sphere_grid(settings.resolution)
-
-    radius = terrain.settings.radius
-
-    directions = grid.directions
-
-    cell_size = grid.cell_angle * radius
-
-    elevation = terrain.elevation(directions, cell_size)
-
-    ocean = elevation < 0.0
 
     land = ~ocean
 
-    if not np.any(ocean) or not np.any(land):
-        return None
-
-    neighbors = grid.neighbors
-
-    # -----------------------------------------------------
-    # Priority flood from the coasts
-    # -----------------------------------------------------
-
     filled = elevation.copy()
-    receiver = np.full(grid.cell_count, -1, dtype=np.int64)
+    receiver = np.full(len(elevation), -1, dtype=np.int64)
     closed = ocean.copy()
 
     coast = ocean & np.any(land[neighbors], axis=1)
@@ -420,12 +401,59 @@ def compute_hydrology(
 
             heapq.heappush(heap, (value, neighbor))
 
-    filled = np.asarray(filled_list)
-    receiver = np.asarray(receiver_list, dtype=np.int64)
-    order = np.asarray(order, dtype=np.int64)
+    # Downstream accumulation: the flood visited each cell
+    # after its receiver, so reverse order is upstream
+    # first.
+    discharge_list = runoff.tolist()
+
+    for cell in reversed(order):
+
+        down = receiver_list[cell]
+
+        if down >= 0:
+            discharge_list[down] += discharge_list[cell]
+
+    return (
+        np.asarray(filled_list),
+        np.asarray(receiver_list, dtype=np.int64),
+        np.asarray(discharge_list)
+    )
+
+
+def compute_hydrology(
+    terrain,
+    climate,
+    settings: HydrologySettings
+) -> HydrologyField | None:
+    """
+    Rivers, lakes and deltas for a terrain (planet/terrain.py,
+    without hydrology) under a climate (planet/climate.py
+    ClimateField). None without seas to drain into.
+    """
+
+    started = time.perf_counter()
+
+    grid = sphere_grid(settings.resolution)
+
+    radius = terrain.settings.radius
+
+    directions = grid.directions
+
+    cell_size = grid.cell_angle * radius
+
+    elevation = terrain.elevation(directions, cell_size)
+
+    ocean = elevation < 0.0
+
+    land = ~ocean
+
+    if not np.any(ocean) or not np.any(land):
+        return None
+
+    neighbors = grid.neighbors
 
     # -----------------------------------------------------
-    # Discharge
+    # Runoff
     # -----------------------------------------------------
 
     temperature, precipitation = climate.surface(directions, np.maximum(elevation, 0.0))
@@ -441,21 +469,18 @@ def compute_hydrology(
 
     cell_area = 4.0 * math.pi * radius ** 2 / grid.cell_count
 
-    discharge = np.where(land, fraction * precipitation * 1e-3 * cell_area / _SECONDS_PER_YEAR, 0.0)
+    runoff = np.where(land, fraction * precipitation * 1e-3 * cell_area / _SECONDS_PER_YEAR, 0.0)
 
-    # Downstream accumulation: the flood visited each cell
-    # after its receiver, so reverse order is upstream
-    # first.
-    discharge_list = discharge.tolist()
+    # -----------------------------------------------------
+    # Basins filled, flow routed downstream (on the GPU
+    # when there is one: planet/acceleration.py)
+    # -----------------------------------------------------
 
-    for cell in order[::-1].tolist():
+    gpu = accelerator()
 
-        down = receiver_list[cell]
-
-        if down >= 0:
-            discharge_list[down] += discharge_list[cell]
-
-    discharge = np.asarray(discharge_list)
+    filled, receiver, discharge = (gpu.drainage if gpu is not None else drainage)(
+        elevation, ocean, neighbors, runoff
+    )
 
     # -----------------------------------------------------
     # Rivers

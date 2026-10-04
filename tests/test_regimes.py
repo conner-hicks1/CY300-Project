@@ -138,10 +138,20 @@ def test_stagnant_lid_floods_its_lowlands_with_dark_lava():
 
     state = simulation_for(settings("stagnant_lid", resolution=48)).initial_state()
 
-    low = state.height < np.percentile(state.height, 10)
+    # Dark plains (maria) cover part of the surface, in the
+    # low ground; the highlands stay bright. (The deepest
+    # impact basins need not be flooded: South Pole-Aitken
+    # and Hellas are not.)
+    dark = state.continental < 0.2
     high = state.height > np.percentile(state.height, 70)
 
-    assert state.continental[low].mean() < 0.2 < state.continental[high].mean()
+    assert 0.03 < dark.mean() < 0.4
+    assert state.height[dark].mean() < np.percentile(state.height, 40)
+    assert state.continental[high].mean() > 0.5
+
+    # Heights are above the mean surface (the datum of real
+    # maps).
+    assert abs(float(state.height.mean())) < 1.0
 
     # Ancient: most crust is billions of years old.
     assert np.median(state.age) > 3_000.0

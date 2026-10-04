@@ -118,7 +118,8 @@ class PlanetPanel:
         editor: "SceneEditor",
         planet_system: PlanetSystem,
         apply_preset: Callable[[Entity, str], None] | None = None,
-        descriptions: dict[str, str] | None = None
+        descriptions: dict[str, str] | None = None,
+        maps: dict[str, tuple[str, str]] | None = None
     ):
         """
         apply_preset(planet entity, profile id): turn the
@@ -130,6 +131,9 @@ class PlanetPanel:
         self._planets = planet_system
         self._apply_preset = apply_preset
         self._descriptions = descriptions or {}
+
+        # profile id -> (elevation, color) real map datasets.
+        self._maps = maps or {}
 
         self._preset_choice = 0
 
@@ -342,6 +346,8 @@ class PlanetPanel:
 
                 imgui.end_table()
 
+            self._draw_real_maps(context, body)
+
         else:
 
             imgui.text_disabled("No body profile: a custom planet.")
@@ -373,6 +379,48 @@ class PlanetPanel:
             "Turn this planet into the chosen body: size, surface,\n"
             "atmosphere, climate and geology (undo restores it)."
         )
+
+    def _draw_real_maps(
+        self,
+        context: "_PlanetContext",
+        body: BodyComponent
+    ):
+        """Measured elevation and colors instead of generated ones."""
+
+        from planet.maps import DATASETS
+
+        elevation, color = self._maps.get(body.profile, ("", ""))
+
+        datasets = [DATASETS[d] for d in (elevation, color) if d]
+
+        if not datasets:
+            return
+
+        component = context.planet_component
+
+        available = all(d.available for d in datasets)
+
+        using = bool(component.elevation_map or component.color_map)
+
+        imgui.begin_disabled(not available and not using)
+
+        changed, using = imgui.checkbox("Real maps", using)
+
+        imgui.end_disabled()
+
+        if changed:
+
+            component.elevation_map = elevation if using else ""
+            component.color_map = color if using else ""
+
+            self._editor.record("Real maps" if using else "Generated terrain")
+
+        tooltip = "\n".join(f"{d.description}\n  {d.credit}" for d in datasets)
+
+        if not available:
+            tooltip += f"\n\nNot downloaded: python tools/fetch_maps.py {body.profile}"
+
+        imgui.set_item_tooltip(tooltip)
 
     # -----------------------------------------------------
     # Camera

@@ -59,9 +59,15 @@
   "atmosphere": null,
   "geology": {
     "regime": "stagnant_lid",
-    "plate_count": 0
+    "plate_count": 0,
+    "dichotomy": 0.75,
+    "lowlands": 0.6
   },
   "climate": {
     "humidity": 0.0
+  },
+  "maps": {
+    "elevation": "lola_ldem_16",
+    "color": "lroc_color_2k"
   }
 }

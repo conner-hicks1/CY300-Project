@@ -69,6 +69,33 @@ uniform float uTerrainView;
 uniform vec4 uBodyCenter;
 uniform vec4 uBodyFrame;
 
+// A real color map of the body (equirectangular, sRGB, left
+// edge at 180 W; planet/maps.py): 0 = none; its brightness
+// scale to the body's albedo.
+uniform sampler2D uColorMap;
+uniform float uColorMapStrength;
+uniform float uColorMapScale;
+
+vec3 sampleColorMap(
+    vec3 direction
+)
+{
+    float longitude = atan(direction.x, direction.z);
+    float latitude = asin(clamp(direction.y, -1.0, 1.0));
+
+    vec2 uv = vec2(longitude / (2.0 * ATMOSPHERE_PI) + 0.5, 0.5 + latitude / ATMOSPHERE_PI);
+
+    // Mip level from whichever side of the 180 deg seam has
+    // no jump.
+    vec2 dx = dFdx(uv);
+    vec2 dy = dFdy(uv);
+
+    dx.x = abs(dx.x) > 0.5 ? dx.x - sign(dx.x) : dx.x;
+    dy.x = abs(dy.x) > 0.5 ? dy.x - sign(dy.x) : dy.x;
+
+    return textureGrad(uColorMap, uv, dx, dy).rgb;
+}
+
 
 // =========================================================
 // Image-Based Lighting (baked from the sky)
@@ -202,6 +229,14 @@ void main()
         terrainRelief = detail.height * terrain.relief;
 
         baseColor = terrain.albedo * uBaseColor;
+
+        // Measured colors, with the generated fine variation.
+        if (uColorMapStrength > 0.0)
+        {
+            vec3 mapped = sampleColorMap(planetDirection) * uColorMapScale * (1.0 + 0.2 * detail.albedo);
+
+            baseColor = mix(baseColor, mapped, uColorMapStrength);
+        }
         roughness = terrain.roughness;
         terrainEmissive = terrain.emissive;
 

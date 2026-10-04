@@ -6,6 +6,9 @@ from planet.climate import fallback_surface
 from planet.craters import CraterSettings, Craters
 from planet.dunes import DuneSettings, Dunes
 from planet.hydrology import meander_offsets
+from core.disk_cache import cache_key
+
+from planet.maps import load_elevation_map
 from planet.shape import BodyShape, ShapeSettings
 from planet.volcanoes import VolcanoSettings, Volcanoes
 
@@ -66,6 +69,13 @@ class TerrainSettings:
     # sea level are measured from it.
     oblateness: float = 0.0
     shape: ShapeSettings | None = None
+
+    # Measured heights (planet/maps.py dataset id; "" =
+    # generated terrain): Mars, the Moon, Earth as they are.
+    # They replace continents, plates, mountains and
+    # volcanoes; hills and craters smaller than the map can
+    # show are added on top.
+    elevation_map: str = ""
 
     # Impact craters (planet/craters.py): rate relative to
     # the Moon's (0 = none), surface age where no tectonic
@@ -174,10 +184,23 @@ class Terrain:
         """
 
         self.settings = settings
-        self.field = field
         self.climate = climate
 
+        # Computed on first use (cache_key).
+        self._cache_key = False
+
         self.shape = body_shape(settings)
+
+        self.elevation_map = (
+            load_elevation_map(settings.elevation_map)
+            if settings.elevation_map and not settings.bands
+            else None
+        )
+
+        # A measured surface needs no simulated one.
+        self.field = field if self.elevation_map is None else None
+
+        field = self.field
 
         self.craters = None
 
@@ -228,6 +251,13 @@ class Terrain:
 
         if settings.crater_density > 0.0 and not settings.bands:
 
+            # Over a map, only craters too small for it to show.
+            largest = (
+                4.0 * self.elevation_map.resolution(settings.radius)
+                if self.elevation_map is not None
+                else CraterSettings().max_diameter
+            )
+
             self.craters = Craters(
                 CraterSettings(
                     seed=settings.seed,
@@ -236,7 +266,8 @@ class Terrain:
                     erosion_time=settings.crater_erosion,
                     min_diameter=settings.crater_min_diameter,
                     transition_diameter=settings.crater_transition,
-                    rays=settings.crater_rays
+                    rays=settings.crater_rays,
+                    max_diameter=largest
                 ),
                 settings.radius
             )
@@ -278,6 +309,9 @@ class Terrain:
         if self.dunes is not None:
             rim += self.dunes.max_height
 
+        if self.elevation_map is not None:
+            return self.elevation_map.max_height + self.settings.detail_height + rim
+
         if self.field is None:
             return self.settings.max_elevation + rim
 
@@ -304,10 +338,37 @@ class Terrain:
 
         depth = self.craters.max_depth if self.craters is not None else 0.0
 
+        if self.elevation_map is not None:
+            return self.elevation_map.min_height - s.detail_height - depth
+
         if self.field is None:
             return s.min_elevation - depth
 
         return min(self._field_min, 0.0) - s.detail_height - self._coast_noise - 200.0 - depth
+
+    @property
+    def cache_key(
+        self
+    ) -> str | None:
+        """
+        Identifies everything the terrain is built from
+        (settings, tectonic state, climate) for the disk
+        cache; None when an input has no key.
+        """
+
+        if self._cache_key is not False:
+            return self._cache_key
+
+        field_key = getattr(self.field, "content_key", "") if self.field is not None else "-"
+        climate_key = getattr(self.climate, "content_key", "") if self.climate is not None else "-"
+
+        self._cache_key = (
+            cache_key("terrain", self.settings, field_key, climate_key)
+            if field_key and climate_key
+            else None
+        )
+
+        return self._cache_key
 
     # -----------------------------------------------------
     # Shape
@@ -445,6 +506,9 @@ class Terrain:
                 _MAX_OCTAVES
             )
 
+        if self.elevation_map is not None:
+            return self._measured(directions, octaves)
+
         # -------------------------------------------------
         # Continents and mountain placement
         # -------------------------------------------------
@@ -544,6 +608,34 @@ class Terrain:
 
         return elevation
 
+    def _measured(
+        self,
+        directions: np.ndarray,
+        octaves
+    ) -> np.ndarray:
+        """
+        A real map's heights, with hills finer than its
+        samples (less under seas).
+        """
+
+        s = self.settings
+
+        elevation = self.elevation_map.sample(directions)
+
+        detail_frequency = s.mountain_frequency * _DETAIL_FREQUENCY_SCALE
+
+        if s.detail_height > 0.0:
+
+            land = _smoothstep(-100.0, 200.0, elevation) if s.has_liquid else 1.0
+
+            elevation = elevation + (
+                fbm(self._detail, directions * detail_frequency, octaves(detail_frequency))
+                * s.detail_height
+                * (0.3 + 0.7 * land)
+            )
+
+        return elevation
+
     def surface_age(
         self,
         directions: np.ndarray
@@ -597,9 +689,12 @@ class Terrain:
 
         land = _smoothstep(-100.0, 200.0, elevation)
 
+        # Ranges along the belts, and on the highest plateaus
+        # (not on all land: most continental crust is low;
+        # checked against ETOPO1 with tools/compare_terrain.py).
         mask = np.maximum(
-            _smoothstep(200.0, 2_000.0, orogeny),
-            _smoothstep(400.0, 3_000.0, elevation)
+            _smoothstep(400.0, 2_500.0, orogeny),
+            _smoothstep(1_500.0, 4_000.0, elevation)
         ) * land
 
         return elevation, land, mask

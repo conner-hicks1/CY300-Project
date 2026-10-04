@@ -67,11 +67,26 @@ LATTICE_CORNERS = np.array(
 )
 
 # Most craters per lattice cell (saturated surfaces).
-SLOTS = 2
+SLOTS = 4
 
 # Smallest craters drawn (m): below this they add nothing
 # visible at any distance the camera reaches.
 MIN_DIAMETER = 30.0
+
+# Largest basin, as a fraction of the body's radius.
+BASIN_LIMIT = 0.5
+
+
+def basin_depth(
+    transition: float
+) -> float:
+    """
+    How deep the largest basins get (m): ~7 km on the Moon,
+    less where gravity is stronger (the crust relaxes, the
+    floor rebounds): South Pole-Aitken, Hellas.
+    """
+
+    return 7_000.0 * (transition / 15_000.0) ** 0.25
 
 # Ray craters: at most this many diameters across, their
 # rays out to RAY_REACH radii.
@@ -100,8 +115,8 @@ class CraterSettings:
     # Smaller impactors burn up in the air (m).
     min_diameter: float = 0.0
 
-    # Largest crater (m).
-    max_diameter: float = 150_000.0
+    # Largest crater (m; also at most BASIN_LIMIT radii).
+    max_diameter: float = 1.0e9
 
     # Simple -> complex craters above this diameter (m).
     transition_diameter: float = 15_000.0
@@ -139,7 +154,10 @@ class Craters:
 
         self.enabled = s.density > 0.0
 
-        top = min(s.max_diameter, 0.1 * radius)
+        # Up to giant basins half the body's size (the Moon's
+        # South Pole-Aitken, Mars's Hellas), rare as the power
+        # law makes them.
+        top = min(s.max_diameter, BASIN_LIMIT * radius)
 
         # Octave cell sizes (m), largest first, down to the
         # smallest crater drawn.
@@ -156,12 +174,14 @@ class Craters:
             cell *= 0.5
 
         # Deepest bowl and highest rim (m), for culling
-        # bounds: the largest few octaves stacked (smaller
-        # craters inside them add little).
-        largest = self._depth(self.cells[0] * _D_HIGH) if self.cells else 0.0
+        # bounds: the largest three octaves stacked, crater in
+        # crater (smaller ones inside add little; basins are
+        # capped at basin_depth, so several octaves are as
+        # deep).
+        stacked = sum(self._depth(cell * _D_HIGH) for cell in self.cells[:3])
 
-        self.max_depth = 1.5 * largest
-        self.max_rim = 0.3 * largest
+        self.max_depth = stacked
+        self.max_rim = 0.25 * stacked
 
         self._ray_cell = RAY_DIAMETER[1] * 0.5 * RAY_REACH / 0.25
 
@@ -180,7 +200,7 @@ class Craters:
         if diameter < transition:
             return 0.2 * diameter
 
-        return 0.2 * transition * (diameter / transition) ** 0.3
+        return min(0.2 * transition * (diameter / transition) ** 0.3, basin_depth(transition))
 
     def chance(
         self,
@@ -462,7 +482,10 @@ def crater_profile(
 
     depth = np.where(
         complex_,
-        0.2 * transition * (np.maximum(diameter, transition) / transition) ** 0.3,
+        np.minimum(
+            0.2 * transition * (np.maximum(diameter, transition) / transition) ** 0.3,
+            basin_depth(transition)
+        ),
         0.2 * diameter
     )
 
@@ -478,7 +501,8 @@ def crater_profile(
 
     walled = -depth + (depth + rim) * floor * np.sqrt(floor)
 
-    peak = 0.5 * depth * np.exp(-(x / 0.15) ** 2) * (diameter > 1.5 * transition)
+    # Central peaks; the largest basins have rings instead.
+    peak = 0.5 * depth * np.exp(-(x / 0.15) ** 2) * (diameter > 1.5 * transition) * (diameter < 12.0 * transition)
 
     interior = np.where(complex_, walled + peak, bowl)
 
