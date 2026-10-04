@@ -28,6 +28,7 @@ from editor.inspector_panel import body_facts
 from math3d import quaternion
 
 from planet import solar
+from planet.air import AirColumn
 from planet.orbits import date_of, seconds_since_j2000
 
 from systems.planet_system import TERRAIN_VIEWS, PlanetSystem
@@ -1062,15 +1063,40 @@ class PlanetPanel:
 
         self._last_camera_position = position
 
-    def _scale_height(
+    def _air(
         self,
         context
-    ) -> float:
-        """The planet's air scale height (m), 0 without air."""
+    ) -> AirColumn | None:
+        """The planet's air column (planet/air.py), None without air."""
 
-        atmosphere = self._editor.scene.try_get_component(context.planet, AtmosphereComponent)
+        scene = self._editor.scene
 
-        return float(atmosphere.rayleigh_scale_height) if atmosphere is not None else 0.0
+        atmosphere = scene.try_get_component(context.planet, AtmosphereComponent)
+        body = scene.try_get_component(context.planet, BodyComponent)
+
+        if atmosphere is None or body is None or body.surface_pressure_bar <= 0.0:
+            return None
+
+        giant = context.planet_component.palette == "bands"
+
+        # Radiative skin temperature: equilibrium / 2^(1/4).
+        equilibrium = (
+            278.6
+            * max(body.star_luminosity, 0.0) ** 0.25
+            * max(1.0 - body.bond_albedo, 0.0) ** 0.25
+            / math.sqrt(max(body.orbit_distance_au, 1e-6))
+        )
+
+        return AirColumn.from_scale_height(
+            surface_pressure=body.surface_pressure_bar,
+            surface_temperature=body.mean_temperature + 273.15,
+            scale_height_km=float(atmosphere.rayleigh_scale_height) / 1000.0,
+            gravity=body.surface_gravity,
+            adiabatic_exponent=float(atmosphere.adiabatic_exponent),
+            lapse_rate=body.lapse_rate,
+            giant=giant,
+            skin_temperature=equilibrium / 2.0 ** 0.25
+        )
 
     def _draw_hud(
         self,
@@ -1116,8 +1142,7 @@ class PlanetPanel:
             if ground is not None and context.planet_component.palette == "bands":
 
                 # Giants: no ground, cloud tops (and below them,
-                # air ever thicker: ~1 bar at the tops, x e per
-                # scale height down).
+                # air ever thicker and hotter).
                 above_tops = above_sea
 
                 if above_tops >= 0.0:
@@ -1127,18 +1152,6 @@ class PlanetPanel:
                 else:
 
                     imgui.text(f"Depth     {_distance(-above_tops)} below the cloud tops")
-
-                    scale_height = self._scale_height(context)
-
-                    if scale_height > 0.0:
-
-                        body = self._editor.scene.try_get_component(context.planet, BodyComponent)
-
-                        tops_pressure = body.surface_pressure_bar if body is not None else 1.0
-
-                        pressure = tops_pressure * math.exp(-above_tops / scale_height)
-
-                        imgui.text_disabled(f"          ~{pressure:,.1f} bar")
 
             elif ground is not None:
 
@@ -1152,6 +1165,18 @@ class PlanetPanel:
             else:
 
                 imgui.text(f"Altitude  {_distance(above_sea)}")
+
+            # The air around the camera.
+            air = self._air(context)
+
+            if air is not None:
+
+                altitude_km = above_sea / 1000.0
+
+                pressure = air.pressure(altitude_km)
+
+                if pressure > 1e-6:
+                    imgui.text(f"Air       {_pressure(pressure)}, {air.temperature(altitude_km) - 273.15:,.0f} C")
 
             imgui.text(f"Speed     {_distance(self._speed)}/s")
 
@@ -1340,6 +1365,20 @@ def sun_orientation(
     hint = np.array([0.0, 1.0, 0.0]) if abs(travel[1]) < 0.99 else np.array([0.0, 0.0, -1.0])
 
     return quaternion.look_rotation(travel, hint)
+
+
+def _pressure(
+    bar: float
+) -> str:
+    """Human-readable pressure."""
+
+    if bar >= 10.0:
+        return f"{bar:,.0f} bar"
+
+    if bar >= 0.01:
+        return f"{bar:.2f} bar"
+
+    return f"{bar * 1e5:.3g} Pa"
 
 
 def _distance(

@@ -292,12 +292,16 @@ vec3 scatteringWithClouds(
     vec3 frontTransmittance;
     vec3 front = integrateScattering(origin, direction, start, hit, before, jitter, frontTransmittance);
 
+    vec3 frontGlow = gAtmosphereGlow;
+
     vec3 backTransmittance;
     vec3 back = integrateScattering(origin, direction, hit, end, after, jitter, backTransmittance);
 
     float through = exp(-cloud.depth);
 
     transmittance = frontTransmittance * through * backTransmittance;
+
+    gAtmosphereGlow = frontGlow + frontTransmittance * through * gAtmosphereGlow;
 
     return front + frontTransmittance * (cloud.radiance + through * back);
 }

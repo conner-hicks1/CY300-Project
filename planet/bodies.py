@@ -40,6 +40,7 @@ BODIES_DIRECTORY = Path("assets/bodies")
 from graphics.rings import flat_bands
 from planet.phases import ICES, SUBSTANCES, frost_point
 from planet.regimes import DEFAULT_TIME_STEPS
+from planet.air import AirColumn
 from planet.maps import DATASETS
 from planet.shape import MAX_BASINS, flat_basins
 from planet.volcanoes import max_volcano_height
@@ -147,6 +148,12 @@ class AtmosphereProfile:
     # Weather clouds: (coverage, altitude km, optical depth,
     # feature size km, color), or None.
     clouds: tuple | None = None
+
+    # Cloud decks (up to MAX_DECKS): (name, top, base, unit
+    # "km" or "bar", optical depth, single-scattering albedo
+    # rgb, texture 0..1, texture size km, lightning flashes
+    # per second per million km^2).
+    decks: tuple = ()
 
     @property
     def molar_mass(
@@ -624,6 +631,7 @@ def parse_profile(
             ),
             aerosols=aerosols,
             clouds=clouds,
+            decks=_parse_decks(raw_atmosphere.get("decks", []), fail, number, color),
             ozone=bool(raw_atmosphere.get("ozone", False))
         )
 
@@ -905,6 +913,130 @@ def parse_profile(
     return profile
 
 
+def _parse_decks(
+    raw,
+    fail,
+    number,
+    color
+) -> tuple:
+
+    if not isinstance(raw, list) or len(raw) > MAX_DECKS:
+        fail(f"'decks' must be a list of up to {MAX_DECKS} cloud decks")
+
+    decks = []
+
+    for deck in raw:
+
+        if not isinstance(deck, dict):
+            fail("each deck must be an object")
+
+        if "top_bar" in deck:
+
+            unit = "bar"
+            top = number(deck, "top_bar", 1e-9)
+            base = number(deck, "base_bar", 1e-9)
+
+            if base <= top:
+                fail("a deck's base_bar must exceed its top_bar")
+
+        else:
+
+            unit = "km"
+            top = number(deck, "top_km")
+            base = number(deck, "base_km")
+
+            if base >= top:
+                fail("a deck's base_km must be below its top_km")
+
+        decks.append((
+            str(deck.get("name", "")),
+            top,
+            base,
+            unit,
+            number(deck, "optical_depth", 0.0),
+            color(deck.get("albedo", [0.99, 0.99, 0.99]), "albedo"),
+            min(number(deck, "texture", 0.0, default=0.0), 1.0),
+            number(deck, "texture_km", 0.1, default=200.0),
+            number(deck, "lightning", 0.0, default=0.0),
+        ))
+
+    return tuple(decks)
+
+
+def air_column(
+    profile: "BodyProfile"
+) -> "AirColumn | None":
+    """The body's air: temperature and pressure with height (planet/air.py)."""
+
+    air = profile.atmosphere
+
+    if air is None:
+        return None
+
+    temperature = profile.mean_temperature_c + KELVIN
+
+    return AirColumn(
+        surface_pressure=max(air.surface_pressure_bar, 1e-9),
+        surface_temperature=max(temperature, 10.0),
+        molar_mass=air.molar_mass,
+        gravity=profile.surface_gravity,
+        specific_heat=air.specific_heat(temperature),
+        lapse_rate=profile.lapse_rate_k_per_km,
+        giant=not profile.has_solid_surface,
+        skin_temperature=profile.equilibrium_temperature_k / 2.0 ** 0.25
+    )
+
+
+def deck_fields(
+    profile: "BodyProfile"
+) -> dict:
+    """
+    AtmosphereComponent deck and thermal fields: the decks
+    placed at their heights (km, or where their pressures
+    are), the temperature profile, and the giants' deep
+    absorption (the hot air there glows).
+    """
+
+    air = profile.atmosphere
+
+    column = air_column(profile)
+
+    if air is None or column is None:
+        return {}
+
+    values = []
+
+    for name, top, base, unit, depth, albedo, texture, texture_km, lightning in air.decks:
+
+        if unit == "bar":
+            top_km = column.altitude_of_pressure(top)
+            base_km = column.altitude_of_pressure(base)
+        else:
+            top_km, base_km = top, base
+
+        values.extend((
+            base_km * 1000.0,
+            top_km * 1000.0,
+            depth,
+            *albedo,
+            texture,
+            texture_km * 1000.0,
+            lightning,
+        ))
+
+    values.extend([0.0] * (DECK_FIELDS * MAX_DECKS - len(values)))
+
+    giant = not profile.has_solid_surface
+
+    return {
+        "decks": tuple(values),
+        "temperature": column.surface_temperature,
+        "lapse_rate": column.adiabatic_lapse if giant else column.lapse_rate,
+        "adiabatic_exponent": column.adiabatic_exponent,
+        "deep_absorption": DEEP_ABSORPTION if giant else 0.0,
+    }
+
+
 def load_presets(
     directory=BODIES_DIRECTORY
 ) -> dict[str, BodyProfile]:
@@ -1008,6 +1140,17 @@ class BodyComponents:
 # Below this surface pressure the air is too thin to scatter
 # visible light noticeably: the sky is black.
 VISIBLE_ATMOSPHERE_BAR = 1e-4
+
+# Cloud decks per body, and the numbers kept per deck in
+# AtmosphereComponent.decks (base m, top m, optical depth,
+# albedo rgb, texture, texture size m, lightning).
+MAX_DECKS = 4
+DECK_FIELDS = 9
+
+# Giants: absorption of the deep air (1/km at the cloud tops'
+# density, rising as density^2: collisions of H2 molecules),
+# so that it turns opaque, and glows, near ~1000 K.
+DEEP_ABSORPTION = 4.0e-6
 
 
 def components_for(
@@ -1710,6 +1853,7 @@ def atmosphere_for(
         mie_absorption_tint=aerosols.absorption_tint if aerosols else (1.0, 1.0, 1.0),
         mie_layer_altitude=(aerosols.altitude_km if aerosols else 0.0) * 1000.0,
         **cloud_fields(air.clouds),
+        **deck_fields(profile),
         ozone_absorption=EARTH_OZONE if air.ozone else (0.0, 0.0, 0.0),
         ground_albedo=profile.bond_albedo
     )

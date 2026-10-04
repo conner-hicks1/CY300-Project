@@ -67,7 +67,37 @@
       "anisotropy": 0.7,
       "absorption_tint": [4.0, 1.0, 0.2]
     },
-    "ozone": false
+    "ozone": false,
+    "decks": [
+      {
+        "name": "methane ice",
+        "top_bar": 1.2,
+        "base_bar": 2.0,
+        "optical_depth": 2.0,
+        "albedo": [0.94, 0.995, 0.995],
+        "texture": 0.4,
+        "texture_km": 300.0
+      },
+      {
+        "name": "hydrogen sulfide",
+        "top_bar": 3.0,
+        "base_bar": 6.0,
+        "optical_depth": 6.0,
+        "albedo": [0.93, 0.97, 0.96],
+        "texture": 0.5,
+        "texture_km": 250.0
+      },
+      {
+        "name": "water",
+        "top_bar": 40.0,
+        "base_bar": 60.0,
+        "optical_depth": 15.0,
+        "albedo": [0.9995, 0.999, 0.998],
+        "texture": 0.6,
+        "texture_km": 150.0,
+        "lightning": 0.2
+      }
+    ]
   },
   "geology": {
     "regime": "none",

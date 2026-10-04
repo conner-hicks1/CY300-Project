@@ -1136,7 +1136,8 @@ class RenderSystem:
             cloud_drift=cloud_drift,
             planet_frame=_inverse_rotation(body.transform.world_matrix),
             flattening=planet.oblateness,
-            no_surface=planet.palette == "bands"
+            no_surface=planet.palette == "bands",
+            lightning_time=time.perf_counter() - self._clock_start
         )
 
         return parameters, block, cloud_key

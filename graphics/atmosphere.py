@@ -84,6 +84,19 @@ class AtmosphereParameters:
     # Aerosol layer center (km); 0 = densest at the ground.
     mie_layer_altitude: float = 0.0
 
+    # Cloud decks: (base km, top km, extinction 1/km, albedo
+    # rgb, texture 0..1, texture size km, lightning per s per
+    # million km^2) each.
+    decks: tuple = ()
+
+    # Temperature (K) at altitude 0, its lapse (K/km; below a
+    # giant's tops it rises at this rate), cp / R, and the
+    # deep air's absorption (1/km at the tops' density).
+    temperature: float = 288.0
+    lapse_rate: float = 6.5
+    adiabatic_exponent: float = 3.5
+    deep_absorption: float = 0.0
+
     @classmethod
     def vacuum(
         cls,
@@ -143,8 +156,28 @@ class AtmosphereParameters:
             ozone_altitude=component.ozone_altitude / 1000.0,
             ozone_half_width=max(component.ozone_thickness, 1.0) / 2000.0,
             ground_albedo=float(np.clip(component.ground_albedo, 0.0, 1.0)),
-            mie_layer_altitude=max(float(component.mie_layer_altitude), 0.0) / 1000.0
+            mie_layer_altitude=max(float(component.mie_layer_altitude), 0.0) / 1000.0,
+            decks=decks_of(component.decks),
+            temperature=max(float(component.temperature), 1.0),
+            lapse_rate=max(float(component.lapse_rate), 0.0),
+            adiabatic_exponent=max(float(component.adiabatic_exponent), 1.01),
+            deep_absorption=max(float(component.deep_absorption), 0.0)
         )
+
+    @property
+    def floor_depth(
+        self
+    ) -> float:
+        """
+        A giant's modeled depth (km below the tops): where the
+        deep air reaches FLOOR_TEMPERATURE (glowing, opaque);
+        else ~10 scale heights of the deepest air.
+        """
+
+        if self.deep_absorption > 0.0 and self.lapse_rate > 0.0:
+            return max(FLOOR_TEMPERATURE - self.temperature, 100.0) / self.lapse_rate
+
+        return 10.0 * max(self.rayleigh_scale_height, self.mie_scale_height)
 
     # -----------------------------------------------------
     # CPU reference (tests, and the sun's color for the
@@ -219,6 +252,9 @@ class AtmosphereParameters:
             np.asarray(self.mie_scattering) + np.asarray(self.mie_absorption)
         )
 
+        for base, top, extinction, *_ in self.decks:
+            mie = mie + deck_density(altitude, base, top) * extinction
+
         ozone = (
             np.maximum(0.0, 1.0 - np.abs(altitude - self.ozone_altitude) / self.ozone_half_width)
             * self.ozone_absorption
@@ -254,6 +290,84 @@ class AtmosphereParameters:
         optical_depth = self.extinction(altitude).sum(axis=0) * (length / steps)
 
         return np.exp(-optical_depth)
+
+
+# A giant's deep air is modeled down to this temperature (K):
+# it glows white-orange and is opaque there.
+FLOOR_TEMPERATURE = 3_000.0
+
+# Radiance of a blackbody at 2000 K (green), in the engine's
+# units: Earth's sunlight is an illuminance of 5 (planet/
+# bodies.py sun_intensity), and the Sun's disc (5778 K,
+# 6.8e-5 sr) is ~5200 times brighter per steradian than
+# 2000 K at 550 nm, so 5 / 6.8e-5 / 5200 ~ 14. Deep in a
+# giant the hot air glows by this: dull red near 1100 K,
+# orange by 1500 K, yellow-white at the model's bottom.
+GLOW_SCALE = 14.0
+
+
+def decks_of(
+    values
+) -> tuple:
+    """AtmosphereComponent.decks (m, flattened) -> AtmosphereParameters.decks (km)."""
+
+    values = list(values)
+
+    decks = []
+
+    for i in range(0, len(values) - 8, 9):
+
+        base, top, depth, r, g, b, texture, texture_size, lightning = values[i:i + 9]
+
+        if depth <= 0.0 or top <= base:
+            continue
+
+        thickness = (top - base) / 1000.0
+
+        decks.append((
+            base / 1000.0,
+            top / 1000.0,
+            depth / thickness,
+            (r, g, b),
+            texture,
+            max(texture_size, 100.0) / 1000.0,
+            lightning,
+        ))
+
+    return tuple(decks[:4])
+
+
+def deck_density(
+    altitude_km,
+    base: float,
+    top: float
+):
+    """0..1 inside a deck, soft-edged (as in include/atmosphere.glsl)."""
+
+    soft = deck_softness(base, top)
+
+    a = np.asarray(altitude_km, dtype=np.float64)
+
+    return _smoothstep_array(base - soft, base + soft, a) * (1.0 - _smoothstep_array(top - soft, top + soft, a))
+
+
+def deck_softness(
+    base: float,
+    top: float
+) -> float:
+
+    return min(1.5, 0.15 * (top - base))
+
+
+def _smoothstep_array(
+    edge0: float,
+    edge1: float,
+    x
+):
+
+    t = np.clip((x - edge0) / (edge1 - edge0), 0.0, 1.0)
+
+    return t * t * (3.0 - 2.0 * t)
 
 
 def to_atmosphere_space(
@@ -359,6 +473,16 @@ def _ray_sphere(
 #                                    taken as opaque, w depth (km) where it
 #                                    starts thickening (below the cloud-top
 #                                    mesh's sag between vertices)
+#     vec4 uThermal;                 x temperature at altitude 0 (K), y lapse
+#                                    (K/km), z density exponent cp/R - 1
+#                                    (down a giant's adiabat), w deep
+#                                    absorption (1/km at the tops' density)
+#     vec4 uDeckInfo;                x decks, y lightning clock (s), z glow
+#                                    scale
+#     vec4 uDecks[12];               per deck: (base, top, edge softness km,
+#                                    texture 0..1), (scattering rgb 1/km,
+#                                    texture size km), (absorption rgb 1/km,
+#                                    lightning per s per million km^2)
 #
 # The atmosphere is computed in "atmosphere space": the
 # planet's frame with y divided by (1 - flattening), where
@@ -378,9 +502,12 @@ def pack_atmosphere_block(
     cloud_drift: float = 0.0,
     planet_frame=(0.0, 0.0, 0.0, 1.0),
     flattening: float = 0.0,
-    no_surface: bool = False
+    no_surface: bool = False,
+    lightning_time: float = 0.0
 ) -> bytes:
     """
+    lightning_time: seconds (lightning flashes come and go).
+
     parameters None packs a disabled atmosphere.
     planet_center_relative: planet center minus camera (m).
     sun_direction: unit vector toward the sun (None = none).
@@ -442,7 +569,7 @@ def pack_atmosphere_block(
     data[48:52] = (
         flattening,
         1.0 if no_surface else 0.0,
-        10.0 * deepest,
+        p.floor_depth if no_surface else 10.0 * deepest,
         # Deeper than the coarsest chunks sag between their
         # vertices (a cube face of 32 steps: ~R (pi / 64)^2 / 8).
         max(
@@ -450,6 +577,23 @@ def pack_atmosphere_block(
             1.5 * p.ground_radius * (math.pi / 64.0) ** 2 / 8.0
         )
     )
+
+    # Heat: the temperature profile, the deep air's glow.
+    data[52:56] = (p.temperature, p.lapse_rate, p.adiabatic_exponent - 1.0, p.deep_absorption)
+
+    data[56:60] = (len(p.decks), lightning_time % 10_000.0, GLOW_SCALE, 0.0)
+
+    for i, (base, top, extinction, albedo, texture, texture_size, lightning) in enumerate(p.decks):
+
+        albedo = np.asarray(albedo, dtype=np.float64)
+
+        o = 60 + 12 * i
+
+        data[o:o + 4] = (base, top, deck_softness(base, top), texture)
+        data[o + 4:o + 7] = extinction * albedo
+        data[o + 7] = texture_size
+        data[o + 8:o + 11] = extinction * (1.0 - albedo)
+        data[o + 11] = lightning
 
     return data.tobytes()
 

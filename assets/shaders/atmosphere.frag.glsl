@@ -88,26 +88,23 @@ void main()
     bool inside = atmosphereSegment(origin, direction, start, end);
 
     // Giants have no ground. From above, their cloud tops
-    // act as one; below them the deck overhead closes off
-    // the sky and the air thickens on down (taken as opaque
-    // at uShape.z below the tops): fog all around.
+    // act as one; below them the decks overhead dim the sky
+    // and the air thickens on down, ever hotter, to the
+    // bottom of the model at uShape.z below the tops (hot
+    // enough to glow; nothing is seen through it).
     bool underTops = noSolidSurface() && length(origin) < groundRadius();
 
     float groundHit = underTops ? -1.0 : raySphere(origin, direction, groundRadius());
 
+    float floorHit = -1.0;
+
     if (underTops)
     {
-        float ceiling = raySphere(origin, direction, groundRadius());
-        float deep = raySphere(origin, direction, groundRadius() - uShape.z);
+        floorHit = raySphere(origin, direction, groundRadius() - uShape.z);
 
-        if (ceiling > 0.0)
+        if (floorHit > 0.0)
         {
-            end = min(end, ceiling);
-        }
-
-        if (deep > 0.0)
-        {
-            end = min(end, deep);
+            end = min(end, floorHit);
         }
     }
 
@@ -133,6 +130,8 @@ void main()
     vec3 inScattered = vec3(0.0);
     vec3 transmittance = vec3(1.0);
 
+    gAtmosphereGlow = vec3(0.0);
+
     if (inside && end > start)
     {
         // Samples at step midpoints. (Per-pixel jitter is
@@ -149,6 +148,17 @@ void main()
             pixelAngle,
             transmittance
         ) * uSunIlluminance.rgb * uAtmosphereSunDirection.w;
+    }
+
+    // The air's own light: heat deep in a giant, lightning.
+    inScattered += gAtmosphereGlow;
+
+    // The bottom of the model: glowing, opaque.
+    if (floorHit > 0.0 && (!geometry || floorHit < geometryDistance))
+    {
+        inScattered += transmittance * thermalGlow(airTemperature(-uShape.z));
+
+        transmittance = vec3(0.0);
     }
 
     if (geometry && uOzoneParams.z < 0.5)

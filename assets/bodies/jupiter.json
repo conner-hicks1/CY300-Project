@@ -66,7 +66,37 @@
       "anisotropy": 0.7,
       "absorption_tint": [0.4, 0.8, 1.6]
     },
-    "ozone": false
+    "ozone": false,
+    "decks": [
+      {
+        "name": "ammonia ice",
+        "top_bar": 0.5,
+        "base_bar": 1.0,
+        "optical_depth": 3.0,
+        "albedo": [0.992, 0.982, 0.955],
+        "texture": 0.6,
+        "texture_km": 300.0
+      },
+      {
+        "name": "ammonium hydrosulfide",
+        "top_bar": 1.5,
+        "base_bar": 3.0,
+        "optical_depth": 6.0,
+        "albedo": [0.975, 0.91, 0.8],
+        "texture": 0.5,
+        "texture_km": 200.0
+      },
+      {
+        "name": "water",
+        "top_bar": 4.5,
+        "base_bar": 7.0,
+        "optical_depth": 15.0,
+        "albedo": [0.9995, 0.999, 0.998],
+        "texture": 0.6,
+        "texture_km": 120.0,
+        "lightning": 0.6
+      }
+    ]
   },
   "geology": {
     "regime": "none",

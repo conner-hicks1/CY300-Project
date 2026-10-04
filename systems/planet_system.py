@@ -13,12 +13,14 @@ from core.jobs import Job, JobSystem
 from core.logger import Logger
 
 from ecs.components import (
+    AtmosphereComponent,
     CameraControllerComponent,
     PlanetComponent,
     TransformComponent
 )
 from ecs.entity import Entity
 
+from graphics.atmosphere import AtmosphereParameters
 from graphics.draw_list import DrawItem
 from graphics.mesh import Mesh
 from graphics.texture import Texture2D
@@ -493,9 +495,8 @@ class PlanetSystem:
 
         return self._items
 
-    # How deep below a giant's cloud tops the camera may go,
-    # as a share of the radius (~10 scale heights: the fog is
-    # opaque long before).
+    # Without an atmosphere to model: how deep below a giant's
+    # cloud tops the camera may go, as a share of the radius.
     GIANT_DESCENT = 0.004
 
     # Liquid / palette names -> shader codes
@@ -971,7 +972,7 @@ class PlanetSystem:
             planet = self._planets.get(entity)
 
             if planet is not None:
-                planets.append((_rigid(transform.world_matrix), planet))
+                planets.append((_rigid(transform.world_matrix), planet, entity))
 
         if not planets:
             return
@@ -989,7 +990,7 @@ class PlanetSystem:
             # The planet whose surface is nearest (between a
             # planet and its moon, the one the camera is
             # flying over).
-            world, planet = min(
+            world, planet, entity = min(
                 planets,
                 key=lambda entry: (
                     float(np.linalg.norm(entry[0][:3, 3] - position[:3]))
@@ -1013,12 +1014,32 @@ class PlanetSystem:
             controller.planet_radius = planet.terrain.settings.radius + base + elevation
 
             # Giants: no ground, only ever-thicker air below the
-            # cloud tops (opaque well within this depth).
+            # cloud tops, down to the bottom of the rendered model
+            # (where it is hot enough to glow; not a limit of the
+            # world, only of what is drawn).
             controller.descent = (
-                self.GIANT_DESCENT * planet.terrain.settings.radius
+                self._giant_depth(scene, entity, planet)
                 if planet.terrain.settings.bands
                 else 0.0
             )
+
+    def _giant_depth(
+        self,
+        scene: Scene,
+        entity: Entity,
+        planet
+    ) -> float:
+        """How far below a giant's cloud tops its air is modeled (m)."""
+
+        atmosphere = scene.registry.try_get(entity, AtmosphereComponent)
+
+        if atmosphere is None or atmosphere.height <= 0.0:
+            return self.GIANT_DESCENT * planet.terrain.settings.radius
+
+        parameters = AtmosphereParameters.from_components(planet.terrain.settings.radius, atmosphere)
+
+        # A little short of it: the floor stays in front.
+        return 0.98 * parameters.floor_depth * 1000.0
 
     # =====================================================
     # Shutdown

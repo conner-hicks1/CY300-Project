@@ -54,23 +54,21 @@ void main()
 
     float groundHit = underTops ? -1.0 : raySphere(origin, direction, groundRadius());
 
+    float floorHit = -1.0;
+
     vec3 transmittance = vec3(1.0);
+
+    gAtmosphereGlow = vec3(0.0);
 
     if (atmosphereSegment(origin, direction, start, end))
     {
         if (underTops)
         {
-            float ceiling = raySphere(origin, direction, groundRadius());
-            float deep = raySphere(origin, direction, groundRadius() - uShape.z);
+            floorHit = raySphere(origin, direction, groundRadius() - uShape.z);
 
-            if (ceiling > 0.0)
+            if (floorHit > 0.0)
             {
-                end = min(end, ceiling);
-            }
-
-            if (deep > 0.0)
-            {
-                end = min(end, deep);
+                end = min(end, floorHit);
             }
         }
 
@@ -114,5 +112,12 @@ void main()
             * diffuseDaylight(groundRadius(), cosine);
     }
 
-    FragColor = vec4(color * uSunIlluminance.rgb, 1.0);
+    color = color * uSunIlluminance.rgb + gAtmosphereGlow;
+
+    if (floorHit > 0.0)
+    {
+        color += transmittance * thermalGlow(airTemperature(-uShape.z));
+    }
+
+    FragColor = vec4(color, 1.0);
 }

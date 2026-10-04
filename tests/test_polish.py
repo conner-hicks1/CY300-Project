@@ -65,7 +65,7 @@ def test_layer_is_packed_for_the_shaders():
     v = np.frombuffer(
         pack_atmosphere_block(deck(), sun_direction=(0.0, 1.0, 0.0), sun_illuminance=(1.0, 1.0, 1.0)),
         dtype=np.float32
-    ).reshape(13, 4)
+    ).reshape(27, 4)
 
     assert v[8, 3] == pytest.approx(57.0)
 
@@ -74,8 +74,17 @@ def test_venus_clouds_sit_high():
 
     venus = components_for(load_presets()["venus"]).atmosphere
 
-    assert venus.mie_layer_altitude == pytest.approx(57_000.0)
-    assert venus.height > venus.mie_layer_altitude + 4 * venus.mie_scale_height
+    # The sulfuric-acid decks: 31-90 km, the thick one at
+    # 47.5-57 km, all well inside the modeled air.
+    decks = [venus.decks[i:i + 9] for i in range(0, 36, 9)]
+
+    assert min(d[0] for d in decks) == pytest.approx(31_000.0)
+    assert max(d[1] for d in decks) == pytest.approx(90_000.0)
+
+    thickest = max(decks, key=lambda d: d[2])
+
+    assert (thickest[0], thickest[1]) == pytest.approx((47_500.0, 57_000.0))
+    assert venus.height > 90_000.0
 
 
 def test_layer_clears_the_ground():

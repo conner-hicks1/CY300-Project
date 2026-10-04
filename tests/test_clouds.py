@@ -79,14 +79,14 @@ def test_clouds_are_packed():
     v = np.frombuffer(
         pack_atmosphere_block(earth, clouds=clouds, cloud_drift=0.25, planet_frame=frame),
         dtype=np.float32
-    ).reshape(13, 4)
+    ).reshape(27, 4)
 
     np.testing.assert_allclose(v[9], (4.0, 14.0, 700.0, 1.0))
     np.testing.assert_allclose(v[10], (1.0, 0.9, 0.8, 0.25), rtol=1e-6)
     np.testing.assert_allclose(v[11], frame, rtol=1e-6)
 
     # No clouds: the flag is off.
-    off = np.frombuffer(pack_atmosphere_block(earth), dtype=np.float32).reshape(13, 4)
+    off = np.frombuffer(pack_atmosphere_block(earth), dtype=np.float32).reshape(27, 4)
 
     assert off[9, 3] == 0.0
     np.testing.assert_allclose(off[11], (0.0, 0.0, 0.0, 1.0))
@@ -127,9 +127,9 @@ def test_bodies_get_their_clouds():
     assert mars.cloud_coverage < 0.2 and mars.cloud_optical_depth < 1.0
     assert mars.cloud_altitude > 10_000.0
 
-    # Venus: no weather clouds (its deck is an aerosol layer).
+    # Venus: no weather clouds (its decks are layers of the air).
     assert venus.cloud_coverage == 0.0
-    assert venus.mie_layer_altitude > 40_000.0
+    assert venus.decks[1] > 40_000.0
 
 
 def test_cloud_profile_is_validated():

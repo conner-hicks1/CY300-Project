@@ -63,9 +63,44 @@ building and saving scenes.
   streaks where the jet streams shear, the great storms swirling the bands
   around them (Jupiter's Great Red Spot, Neptune's Great Dark Spot), strings
   of white ovals, Saturn's hexagonal north polar jet
-- No ground: fly down through the cloud tops into air that thickens with
-  depth (the HUD shows the depth and pressure) until no sunlight is left;
-  the fog closes in, lit dimmer and dimmer from above
+- No ground: fly down through the cloud tops into the decks below (see
+  the next section)
+
+**Descending through thick air**
+
+![Down into Jupiter: the cloud tops, inside the ammonia haze, the brown ammonium hydrosulfide deck, the dark water clouds, the deep air glowing orange and white-hot at the bottom of the model; Venus: above its clouds, inside them, and the orange daylight beneath](docs/images/descent.png)
+
+- The air column follows its physics (`planet/air.py`): rocky worlds cool by
+  their lapse rate up to a tropopause at the radiative skin temperature
+  (Earth: 0.265 bar at 10 km, as in the standard atmosphere); below a giant's
+  tops the gas convects, heating along the dry adiabat (Jupiter ~2 K/km;
+  ~470 K and ~17 bar 150 km down, close to the Galileo probe's numbers). The
+  HUD shows the pressure and temperature around the camera
+- Cloud decks as layers of the air, placed where their gases condense:
+  Venus's sulfuric-acid haze and cloud decks (31-90 km, optical depth ~28);
+  Jupiter's and Saturn's ammonia, ammonium hydrosulfide and water clouds;
+  Uranus's and Neptune's methane, hydrogen sulfide and water clouds. They
+  are part of the scattering lookup tables, so they light consistently from
+  orbit and from inside
+- From inside, the decks are patchy (3D noise at each deck's own scale,
+  averaging out so it does not change the light); the raymarch splits rays
+  at the decks' boundaries and spends its samples by optical depth
+- Light dims with depth as it really does: thick cloud passes most light on
+  diffusely rather than stopping it (two-stream transmission), so under
+  Venus's clouds it is a dim, shadowless orange day; deep in a giant the
+  sunlight runs out entirely
+- Heat you can see: the deep air of a giant glows by its temperature
+  (blackbody color and brightness, in the same units as sunlight: dull red
+  past ~1100 K, orange by ~1500 K) down to the bottom of the model at 3000 K
+- Lightning in the water clouds: storm cells flash on their own clocks, a few
+  strokes each, lighting the cloud around them; seen from above, glows
+  spreading through the deck
+- The model's bottom (where the air reaches 3000 K, ~1400 km down on
+  Jupiter) is only where drawing stops: there are no entry effects, drag,
+  heating or crush depth, left for a game built on top to define
+- Not drawn: Venus's superrefraction (its dense air bends light enough to make
+  the horizon curve up like a bowl), since the haze hides everything beyond
+  a few km, where the effect would only shift the horizon by ~2 m
 
 **Rings**
 
@@ -357,7 +392,8 @@ building and saving scenes.
   terrain presets and sliders (the planet rebuilds when you release), seed,
   atmosphere density and haze, and **data views**: elevation with contour
   lines, slope, moisture, latitude, level of detail
-- Viewport HUD: altitude above ground and sea level, speed, latitude /
+- Viewport HUD: altitude above ground and sea level (depth below a giant's
+  cloud tops), the air's pressure and temperature, speed, latitude /
   longitude, local time, frame rate
 - Hierarchy with drag-and-drop parenting, inspector for every component
 - Click-to-select in the viewport, move / rotate / scale gizmos with snapping
@@ -387,7 +423,7 @@ building and saving scenes.
   terrain chunks, keyed by their inputs and the generators' source code:
   reopening a planet loads instead of simulating (startup 1.9 s to 0.7 s,
   chunks streaming in ~70% faster); oldest entries pruned past 2 GB
-- 587 unit tests (the GPU kernels' run where a GPU is available)
+- 598 unit tests (the GPU kernels' run where a GPU is available)
 
 ## Getting Started
 

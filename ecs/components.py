@@ -536,6 +536,25 @@ class AtmosphereComponent:
     # sky, and the ground seen in reflections).
     ground_albedo: float = 0.3
 
+    # Cloud decks (up to 4; flattened groups of base m, top
+    # m, optical depth, single-scattering albedo rgb, texture
+    # 0..1, texture size m, lightning flashes per s per
+    # million km^2; optical depth 0 = unused): Venus's
+    # sulfuric acid layers, the giants' ammonia, ammonium
+    # hydrosulfide and water clouds.
+    decks: tuple[float, ...] = (0.0,) * 36
+
+    # Temperature at sea level / a giant's cloud tops (K),
+    # how fast it falls with height (K/km; on a giant, how
+    # fast it rises below the tops: the adiabat), cp / R
+    # (density ~ T^(cp/R - 1) down the adiabat), and the deep
+    # air's absorption (1/km at the tops' density; it rises
+    # as density^2, so the hot depths glow).
+    temperature: float = 288.0
+    lapse_rate: float = 6.5
+    adiabatic_exponent: float = 3.5
+    deep_absorption: float = 0.0
+
 
 # =========================================================
 # Tectonics
