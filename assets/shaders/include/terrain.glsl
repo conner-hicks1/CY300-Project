@@ -31,6 +31,11 @@ struct TerrainSurface
     // 0..1: how much micro-relief shading applies (none on
     // water, little on snow).
     float relief;
+
+    // What the ground is made of, for the close-up detail
+    // (terrainCloseUp): x bare rock, y sand / dust / soil,
+    // z plants, w snow and ice.
+    vec4 material;
 };
 
 
@@ -88,8 +93,139 @@ float terrainValueNoise(
     return mix(mix(a, b, f.y), mix(c, d, f.y), f.z) * 2.0 - 1.0;
 }
 
+// The detail origin (systems/planet_system.py): a planet-
+// fixed grid point near the camera, whose grid cell is
+// counted in exactly. Float32 positions from a planet's
+// center blur below ~0.1-0.5 m (the noise then bands into
+// moire rings up close); measured from this origin they are
+// exact, and the cells match the far path's.
+uniform vec4 uDetailOrigin;     // camera-relative m; w 1 = in use (the camera's body)
+uniform vec3 uDetailCell;       // the origin's grid cell (body frame, 1024 m)
+
+const float DETAIL_CELL = 1024.0;
+
+// Each octave its own pattern.
+ivec3 detailSalt(
+    int salt
+)
+{
+    return ivec3(salt * 7919, salt * 104729, salt * 15485863);
+}
+
+// And its own lattice position: value noise is flat across
+// its lattice planes, and octaves a power of two apart would
+// share theirs (a grid of creases in the lighting). A
+// fraction of a cell, the same near and far.
+vec3 detailShift(
+    int salt
+)
+{
+    return fract(vec3(0.3719, 0.6113, 0.1307) * float(salt + 1) + vec3(0.17, 0.53, 0.89));
+}
+
+// A strong hash for the detail noise's cells (PCG3D, Jarzynski
+// & Olano 2020): exact cell indices run to ~1e7 up close,
+// where simpler hashes show their structure (moire rings,
+// lines).
+float detailHash(
+    ivec3 cell
+)
+{
+    uvec3 v = uvec3(cell) * 1664525u + 1013904223u;
+
+    v.x += v.y * v.z;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+
+    v ^= v >> 16u;
+
+    v.x += v.y * v.z;
+    v.y += v.z * v.x;
+    v.z += v.x * v.y;
+
+    return float(v.x) * (1.0 / 4294967295.0);
+}
+
+// Gradient noise in a cell (i: its corner, f: the position
+// in it). Value noise would be flat across every lattice
+// plane (its interpolation has zero slope there): bump
+// lighting shows those planes as lines wherever one octave
+// dominates. Gradient noise has random slopes everywhere.
+vec3 detailGradient(
+    ivec3 cell
+)
+{
+    float h = detailHash(cell) * 6.2831853;
+    float z = detailHash(cell + ivec3(7, 13, 29)) * 2.0 - 1.0;
+
+    float r = sqrt(max(1.0 - z * z, 0.0));
+
+    return vec3(r * cos(h), r * sin(h), z);
+}
+
+float valueNoiseCell(
+    ivec3 i,
+    vec3 f
+)
+{
+    vec3 u = f * f * f * (f * (f * 6.0 - 15.0) + 10.0);
+
+    float a = dot(detailGradient(i), f);
+    float b = dot(detailGradient(i + ivec3(1, 0, 0)), f - vec3(1.0, 0.0, 0.0));
+    float c = dot(detailGradient(i + ivec3(0, 1, 0)), f - vec3(0.0, 1.0, 0.0));
+    float d = dot(detailGradient(i + ivec3(1, 1, 0)), f - vec3(1.0, 1.0, 0.0));
+    float e = dot(detailGradient(i + ivec3(0, 0, 1)), f - vec3(0.0, 0.0, 1.0));
+    float g = dot(detailGradient(i + ivec3(1, 0, 1)), f - vec3(1.0, 0.0, 1.0));
+    float h = dot(detailGradient(i + ivec3(0, 1, 1)), f - vec3(0.0, 1.0, 1.0));
+    float k = dot(detailGradient(i + ivec3(1, 1, 1)), f - vec3(1.0, 1.0, 1.0));
+
+    // (Scaled to about -1 .. 1, as the value noise was.)
+    return 1.6 * mix(mix(mix(a, b, u.x), mix(c, d, u.x), u.y), mix(mix(e, g, u.x), mix(h, k, u.x), u.y), u.z);
+}
+
+// Gradient noise with cells `wavelength` m wide (a power of
+// two), at q (m from the detail origin): exact at any
+// distance from the planet's center.
+float closeUpNoise(
+    vec3 q,
+    float wavelength,
+    int salt
+)
+{
+    // The origin's offset in cells, split into whole cells
+    // and a fraction (both exact: the grid is a power of two
+    // meters), so the position inside stays small and exact.
+    vec3 offset = uDetailCell * (DETAIL_CELL / wavelength);
+
+    vec3 whole = floor(offset);
+
+    vec3 p = q / wavelength + (offset - whole) + detailShift(salt);
+
+    vec3 cellFloor = floor(p);
+
+    ivec3 i = ivec3(cellFloor) + ivec3(whole) + detailSalt(salt);
+
+    return valueNoiseCell(i, p - cellFloor);
+}
+
+// The same noise far away (no origin): position in km.
+float farDetailNoise(
+    vec3 positionKm,
+    float wavelength,   // m
+    int salt
+)
+{
+    vec3 p = positionKm * (1000.0 / wavelength) + detailShift(salt);
+
+    vec3 cellFloor = floor(p);
+
+    return valueNoiseCell(ivec3(cellFloor) + detailSalt(salt), p - cellFloor);
+}
+
 TerrainDetail terrainDetail(
-    vec3 position,      // planet-local, km
+    vec3 position,      // planet-local, km (far path)
+    vec3 q,             // planet frame, m from the detail origin (near path)
+    bool near,
     float footprint     // km per pixel
 )
 {
@@ -97,27 +233,34 @@ TerrainDetail terrainDetail(
     detail.albedo = 0.0;
     detail.height = 0.0;
 
-    float wavelength = 8.0;     // km
+    float wavelength = 8192.0;  // m
     float weight = 0.5;
     float total = 0.0;
 
     for (int octave = 0; octave < 9; ++octave)
     {
-        // Fade octaves that shrink below ~3 pixels.
-        float fade = 1.0 - smoothstep(1.5, 3.0, footprint / wavelength * 6.0);
+        // Fade octaves that shrink below ~3 pixels; their
+        // relief sooner, below ~8 (bump mapping works on 2 x 2
+        // pixel blocks: finer relief shows as a checker).
+        float pixels = wavelength / max(footprint * 1000.0, 1e-6);
+
+        float fade = smoothstep(2.0, 4.0, pixels);
+        float reliefFade = smoothstep(6.0, 12.0, pixels);
 
         if (fade <= 0.0)
         {
             break;
         }
 
-        float n = terrainValueNoise(position / wavelength + float(octave) * 17.31);
+        float n = near
+            ? closeUpNoise(q, wavelength, octave)
+            : farDetailNoise(position, wavelength, octave);
 
         detail.albedo += weight * fade * n;
 
         // Fractal relief: amplitude in step with wavelength
         // (slopes of ~10-20 degrees at every scale).
-        detail.height += 0.06 * wavelength * 1000.0 * fade * n;
+        detail.height += 0.06 * wavelength * reliefFade * n;
 
         total += weight;
         weight *= 0.62;
@@ -125,6 +268,120 @@ TerrainDetail terrainDetail(
     }
 
     detail.albedo /= max(total, 1e-3);
+
+    return detail;
+}
+
+// ---------------------------------------------------------
+// Close-up Ground (below ~20 m)
+// ---------------------------------------------------------
+//
+// Under the chunks' finest vertices the ground still has
+// texture all the way down: each material its own, from
+// ~16 m to ~5 cm, fading as it shrinks below a pixel:
+//
+//   rock     cracked and blocky (ridged noise), with strata
+//            on cliffs: layers a few meters thick
+//   sand     smooth, and with air to blow it, ripples ~20 cm
+//            apart across the wind (dust and regolith
+//            without air: just grain)
+//   plants   patchy: tufts, bare spots, shades of green
+//   snow     smooth, faint wind-carved ridges (sastrugi)
+//
+// Positions: planet-frame meters from uDetailOrigin, a
+// planet-fixed grid point near the camera (systems/
+// planet_system.py), whose cell uDetailCell is counted in
+// exactly; float32 positions from the planet's center
+// would blur below ~0.5 m.
+
+uniform float uSurfaceWind;     // 1 = air to make sand ripples
+
+TerrainDetail terrainCloseUp(
+    vec3 q,             // planet frame, m from uDetailOrigin
+    vec3 up,            // planet frame, unit
+    float footprint,    // m per pixel
+    vec4 material,      // rock, sand, plants, snow
+    float steep         // 0 flat .. 1 cliff
+)
+{
+    TerrainDetail detail;
+    detail.albedo = 0.0;
+    detail.height = 0.0;
+
+    float wavelength = 16.0;
+
+    for (int octave = 0; octave < 9; ++octave)
+    {
+        float pixels = wavelength / max(footprint, 1e-6);
+
+        float fade = smoothstep(2.0, 4.0, pixels);
+        float reliefFade = smoothstep(6.0, 12.0, pixels);
+
+        if (fade <= 0.0)
+        {
+            break;
+        }
+
+        float n = closeUpNoise(q, wavelength, 20 + octave);
+
+        // Rock: cracks and blocks.
+        float ridge = 1.0 - abs(n);
+
+        detail.height += reliefFade * wavelength * (
+            material.x * 0.10 * (ridge - 0.5)
+            + material.y * 0.012 * n
+            + material.z * 0.05 * n
+            + material.w * 0.015 * n
+        );
+
+        detail.albedo += fade * (
+            material.x * 0.35 * (ridge - 0.5)
+            + material.y * 0.15 * n
+            + material.z * 0.45 * n
+            + material.w * 0.04 * n
+        ) * (octave < 3 ? 1.0 : 0.6);
+
+        wavelength *= 0.5;
+    }
+
+    // Strata on cliffs: layers of a few meters, wavy.
+    float stratumFade = 1.0 - smoothstep(0.3, 0.6, footprint);
+
+    if (material.x * steep > 0.01 && stratumFade > 0.0)
+    {
+        float level = dot(q, up) + 1.5 * closeUpNoise(q, 32.0, 40);
+
+        float layer = fract(level / 3.0);
+
+        float band = smoothstep(0.0, 0.15, layer) * (1.0 - smoothstep(0.8, 1.0, layer));
+
+        detail.albedo += material.x * steep * stratumFade * (0.25 * band - 0.15 + 0.15 * closeUpNoise(vec3(0.0, level, 0.0), 1.0, 41));
+        detail.height += material.x * steep * stratumFade * 0.25 * band;
+    }
+
+    // Ripples across the wind, on sand with air.
+    // (Faded well before they alias: 20 cm waves need ~4
+    // pixels each.)
+    float rippleFade = 1.0 - smoothstep(0.012, 0.025, footprint);
+
+    if (uSurfaceWind > 0.5 && material.y > 0.01 && rippleFade > 0.0)
+    {
+        // The wind's direction wanders over ~100 m.
+        float angle = 3.0 * closeUpNoise(q, 128.0, 42);
+
+        vec3 east = normalize(cross(up, vec3(0.31, 0.83, 0.47)));
+        vec3 north = cross(up, east);
+
+        vec3 wind = cos(angle) * east + sin(angle) * north;
+
+        float wave = sin(6.2831853 * dot(q, wind) / 0.2 + 2.0 * closeUpNoise(q, 1.0, 43));
+
+        // Asymmetric: gentle upwind, steep lee.
+        wave = wave > 0.0 ? wave : wave * 0.5;
+
+        detail.height += material.y * rippleFade * 0.01 * wave;
+        detail.albedo += material.y * rippleFade * 0.035 * wave;
+    }
 
     return detail;
 }
@@ -150,6 +407,18 @@ vec3 terrainBumpNormal(
     float det = dot(dpdx, r1);
 
     vec3 gradient = sign(det) * (dhdx * r1 + dhdy * r2);
+
+    // No tilt past ~60 degrees: where a pixel's derivatives
+    // straddle a triangle edge at a grazing view, the
+    // estimate can blow up (single dark pixels along edges).
+    float limit = 1.7 * abs(det);
+
+    float size = length(gradient);
+
+    if (size > limit)
+    {
+        gradient *= limit / size;
+    }
 
     return normalize(abs(det) * normal - gradient);
 }
@@ -462,6 +731,7 @@ TerrainSurface terrainSurface(
 
     surface.emissive = vec3(0.0);
     surface.relief = 0.0;
+    surface.material = vec4(0.0);
 
     int palette = int(uSurfacePalette + 0.5);
     int liquid = int(uLiquid + 0.5);
@@ -471,6 +741,7 @@ TerrainSurface terrainSurface(
         // Giant planet weather, per pixel.
         surface.albedo = giantBands(planetDirection, footprint);
         surface.roughness = 1.0;
+        surface.material = vec4(0.0);
 
         return surface;
     }
@@ -488,9 +759,20 @@ TerrainSurface terrainSurface(
 
     vec3 land;
 
+    // Cliffs: bare rock everywhere.
+    float cliff = 1.0 - smoothstep(0.75, 0.88, slope);
+
     if (palette == 1)
     {
         land = mineralLand(elevation, slope, temperature, crust);
+
+        float frost =
+            smoothstep(uFrostPoint + 2.0, uFrostPoint - 4.0, temperature)
+            * smoothstep(0.7, 0.82, slope);
+
+        float rock = 1.0 - smoothstep(0.75, 0.9, slope);
+
+        surface.material = vec4(rock, (1.0 - rock) * (1.0 - frost), 0.0, frost);
     }
     else
     {
@@ -536,6 +818,29 @@ TerrainSurface terrainSurface(
             * smoothstep(0.7, 0.82, slope);
 
         land = mix(land, TERRAIN_SNOW, snow);
+
+        // What it is made of.
+        float plants = uLife > 0.5 ? smoothstep(0.15, 0.45, wetness) * (1.0 - smoothstep(1.0, -3.0, temperature)) : 0.0;
+
+        float rock = max(cliff, smoothstep(-3.0, -7.0, temperature) * 0.6);
+
+        float sand = (1.0 - smoothstep(0.15, 0.45, wetness)) + (1.0 - smoothstep(5.0, 60.0, elevation));
+
+        surface.material = vec4(
+            rock,
+            clamp(sand, 0.0, 1.0) * (1.0 - rock),
+            plants * (1.0 - rock),
+            0.0
+        );
+
+        surface.material *= 1.0 - snow;
+        surface.material.w = snow;
+
+        // Bare ground where nothing grows.
+        if (uLife < 0.5)
+        {
+            surface.material.y = max(surface.material.y, (1.0 - rock) * (1.0 - snow));
+        }
     }
 
     // Close-up variation: patchy soil, rock and plants
@@ -571,6 +876,8 @@ TerrainSurface terrainSurface(
         landRoughness = mix(0.9, mix(0.08, 0.5, frozen), water);
 
         landRelief *= 1.0 - water;
+
+        surface.material *= 1.0 - water;
     }
 
     // -----------------------------------------------------
@@ -639,6 +946,8 @@ TerrainSurface terrainSurface(
     surface.roughness = mix(landRoughness, seaRoughness, wet);
 
     surface.relief = landRelief * (1.0 - wet);
+
+    surface.material *= 1.0 - wet;
 
     if (liquid == 3)
     {

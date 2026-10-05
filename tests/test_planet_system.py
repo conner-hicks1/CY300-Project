@@ -62,6 +62,10 @@ class FakeMaterial:
 
         self.values[name] = tuple(value)
 
+    def get_value(self, name, default=None):
+
+        return self.values.get(name, default)
+
     def copy(self):
 
         clone = FakeMaterial()

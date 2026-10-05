@@ -514,6 +514,7 @@ class DebugPanel:
 
             _checkbox(settings, "atmosphere_enabled", "Enabled##atmosphere")
             _checkbox(settings, "show_stars", "Stars and Milky Way")
+            _checkbox(settings, "scatter", "Rocks, trees, grass")
             _checkbox(settings, "aerial_perspective", "Haze over terrain")
 
             changed, samples = imgui.slider_int(
@@ -538,6 +539,7 @@ class DebugPanel:
         if imgui.collapsing_header("Shadows"):
 
             _checkbox(settings, "shadows_enabled", "Enabled##shadows")
+            _checkbox(settings, "terrain_shadows", "Mountains (terrain, far)")
 
             _slider(settings, "shadow_distance", "Distance", 2.0, 150.0, "%.1f", logarithmic=True)
 

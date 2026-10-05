@@ -29,7 +29,7 @@ from math3d import quaternion
 from math3d.matrices import translation
 
 from planet.chunk import ChunkData, build_cached_chunk
-from planet.cube_sphere import ChunkKey, edge_length
+from planet.cube_sphere import ChunkKey, direction_to_face, edge_length, face_directions
 from planet.lod import LodSelector
 from planet.phases import SUBSTANCES
 from planet.maps import color_map_path
@@ -39,6 +39,7 @@ from planet.terrain import Terrain, TerrainSettings, body_shape
 
 from resources.resources import Resources
 from scene.scene import Scene
+from systems.scatter_system import ScatterSystem, surface_settings
 
 
 # Terrain view modes (assets/shaders/include/terrain.glsl
@@ -153,6 +154,8 @@ class _Planet:
             component.max_depth
         ) / (component.resolution - 1)
 
+        self.max_depth = component.max_depth
+
         # Reuse the last selection while the camera is
         # still and no chunk has arrived.
         self.last_camera: np.ndarray | None = None
@@ -185,12 +188,26 @@ class _Planet:
 
         terrain = self.terrain
 
-        elevation = float(
-            terrain.elevation(
-                direction[None, :],
-                spacing=self.finest_spacing
-            )[0]
+        # The drawn surface runs straight between the finest
+        # vertices, which can stand above the exact height
+        # here (gullies, rocks of noise): the highest of this
+        # point and the corners of its finest grid cell keeps
+        # the camera above what is drawn.
+        face, a, b = direction_to_face(direction)
+
+        step = (2.0 / (1 << self.max_depth)) / (self.resolution - 1)
+
+        a0 = math.floor((a + 1.0) / step) * step - 1.0
+        b0 = math.floor((b + 1.0) / step) * step - 1.0
+
+        corners = face_directions(face, np.array([a0, a0 + step, a0, a0 + step]), np.array([b0, b0, b0 + step, b0 + step]))
+
+        samples = terrain.elevation(
+            np.vstack((direction[None, :], corners)),
+            spacing=self.finest_spacing
         )
+
+        elevation = float(samples.max())
 
         if terrain.settings.has_liquid:
             elevation = max(elevation, 0.0)
@@ -294,6 +311,9 @@ class PlanetSystem:
         # entity -> (config waiting to be applied, since).
         self._pending_config: dict[Entity, tuple[tuple, float]] = {}
 
+        # Rocks, trees and grass around the camera.
+        self.scatter = ScatterSystem(jobs)
+
     # =====================================================
     # Update
     # =====================================================
@@ -325,6 +345,10 @@ class PlanetSystem:
         queued = 0
 
         requests = []
+
+        # The planet the camera stands lowest over (its
+        # scatter): (altitude, arguments).
+        ground_candidate = None
 
         for entity, transform, component in scene.registry.view_with(
             TransformComponent,
@@ -385,7 +409,44 @@ class PlanetSystem:
                 @ np.append(camera_position, 1.0)
             )[:3]
 
+            self._set_detail_origin(material, world, camera_local, camera_position, component)
+
+            material.set_float(
+                "uSurfaceWind",
+                1.0 if (
+                    (atmosphere := scene.registry.try_get(entity, AtmosphereComponent)) is not None
+                    and atmosphere.height > 0.0
+                    and not planet.terrain.settings.bands
+                ) else 0.0
+            )
+
             self._select(planet, camera_local)
+
+            surface = surface_settings(component)
+
+            if surface is not None and self.scatter.enabled:
+
+                distance = float(np.linalg.norm(camera_local))
+
+                if distance > 0.0 and distance - component.radius < 5_000.0:
+
+                    base, height = planet.ground(camera_local / distance)
+
+                    altitude = distance - (component.radius + base + height)
+
+                    if ground_candidate is None or altitude < ground_candidate[0]:
+
+                        ground_candidate = (
+                            altitude,
+                            (
+                                entity, planet.terrain, surface, world, camera_local, camera_position,
+                                max(altitude, 0.0),
+                                {
+                                    "uBodyCenter": material.get_value("uBodyCenter"),
+                                    "uBodyFrame": material.get_value("uBodyFrame"),
+                                }
+                            )
+                        )
 
             # ---------------------------------------------
             # Build requests (all planets share the workers)
@@ -474,6 +535,12 @@ class PlanetSystem:
             self._materials.pop(entity, None)
 
         self._items = items
+
+        # Rocks, trees and grass where the camera stands.
+        if ground_candidate is not None:
+            self.scatter.update(*ground_candidate[1], busy=building > 0 or bool(requests))
+        else:
+            self.scatter.update(None, None, None, None, None, None, 0.0, {})
 
         self.stats = PlanetStats(
             planets=len(self._planets),
@@ -949,6 +1016,45 @@ class PlanetSystem:
     # Ground
     # =====================================================
 
+    # The close-up ground detail's origin: a planet-fixed point
+    # near the camera, on a grid of this many meters
+    # (assets/shaders/include/terrain.glsl terrainCloseUp).
+    DETAIL_CELL = 1024.0
+
+    # Only within this height of the surface (m).
+    DETAIL_RANGE = 60_000.0
+
+    def _set_detail_origin(
+        self,
+        material,
+        world: np.ndarray,
+        camera_local: np.ndarray,
+        camera_position: np.ndarray,
+        component: PlanetComponent
+    ):
+        """
+        uDetailOrigin: the grid point (camera-relative world
+        m; w 1 = in use) and uDetailCell: its grid cell (the
+        body frame, units of DETAIL_CELL). Fine noise counts
+        its cells from there, exactly, however far from the
+        planet's center.
+        """
+
+        distance = float(np.linalg.norm(camera_local))
+
+        if distance - component.radius > self.DETAIL_RANGE:
+
+            material.set_vec4("uDetailOrigin", (0.0, 0.0, 0.0, 0.0))
+
+            return
+
+        cell = np.floor(camera_local / self.DETAIL_CELL)
+
+        origin = world @ np.append(cell * self.DETAIL_CELL, 1.0)
+
+        material.set_vec4("uDetailOrigin", (*(origin[:3] - camera_position), 1.0))
+        material.set_vec3("uDetailCell", tuple(float(c) for c in cell))
+
     def update_camera_ground(
         self,
         scene: Scene
@@ -1047,6 +1153,8 @@ class PlanetSystem:
 
     def shutdown(self):
 
+        self.scatter.clear()
+
         for planet in self._planets.values():
             self._release_all(planet)
 
@@ -1098,6 +1206,7 @@ def terrain_settings_for(
         volcanism=float(min(max(component.volcanism, 0.0), 1.0)),
         volcano_max_height=max(100.0, float(component.volcano_max_height)),
         rivers=bool(component.rivers),
+        gullies=max(0.0, float(component.gullies)),
         dune_density=max(0.0, float(component.dune_density)),
         dune_amplitude=max(0.0, float(component.dune_amplitude)),
         dune_wavelength=max(50.0, float(component.dune_wavelength)),

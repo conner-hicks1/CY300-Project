@@ -1479,13 +1479,26 @@ def erosion_settings(
 
     pressure = air.surface_pressure_bar if air is not None else 0.0
 
+    rivers = profile.liquid in ("water", "methane") and profile.humidity > 0.0
+
     settings = {
-        "rivers": profile.liquid in ("water", "methane") and profile.humidity > 0.0,
+        "rivers": rivers,
         "dune_density": 0.0,
+        "gullies": 0.0,
     }
 
     if profile.palette == "bands" or not profile.has_solid_surface or pressure < 1e-3:
         return settings
+
+    # Gullies and valleys: where rain runs off (Earth, Titan);
+    # Mars's ancient valley networks, from when water ran
+    # (thin air today); Venus's slow weathering, a little.
+    if rivers:
+        settings["gullies"] = 1.0
+    elif pressure < 0.1:
+        settings["gullies"] = 0.5
+    else:
+        settings["gullies"] = 0.15
 
     if profile.liquid == "methane":
 

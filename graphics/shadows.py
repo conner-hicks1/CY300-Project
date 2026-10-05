@@ -228,6 +228,90 @@ def compute_cascades(
 
 
 # =========================================================
+# Terrain Shadow
+# =========================================================
+#
+# The cascades cover tens or hundreds of meters, for props
+# and the ground close by. Mountains shade valleys kilometers
+# away, and at sunrise and sunset for tens of kilometers: one
+# more map covers the land in view around the camera, coarse
+# (~1/2000 of its width per texel) but far-reaching, and only
+# the terrain draws into it. The lit shader takes the darker
+# of the two.
+
+def terrain_shadow_radius(
+    altitude: float,
+    planet_radius: float
+) -> float:
+    """
+    Half-width (m) of the terrain shadow map: most of the
+    ground to the horizon (horizon distance sqrt(2 R h)),
+    no less than 20 km (the hills around you at ground
+    level), no more than 1,500 km (from orbit, the ranges
+    along the terminator).
+    """
+
+    altitude = max(altitude, 0.0)
+
+    horizon = float(np.sqrt(2.0 * planet_radius * altitude + altitude * altitude))
+
+    return min(max(0.8 * horizon, 20_000.0), 1_500_000.0, max(planet_radius, 20_000.0))
+
+
+def terrain_shadow(
+    center,
+    direction,
+    radius: float,
+    map_size: int
+) -> Cascade:
+    """
+    An orthographic shadow map around `center` (world, m),
+    `radius` across, deep enough for casters a radius toward
+    the light beyond it (a low sun's mountains).
+    """
+
+    direction = np.asarray(direction, dtype=np.float64)
+    direction = direction / np.linalg.norm(direction)
+
+    center = np.asarray(center, dtype=np.float64)
+
+    up = (
+        (0.0, 0.0, 1.0)
+        if abs(direction[1]) > 0.99
+        else (0.0, 1.0, 0.0)
+    )
+
+    margin = radius
+
+    eye = center - direction * (radius + margin)
+
+    view = look_at(eye, center, up).astype(np.float64)
+
+    projection = orthographic(
+        -radius, radius,
+        -radius, radius,
+        0.0,
+        2.0 * radius + margin
+    ).astype(np.float64)
+
+    # Texel-snapped like the cascades (no shimmer).
+    origin = (projection @ view) @ np.array([0.0, 0.0, 0.0, 1.0])
+
+    texels = origin[:2] * (map_size / 2.0)
+
+    offset = (np.round(texels) - texels) * (2.0 / map_size)
+
+    projection[0, 3] += offset[0]
+    projection[1, 3] += offset[1]
+
+    return Cascade(
+        matrix=(projection @ view).astype(np.float32),
+        split_far=float("inf"),
+        texel_world_size=2.0 * radius / map_size
+    )
+
+
+# =========================================================
 # Render Space
 # =========================================================
 

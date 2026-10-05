@@ -128,6 +128,9 @@ def pack_camera_block(
 #                                    y shadow layer (-1 = none),
 #                                    z shadow texel scale
 #     mat4  uSpotMatrices[S];        world -> spot shadow clip
+#     mat4  uTerrainShadowMatrix;    world -> terrain shadow clip
+#     vec4  uTerrainShadowParams;    x texel world size, y 1 = on,
+#                                    z its layer in the cascade maps
 
 _VEC4 = 4       # floats
 _MAT4 = 16      # floats
@@ -146,7 +149,13 @@ _OFFSET_SPOT_DIRECTION = _OFFSET_SPOT_POSITION + _VEC4 * MAX_SPOT_LIGHTS
 _OFFSET_SPOT_COLOR = _OFFSET_SPOT_DIRECTION + _VEC4 * MAX_SPOT_LIGHTS
 _OFFSET_SPOT_PARAMS = _OFFSET_SPOT_COLOR + _VEC4 * MAX_SPOT_LIGHTS
 _OFFSET_SPOT_MATRICES = _OFFSET_SPOT_PARAMS + _VEC4 * MAX_SPOT_LIGHTS
-_LIGHTS_FLOATS = _OFFSET_SPOT_MATRICES + _MAT4 * MAX_SPOT_LIGHTS
+_OFFSET_TERRAIN_MATRIX = _OFFSET_SPOT_MATRICES + _MAT4 * MAX_SPOT_LIGHTS
+_OFFSET_TERRAIN_PARAMS = _OFFSET_TERRAIN_MATRIX + _MAT4
+_LIGHTS_FLOATS = _OFFSET_TERRAIN_PARAMS + _VEC4
+
+# The terrain shadow's layer: after the cascades' (graphics/
+# shadows.py terrain_shadow).
+TERRAIN_SHADOW_LAYER = MAX_CASCADES
 
 LIGHTS_BLOCK = UniformBlockSpec(
     name="LightsBlock",
@@ -174,6 +183,9 @@ class LightingFrame:
     spot_shadows: list[SpotShadow | None] = field(
         default_factory=list
     )
+
+    # Mountains' shadows far and wide (only terrain casts).
+    terrain_shadow: Cascade | None = None
 
     shadow_depth_bias: float = 0.0005
     shadow_normal_offset: float = 1.5
@@ -342,6 +354,20 @@ def pack_lights_block(
             data[offset:offset + _MAT4] = _column_major(
                 shadow.matrix
             )
+
+    # -----------------------------------------------------
+    # Terrain shadow
+    # -----------------------------------------------------
+
+    terrain = frame.terrain_shadow if directional is not None else None
+
+    if terrain is not None:
+
+        data[_OFFSET_TERRAIN_MATRIX:_OFFSET_TERRAIN_MATRIX + _MAT4] = _column_major(terrain.matrix)
+
+        data[_OFFSET_TERRAIN_PARAMS + 0] = terrain.texel_world_size
+        data[_OFFSET_TERRAIN_PARAMS + 1] = 1.0
+        data[_OFFSET_TERRAIN_PARAMS + 2] = float(TERRAIN_SHADOW_LAYER)
 
     return data.tobytes()
 

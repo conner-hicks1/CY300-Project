@@ -1,4 +1,6 @@
 import math
+
+from dataclasses import replace
 import struct
 
 import numpy as np
@@ -176,7 +178,8 @@ def test_cube_sphere_cache_is_seamless():
 
     grid = grid_of(smooth_field, 360, 720)
 
-    elevation = ElevationMap(DATASETS["mola_megdr_16"], cube_from_grid(grid, size=64))
+    # (Without the sharper dataset: this fake map stands alone.)
+    elevation = ElevationMap(replace(DATASETS["mola_megdr_16"], detail=""), cube_from_grid(grid, size=64))
 
     directions = fibonacci_directions(5_000)
 
@@ -198,7 +201,8 @@ def test_terrain_follows_the_map(monkeypatch):
 
     grid = grid_of(smooth_field, 360, 720)
 
-    elevation = ElevationMap(DATASETS["mola_megdr_16"], cube_from_grid(grid, size=64))
+    # (Without the sharper dataset: this fake map stands alone.)
+    elevation = ElevationMap(replace(DATASETS["mola_megdr_16"], detail=""), cube_from_grid(grid, size=64))
 
     monkeypatch.setattr(terrain_module, "load_elevation_map", lambda dataset: elevation)
 

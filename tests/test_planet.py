@@ -4,7 +4,7 @@ import time
 import numpy as np
 import pytest
 
-from planet.chunk import build_chunk
+from planet.chunk import _grid_indices, build_chunk
 from planet.cube_sphere import (
     FACE_NORMALS,
     FACE_U,
@@ -173,8 +173,14 @@ def test_chunk_mesh_layout(terrain):
 
     assert data.mesh.vertex_count == n * n + edge
 
-    # Grid quads + double-sided skirt quads.
-    assert data.mesh.triangle_count == 2 * (n - 1) ** 2 + 4 * edge
+    # Grid (its edges stitched to every other vertex) +
+    # double-sided skirt quads.
+    grid = len(_grid_indices(n)) // 3
+
+    # (Inside quads; per edge 3 triangles per pair of edge
+    # cells, 2 at each corner.)
+    assert grid == 2 * (n - 3) ** 2 + 4 * (3 * (n - 1) // 2 - 2)
+    assert data.mesh.triangle_count == grid + 4 * edge
 
 
 def test_chunk_faces_outward_and_stays_above_sea(terrain):
@@ -189,7 +195,7 @@ def test_chunk_faces_outward_and_stays_above_sea(terrain):
 
     assert radial.min() >= RADIUS - 1.0          # oceans sit at sea level
 
-    triangles = data.mesh.indices[: 6 * (n - 1) ** 2].reshape(-1, 3)
+    triangles = data.mesh.indices[: len(_grid_indices(n))].reshape(-1, 3)
 
     p0, p1, p2 = (positions[triangles[:, i]] for i in range(3))
 
@@ -419,7 +425,24 @@ def test_chunk_carries_terrain_inputs(terrain):
     expected = terrain.elevation(directions, edge_length(RADIUS, 3) / (n - 1))
 
     # Sea level clamps positions, not the stored elevation.
-    np.testing.assert_allclose(elevation, expected, atol=60.0)
+    # (Every other edge vertex is snapped to its neighbors'
+    # mean height, as a coarser neighbor draws the edge.)
+    grid = np.arange(n * n).reshape(n, n)
+
+    odd = np.arange(1, n - 1, 2)
+
+    snapped = np.zeros(n * n, dtype=bool)
+    snapped[np.concatenate((grid[0, odd], grid[-1, odd], grid[odd, 0], grid[odd, -1]))] = True
+
+    np.testing.assert_allclose(elevation[~snapped], expected[~snapped], atol=60.0)
+
+    # Snapped edges: midway between their neighbors.
+    edge = elevation.reshape(n, n)[0]
+
+    land = (edge[odd - 1] > 0.0) & (edge[odd] > 0.0) & (edge[odd + 1] > 0.0)
+
+    np.testing.assert_allclose(edge[odd][land], 0.5 * (edge[odd - 1] + edge[odd + 1])[land], atol=1e-2)
+
 
     assert slope.min() > 0.0 and slope.max() <= 1.0 + 1e-6
 

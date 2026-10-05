@@ -55,4 +55,8 @@ layout(std140) uniform LightsBlock
     vec4 uSpotParams[MAX_SPOT_LIGHTS];            // x cos(outer), y shadow layer
                                                   // (-1 = none), z texel scale
     mat4 uSpotMatrices[MAX_SPOT_LIGHTS];
+
+    mat4 uTerrainShadowMatrix;                    // world -> terrain shadow clip
+    vec4 uTerrainShadowParams;                    // x texel world size, y 1 = on,
+                                                  // z layer in the cascade maps
 };

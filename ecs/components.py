@@ -377,6 +377,11 @@ class PlanetComponent:
     # (Titan) or transverse crests across it, the latitude
     # band, and how much darker the sand is.
     rivers: bool = True
+
+    # Slopes carved into gullies and valleys (planet/
+    # erosion.py): 0 none .. 1 rainy.
+    gullies: float = 1.0
+
     dune_density: float = 0.4
     dune_amplitude: float = 60.0
     dune_wavelength: float = 1_500.0

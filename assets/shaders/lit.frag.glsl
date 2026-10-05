@@ -57,6 +57,11 @@ uniform vec3 uEmissive;                    // HDR: color * strength
 // include/terrain.glsl.
 uniform float uTerrainShading;
 
+// 1 = scattered rocks, trees and grass (graphics/scatter.py):
+// the UV is meters on the thing itself; leaves and grain
+// break up its albedo up close.
+uniform float uScatterDetail;
+
 // Planet terrain data view (0 = natural colors); see
 // terrainOverlay() in include/terrain.glsl.
 uniform float uTerrainView;
@@ -204,19 +209,31 @@ void main()
 
     if (uTerrainShading > 0.5)
     {
-        // Planet-local position (km) for the detail noise.
+        // Planet-local position (km), in the planet's own frame
+        // (its detail turns with it).
         vec3 local = vWorldPosition * 0.001 - (hasBody() ? uBodyCenter.xyz : uPlanetCenter.xyz);
 
-        TerrainDetail detail = terrainDetail(local, length(fwidth(local)));
+        vec3 bodyLocal = hasBody() ? rotateByQuaternion(uBodyFrame, local) : toPlanetFrame(local);
+
+        // Near the camera: meters from the detail origin, exact.
+        bool near = uDetailOrigin.w > 0.5 && hasBody();
+
+        vec3 q = near ? rotateByQuaternion(uBodyFrame, vWorldPosition - uDetailOrigin.xyz) : vec3(0.0);
+
+        TerrainDetail detail = terrainDetail(bodyLocal, q, near, length(fwidth(local)));
 
         // The planet's own frame (giants' bands and storms).
-        vec3 planetDirection = normalize(
-            hasBody() ? rotateByQuaternion(uBodyFrame, local) : toPlanetFrame(local)
-        );
+        vec3 planetDirection = normalize(bodyLocal);
+
+        // Skirts (planet/chunk.py) carry a slope of 2: shade
+        // them as the ground they hang from, without relief.
+        float skirt = smoothstep(1.0, 1.02, vColor.g);
+
+        float slope = min(vColor.g, 1.0);
 
         TerrainSurface terrain = terrainSurface(
             vColor.r,
-            vColor.g,
+            slope,
             vColor.b,
             vTexCoord.x,
             vTangent.x >= 0.0 ? vTangent.z : -1.0,
@@ -226,7 +243,30 @@ void main()
             length(fwidth(planetDirection))
         );
 
-        terrainRelief = detail.height * terrain.relief;
+        terrainRelief = detail.height * terrain.relief * (1.0 - skirt);
+
+        // Close up, the ground's own texture (only on the
+        // camera's body, within reach of the detail origin).
+        float closeAlbedo = 0.0;
+
+        if (near && uTerrainView < 0.5)
+        {
+            float footprint = length(fwidth(vWorldPosition));
+
+            if (footprint < 16.0)
+            {
+                TerrainDetail close = terrainCloseUp(
+                    q,
+                    planetDirection,
+                    footprint,
+                    terrain.material,
+                    1.0 - smoothstep(0.6, 0.85, slope)
+                );
+
+                terrainRelief += close.height * (1.0 - skirt);
+                closeAlbedo = close.albedo;
+            }
+        }
 
         baseColor = terrain.albedo * uBaseColor;
 
@@ -237,6 +277,9 @@ void main()
 
             baseColor = mix(baseColor, mapped, uColorMapStrength);
         }
+
+        // The close-up texture, over measured colors too.
+        baseColor *= max(1.0 + closeAlbedo, 0.2);
         roughness = terrain.roughness;
         terrainEmissive = terrain.emissive;
 
@@ -247,7 +290,7 @@ void main()
             baseColor = terrainOverlay(
                 view,
                 vColor.r,
-                vColor.g,
+                slope,
                 vColor.b,
                 vTexCoord.x,
                 floor(vTexCoord.y) / 20.0,
@@ -256,6 +299,22 @@ void main()
 
             roughness = 0.9;
         }
+    }
+
+    if (uScatterDetail > 0.5)
+    {
+        // Leaf clusters and gaps (~20 cm), grain finer: faded
+        // out once smaller than a pixel.
+        float footprint = length(fwidth(vTexCoord));
+
+        float coarse = terrainValueNoise(vec3(vTexCoord * 4.0, 0.5));
+        float fine = terrainValueNoise(vec3(vTexCoord * 13.0, 3.5));
+
+        float detail =
+            0.55 * coarse * (1.0 - smoothstep(0.1, 0.4, footprint))
+            + 0.3 * fine * (1.0 - smoothstep(0.03, 0.12, footprint));
+
+        baseColor *= max(1.0 + detail, 0.1);
     }
 
     float occlusion = mix(
@@ -329,6 +388,10 @@ void main()
             geometricNormal,
             viewDepth
         );
+
+        // Mountains' shadows beyond the cascades (and over
+        // them: whichever is darker).
+        shadow = min(shadow, terrainShadow(vWorldPosition, geometricNormal));
 
         color += shadow * shadeDirect(surface, L, radiance);
 

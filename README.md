@@ -211,6 +211,12 @@ building and saving scenes.
   classic netCDF, images), resampled once onto the cube-sphere and cached
   (loads in milliseconds); hills and craters smaller than the map can show
   are added on top, colors keep the generated fine variation
+- Sharper maps up close, four times finer: Mars at 64 pixels/deg (~0.9 km,
+  four MOLA tiles), the Moon at 64 pixels/deg (~0.5 km), Earth every
+  arc-minute (~1.8 km). `python tools/fetch_maps.py --sharp` downloads them
+  (~1.5 GB); they are memory-mapped, never loaded, and only the samples the
+  detailed chunks near the camera need are read from disk, blended in over a
+  factor of two in detail so nothing pops
 - File > New Planet > Real maps (or Planet panel > Body > Real maps) shows
   the body as measured; its climate, biomes and rivers then work on the real
   topography (the Sahara comes out a desert), and the clock turns the real
@@ -326,7 +332,48 @@ building and saving scenes.
   Mars's dark basaltic fields), long linear ridges along it in Titan's
   equatorial belt of dark organic sand; active dunes bury the craters under
   them
+- Carved slopes: gullies cut straight down every slope, joining into
+  valleys, the ridges between left sharp (an "erosion filter": stripes along
+  the slope at each scale from 2.4 km to 130 m, each finer octave following
+  the slope the coarser ones left, so small gullies run into big ones);
+  where rain runs off (Earth, Titan), half as much on Mars (its ancient
+  valley networks), a little on Venus, none on airless worlds; over a
+  measured map only what it is too coarse to show
 - Climate panel: river, glacier, lake and delta counts
+
+**Close to the ground**
+
+![A Black Forest clearing with conifers, beeches and grass, the forest from 60 m, boulders on an Alpine scree slope, Mars's sand at Gale crater, the Moon's regolith, and crater shadows near the lunar terminator](docs/images/ground.png)
+
+- Rocks, boulders, trees and grass, placed per cell of the cube-sphere grid
+  around the camera from the same terrain and climate the ground is shaded
+  by: conifers where it is cold, beeches and oaks in temperate forest, tall
+  dark rainforest trees, flat-topped acacias on the savanna (life-bearing
+  worlds only); grass tufts, green where wet and straw where dry; boulders
+  everywhere bare, most of all in scree under cliffs, many small and few
+  large, settled into the slope. Placement is deterministic per cell
+- Drawn instanced: each layer one buffer of instances sorted into blocks,
+  one multi-draw per layer for the blocks in view (trees switch to cheap far
+  shapes past 160 m), lit and shadowed like everything else; they grow in
+  over the last part of their reach, and sway in the wind. Built on the
+  workers after the terrain (it streams first). Render settings > Rocks,
+  trees, grass
+- Ground texture all the way down: below the terrain's finest vertices each
+  material has its own detail to ~5 cm: rock cracked and blocky with strata
+  on cliffs, sand smooth with ripples across the wind where there is air,
+  regolith and soil grained, plants patchy, snow faintly wind-carved; fading
+  as it gets smaller than a pixel (its relief sooner, so bump lighting never
+  aliases)
+- Exact up close: the noise is measured from a planet-fixed grid point near
+  the camera (32-bit positions from a planet's center blur below ~0.5 m) and
+  is gradient noise with a strong hash (value noise lights its lattice
+  planes as lines); chunk edges are stitched to the vertices a coarser
+  neighbor shares, so there are no cracks
+- Mountains' shadows: beyond the cascades (which now reach a few hundred
+  meters near the ground, for trees and rocks), one more shadow map covers
+  the land in view, from ~20 km around on the ground to ~1,500 km from orbit:
+  crater floors in shadow near the Moon's terminator, valleys in shade at
+  sunrise. Redrawn only when the view or the sun has moved
 
 **Climate and biomes**
 
@@ -400,7 +447,8 @@ building and saving scenes.
   with base color, metallic-roughness, normal, occlusion and emissive maps
 - Directional, point and spot lights
 - Cascaded shadow maps that follow the camera (stabilized against shimmering),
-  plus spot light shadows, filtered with hardware PCF
+  plus spot light shadows, filtered with hardware PCF; a terrain shadow map
+  far and wide on planets
 - Procedural sky for scenes without a planet; ambient light and reflections baked from it
   (split-sum image-based lighting: irradiance, prefiltered specular, BRDF LUT)
 - HDR pipeline: bloom, exposure with eye adaptation (dim scenes such as
@@ -460,7 +508,7 @@ building and saving scenes.
   terrain chunks, keyed by their inputs and the generators' source code:
   reopening a planet loads instead of simulating (startup 1.9 s to 0.7 s,
   chunks streaming in ~70% faster); oldest entries pruned past 2 GB
-- 618 unit tests (the GPU kernels' run where a GPU is available)
+- 636 unit tests (the GPU kernels' run where a GPU is available)
 
 ## Getting Started
 
@@ -570,6 +618,12 @@ python tools/fetch_maps.py
 
 ```bash
 python tools/compare_terrain.py --image terrain_check.png
+```
+
+The four-times-sharper maps for flying close (~1.5 GB, memory-mapped):
+
+```bash
+python tools/fetch_maps.py --sharp
 ```
 
 Download the star catalog (574 KB) for the real night sky:

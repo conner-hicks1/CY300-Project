@@ -85,6 +85,10 @@ class RenderSettings:
     # Scales ambient light and reflections from the sky.
     ibl_intensity: float = 1.0
 
+    # Rocks, boulders, trees and grass on the ground near the
+    # camera (planet/scatter.py).
+    scatter: bool = True
+
     # The night sky behind planets: the stars (Yale Bright
     # Star Catalog), the Milky Way, distant planets as points
     # of light; seen when the eye adapts to the dark.
@@ -113,6 +117,10 @@ class RenderSettings:
     shadow_distance: float = 30.0
     cascade_count: int = 4
     cascade_split_lambda: float = 0.75
+
+    # Mountains shade the land in view, beyond the cascades
+    # (planet terrain only; graphics/shadows.py).
+    terrain_shadows: bool = True
 
     # Resolution of each cascade / each spot shadow map.
     shadow_map_size: int = 2048

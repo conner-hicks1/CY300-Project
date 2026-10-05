@@ -507,6 +507,29 @@ class Renderer:
 
         self.stats.objects_drawn += len(indices)
 
+    def bind_material(
+        self,
+        shader: Shader,
+        material: Material,
+        resources: Resources
+    ):
+        """
+        Bind `shader` ready to draw with `material`: the frame
+        textures (shadows, lighting), the material's values
+        and maps. For passes that draw on their own
+        (graphics/scatter.py).
+        """
+
+        shader.bind()
+
+        for name, (unit, _, _) in self._frame_textures.items():
+
+            if shader.has_uniform(name):
+                shader.set_int(name, unit)
+
+        self._apply_material_values(shader, material)
+        self._apply_material_textures(shader, material, resources)
+
     def draw_depth_batch(
         self,
         shader: Shader,

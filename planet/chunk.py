@@ -80,15 +80,17 @@ def build_chunk(
 
     a0, a1, b0, b1 = key.bounds()
 
-    step_a = (a1 - a0) / (n - 1)
-    step_b = (b1 - b0) / (n - 1)
-
-    # Grid with a one-sample border: indices -1 .. n.
+    # Grid with a one-sample border: indices -1 .. n, counted
+    # across the whole face (exact in float, and the same
+    # numbers in neighboring chunks: shared edges come out
+    # bit for bit alike).
     steps = np.arange(-1, n + 1, dtype=np.float64)
 
+    unit = 2.0 / (key.cells * (n - 1))
+
     grid_a, grid_b = np.meshgrid(
-        a0 + steps * step_a,
-        b0 + steps * step_b,
+        -1.0 + (key.x * (n - 1) + steps) * unit,
+        -1.0 + (key.y * (n - 1) + steps) * unit,
         indexing="xy"
     )
 
@@ -154,9 +156,24 @@ def build_chunk(
 
         return values.reshape(size, size, width)[1:-1, 1:-1].reshape(-1, width)
 
-    positions = positions[1:-1, 1:-1].reshape(-1, 3)
+    # Edges as a coarser neighbor draws them: every other
+    # edge vertex at the height midway between its two
+    # neighbors. A chunk next to one a level coarser then
+    # meets it without a crack (no T-junction slivers, which
+    # show as dashed lines up close); same-level neighbors
+    # snap alike. The normals (above) stay the true surface's.
+    snapped = _snap_edges(surface.reshape(size, size)[1:-1, 1:-1], n).reshape(-1)
+
+    positions = interior(directions, 3) * (radius + interior(base[:, None], 1)[:, 0] + snapped)[:, None]
+
     directions = interior(directions, 3)
     elevation = interior(elevation[:, None], 1)[:, 0]
+
+    # (Where the surface is the ground, its height too.)
+    if not terrain.settings.has_liquid:
+        elevation = snapped
+    else:
+        elevation = np.where(elevation > 0.0, snapped, elevation)
     water = interior(water[:, None], 1)[:, 0]
 
     slope = np.einsum("ij,ij->i", normals, directions if up is None else up)
@@ -202,12 +219,19 @@ def build_chunk(
     # the tangent slot (terrain shading uses no normal map).
     tectonic = terrain.tectonic_data(directions)
 
+    # Skirts are marked by a slope of 2 (no real slope is
+    # above 1): seen only through pinholes along the seams,
+    # they shade as the flat ground beside them
+    # (assets/shaders/lit.frag.glsl), not as dark cliffs.
+    skirt_colors = colors[edge].copy()
+    skirt_colors[:, 1] = 2.0
+
     mesh = MeshData.from_attributes(
         positions=all_positions,
         indices=_indices(n),
         normals=np.vstack((normals, normals[edge])),
         uvs=np.vstack((uv, uv[edge])),
-        colors=np.vstack((colors, colors[edge])),
+        colors=np.vstack((colors, skirt_colors)),
         tangents=np.vstack((tectonic, tectonic[edge]))
     )
 
@@ -218,6 +242,28 @@ def build_chunk(
         min_elevation=float(elevation.min()),
         max_elevation=float(elevation.max())
     )
+
+
+def _snap_edges(
+    heights: np.ndarray,
+    n: int
+) -> np.ndarray:
+    """An (n, n) height grid with odd edge samples at their neighbors' mean."""
+
+    grid = np.array(heights, dtype=np.float64)
+
+    if (n - 1) % 2 != 0:
+        return grid
+
+    odd = np.arange(1, n - 1, 2)
+
+    for row in (0, n - 1):
+        grid[row, odd] = 0.5 * (grid[row, odd - 1] + grid[row, odd + 1])
+
+    for column in (0, n - 1):
+        grid[odd, column] = 0.5 * (grid[odd - 1, column] + grid[odd + 1, column])
+
+    return grid
 
 
 # =========================================================
@@ -246,28 +292,118 @@ def _edge_vertices(
     return loop
 
 
+def _grid_indices(
+    n: int
+) -> np.ndarray:
+    """
+    The grid's triangles, counter-clockwise from outside.
+
+    Along the four edges only every other vertex is used
+    (the ones a chunk a level coarser also has): the outer
+    ring of quads is fanned from those to the row inside.
+    Neighbors then share their edges vertex for vertex,
+    whichever level they are, so the surface is watertight
+    (triangles meeting mid-edge, T-junctions, leave pixel
+    gaps however exactly the vertex lies on the edge).
+    """
+
+    if n < 5 or (n - 1) % 2 != 0:
+
+        rows, cols = np.meshgrid(np.arange(n - 1), np.arange(n - 1), indexing="ij")
+
+        i0 = (rows * n + cols).ravel()
+
+        return np.stack((i0, i0 + 1, i0 + n + 1, i0, i0 + n + 1, i0 + n), axis=1).ravel()
+
+    triangles = []
+
+    # The inside: plain quads between rows / columns 1 .. n-2.
+    for row in range(1, n - 2):
+        for col in range(1, n - 2):
+
+            i0 = row * n + col
+
+            triangles += [(i0, i0 + 1, i0 + n + 1), (i0, i0 + n + 1, i0 + n)]
+
+    def vertex(x, y):
+        return y * n + x
+
+    inner = (1, n - 2)
+
+    def clip(value):
+        return min(max(value, inner[0]), inner[1])
+
+    # Each edge, as (edge vertex at t, inner vertex at t).
+    edges = (
+        (lambda t: (t, 0), lambda t: (clip(t), 1)),             # bottom
+        (lambda t: (n - 1, t), lambda t: (n - 2, clip(t))),     # right
+        (lambda t: (t, n - 1), lambda t: (clip(t), n - 2)),     # top
+        (lambda t: (0, t), lambda t: (1, clip(t))),             # left
+    )
+
+    for on_edge, inside in edges:
+
+        for t0 in range(0, n - 1, 2):
+
+            t1, t2 = t0 + 1, t0 + 2
+
+            e0, e2 = on_edge(t0), on_edge(t2)
+
+            # The inner vertices this pair of edge vertices
+            # faces (clipped at the corners).
+            fan = []
+
+            for t in (t0, t1, t2):
+
+                v = inside(t)
+
+                if v not in fan:
+                    fan.append(v)
+
+            # A triangle from the edge pair to the middle of
+            # the fan, then the rest of the fan to its ends.
+            middle = fan[len(fan) // 2]
+
+            triangles.append((e0, e2, middle))
+
+            # (Winding is fixed below.)
+            for a, b in zip(fan[:-1], fan[1:]):
+
+                end = e0 if fan.index(b) <= len(fan) // 2 else e2
+
+                triangles.append((end, b, a))
+
+    # Counter-clockwise in grid coordinates (x = column, y =
+    # row), as the grid quads are; degenerate ones dropped.
+    result = []
+
+    for triangle in triangles:
+
+        points = [(index % n, index // n) if isinstance(index, int) else index for index in triangle]
+
+        (x0, y0), (x1, y1), (x2, y2) = points
+
+        area = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)
+
+        if area == 0:
+            continue
+
+        indices = [vertex(x, y) for x, y in points]
+
+        if area < 0:
+            indices = [indices[0], indices[2], indices[1]]
+
+        result.append(indices)
+
+    return np.array(result, dtype=np.int64).ravel()
+
+
 @lru_cache(maxsize=8)
 def _indices(
     n: int
 ) -> np.ndarray:
 
-    # Grid quads, counter-clockwise from outside.
-
-    rows, cols = np.meshgrid(
-        np.arange(n - 1),
-        np.arange(n - 1),
-        indexing="ij"
-    )
-
-    i0 = (rows * n + cols).ravel()
-    i1 = i0 + 1
-    i2 = i0 + n + 1
-    i3 = i0 + n
-
-    grid = np.stack(
-        (i0, i1, i2, i0, i2, i3),
-        axis=1
-    ).ravel()
+    grid = _grid_indices(n)
 
     # Skirt quads between the edge loop and the skirt loop
     # (vertices n*n onward, same order). Both windings,

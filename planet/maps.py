@@ -68,6 +68,11 @@ class MapDataset:
     # Images: longitude at the left edge (deg east).
     left_longitude: float = -180.0
 
+    # Elevation: a sharper dataset of the same body (its id),
+    # sampled where the terrain is built finer than this one
+    # resolves; "detail" kind datasets are those.
+    detail: str = ""
+
     @property
     def path(
         self
@@ -98,10 +103,19 @@ class MapDataset:
         self
     ) -> str:
 
-        return {"mola_megdr_16": "33 MB", "lola_ldem_16": "33 MB", "etopo1_5min": "19 MB"}.get(self.id, "<1 MB")
+        return {
+            "mola_megdr_16": "33 MB",
+            "lola_ldem_16": "33 MB",
+            "etopo1_5min": "19 MB",
+            "mola_megdr_64": "531 MB",
+            "lola_ldem_64": "531 MB",
+            "etopo1_1min": "467 MB",
+        }.get(self.id, "<1 MB")
 
 
 _PDS_MOLA = "https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/mgsl_300x/meg016/"
+_PDS_MOLA_64 = "https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/mgsl_300x/meg064/"
+_MOLA_64_TILES = ("megt90n000gb", "megt90n180gb", "megt00n000gb", "megt00n180gb")
 _PDS_LOLA = "https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/cylindrical/img/"
 
 DATASETS: dict[str, MapDataset] = {
@@ -117,6 +131,20 @@ DATASETS: dict[str, MapDataset] = {
                 (_PDS_MOLA + "megt90n000eb.lbl", "megt90n000eb.lbl"),
             ),
             description="Mars topography, MGS MOLA MEGDR, 16 pixels/deg (~3.7 km), above the areoid",
+            credit="NASA / MGS MOLA Science Team (PDS Geosciences Node)",
+            detail="mola_megdr_64"
+        ),
+        MapDataset(
+            id="mola_megdr_64",
+            body="mars",
+            kind="detail",
+            format="pds_tiles",
+            files=tuple(
+                (_PDS_MOLA_64 + tile + extension, tile + extension)
+                for tile in _MOLA_64_TILES
+                for extension in (".img", ".lbl")
+            ),
+            description="Mars topography, MOLA MEGDR, 64 pixels/deg (~0.9 km): four tiles, sampled up close",
             credit="NASA / MGS MOLA Science Team (PDS Geosciences Node)"
         ),
         MapDataset(
@@ -129,6 +157,20 @@ DATASETS: dict[str, MapDataset] = {
                 (_PDS_LOLA + "ldem_16.lbl", "ldem_16.lbl"),
             ),
             description="Moon topography, LRO LOLA LDEM, 16 pixels/deg (~1.9 km), above 1737.4 km",
+            credit="NASA / LRO LOLA Science Team (PDS Geosciences Node)",
+            datum=1_737_400.0,
+            detail="lola_ldem_64"
+        ),
+        MapDataset(
+            id="lola_ldem_64",
+            body="moon",
+            kind="detail",
+            format="pds_tiles",
+            files=(
+                (_PDS_LOLA + "ldem_64.img", "ldem_64.img"),
+                (_PDS_LOLA + "ldem_64.lbl", "ldem_64.lbl"),
+            ),
+            description="Moon topography, LRO LOLA LDEM, 64 pixels/deg (~0.5 km), sampled up close",
             credit="NASA / LRO LOLA Science Team (PDS Geosciences Node)",
             datum=1_737_400.0
         ),
@@ -145,6 +187,22 @@ DATASETS: dict[str, MapDataset] = {
                 ),
             ),
             description="Earth relief, ETOPO1 every 5 arc-minutes (~9 km), land and sea floor",
+            credit="Amante & Eakins 2009, NOAA NCEI (via NOAA ERDDAP)",
+            detail="etopo1_1min"
+        ),
+        MapDataset(
+            id="etopo1_1min",
+            body="earth",
+            kind="detail",
+            format="netcdf",
+            files=(
+                (
+                    "https://coastwatch.pfeg.noaa.gov/erddap/griddap/etopo180.nc"
+                    "?altitude%5B(-90.0):1:(90.0)%5D%5B(-180.0):1:(180.0)%5D",
+                    "etopo1_1min.nc"
+                ),
+            ),
+            description="Earth relief, ETOPO1 every arc-minute (~1.8 km), sampled up close",
             credit="Amante & Eakins 2009, NOAA NCEI (via NOAA ERDDAP)"
         ),
         MapDataset(
@@ -258,15 +316,18 @@ def read_pds_image(
 
 
 def read_netcdf3(
-    path: Path
+    path: Path,
+    mapped: bool = False
 ) -> dict[str, np.ndarray]:
     """
     The non-record variables of a classic netCDF file
     (format 1 or 2), by name: enough for gridded downloads
-    without a netCDF library.
+    without a netCDF library. mapped: the arrays are
+    memory-mapped (read from disk as sampled), not loaded.
     """
 
-    data = Path(path).read_bytes()
+    # (The header comes first; it is small.)
+    data = Path(path).read_bytes() if not mapped else _read_head(path, 1 << 20)
 
     if data[:3] != b"CDF" or data[3] not in (1, 2):
         raise ValueError(f"{path}: not a classic netCDF file")
@@ -341,11 +402,23 @@ def read_netcdf3(
 
         begin = read("q" if offset_size == 8 else "i")
 
-        array = np.frombuffer(data, dtype=types[nc_type], count=int(np.prod(shape)), offset=begin)
+        if mapped:
+            array = np.memmap(path, dtype=types[nc_type], mode="r", offset=begin, shape=shape)
+        else:
+            array = np.frombuffer(data, dtype=types[nc_type], count=int(np.prod(shape)), offset=begin)
 
         variables[variable] = array.reshape(shape)
 
     return variables
+
+
+def _read_head(
+    path: Path,
+    size: int
+) -> bytes:
+
+    with open(path, "rb") as file:
+        return file.read(size)
 
 
 def read_dataset(
@@ -448,6 +521,20 @@ class ElevationMap:
         self.min_height = float(faces.min())
         self.max_height = float(faces.max())
 
+        # The sharper dataset, if downloaded (opened on first
+        # use).
+        self._detail = False
+
+    @property
+    def detail(
+        self
+    ) -> "DetailMap | None":
+
+        if self._detail is False:
+            self._detail = load_detail_map(self.dataset.detail) if self.dataset.detail else None
+
+        return self._detail
+
     def resolution(
         self,
         radius: float
@@ -457,6 +544,36 @@ class ElevationMap:
         return math.pi * 0.5 * radius / self.size
 
     def sample(
+        self,
+        directions: np.ndarray,
+        spacing: float = 0.0,
+        radius: float = 0.0
+    ) -> np.ndarray:
+        """
+        Heights (m). spacing: the samples' spacing (m) on a
+        body of `radius`: finer than this map resolves, the
+        sharper dataset takes over (blended in over a factor
+        of two, so a level of detail changes nothing
+        abruptly). 0 = this map alone.
+        """
+
+        heights = self._sample_cube(directions)
+
+        detail = self.detail if spacing > 0.0 and radius > 0.0 else None
+
+        if detail is None:
+            return heights
+
+        coarse = self.resolution(radius)
+
+        weight = np.clip((coarse - spacing) / (0.5 * coarse), 0.0, 1.0)
+
+        if weight <= 0.0:
+            return heights
+
+        return heights * (1.0 - weight) + detail.sample(directions) * weight
+
+    def _sample_cube(
         self,
         directions: np.ndarray
     ) -> np.ndarray:
@@ -562,6 +679,207 @@ def load_elevation_map(
     np.save(cache, faces)
 
     return ElevationMap(dataset, faces)
+
+
+# =========================================================
+# Sharper Maps, Read in Place
+# =========================================================
+#
+# The 64 pixels/deg maps are ~0.5 GB each: they are not
+# resampled or loaded, but memory-mapped, and only the
+# samples the detailed chunks near the camera ask for are
+# read from disk (bilinear, per tile).
+
+@dataclass(slots=True)
+class _Tile:
+
+    values: np.ndarray          # memory-mapped, rows from north (or south: flip)
+    scale: float
+    offset: float               # added after scaling (minus the datum)
+    top: float                  # cell-edge bounds (deg)
+    bottom: float
+    left: float
+    right: float
+    flip: bool = False          # rows stored from the south
+
+
+class DetailMap:
+
+    def __init__(
+        self,
+        dataset: MapDataset,
+        tiles: list[_Tile]
+    ):
+
+        self.dataset = dataset
+        self.tiles = tiles
+
+        tile = tiles[0]
+
+        # Degrees per sample.
+        self.step = (tile.top - tile.bottom) / tile.values.shape[0]
+
+    def resolution(
+        self,
+        radius: float
+    ) -> float:
+
+        return math.radians(self.step) * radius
+
+    def sample(
+        self,
+        directions: np.ndarray
+    ) -> np.ndarray:
+
+        directions = np.asarray(directions, dtype=np.float64)
+
+        latitude = np.degrees(np.arcsin(np.clip(directions[:, 1], -1.0, 1.0)))
+        longitude = np.degrees(np.arctan2(directions[:, 0], directions[:, 2]))
+
+        heights = np.zeros(len(directions))
+
+        for tile in self.tiles:
+
+            span = tile.right - tile.left
+
+            east = (longitude - tile.left) % 360.0
+
+            inside = (latitude <= tile.top) & (latitude >= tile.bottom) & (east <= span)
+
+            if not np.any(inside):
+                continue
+
+            heights[inside] = _sample_tile(tile, latitude[inside], east[inside], span >= 359.99)
+
+        return heights
+
+
+def _sample_tile(
+    tile: _Tile,
+    latitude: np.ndarray,
+    east: np.ndarray,
+    wraps: bool
+) -> np.ndarray:
+
+    values = tile.values
+
+    rows, columns = values.shape
+
+    y = (tile.top - latitude) / (tile.top - tile.bottom) * rows - 0.5
+    x = east / (tile.right - tile.left) * columns - 0.5
+
+    y = np.clip(y, 0.0, rows - 1.0)
+
+    y0 = np.minimum(np.floor(y).astype(np.int64), rows - 2)
+    fy = y - y0
+
+    if wraps:
+        x0 = np.floor(x).astype(np.int64)
+        fx = x - x0
+        x0 %= columns
+        x1 = (x0 + 1) % columns
+    else:
+        x = np.clip(x, 0.0, columns - 1.0)
+        x0 = np.minimum(np.floor(x).astype(np.int64), columns - 2)
+        fx = x - x0
+        x1 = x0 + 1
+
+    r0, r1 = y0, y0 + 1
+
+    if tile.flip:
+        r0, r1 = rows - 1 - r0, rows - 1 - r1
+
+    # (Sorted reads are kinder to the disk; fancy indexing on
+    # a memmap reads just the pages touched.)
+    top = values[r0, x0].astype(np.float64) * (1.0 - fx) + values[r0, x1] * fx
+    bottom = values[r1, x0].astype(np.float64) * (1.0 - fx) + values[r1, x1] * fx
+
+    return (top * (1.0 - fy) + bottom * fy) * tile.scale + tile.offset
+
+
+def _pds_tile(
+    data_path: Path,
+    label_path: Path,
+    datum: float
+) -> _Tile:
+
+    label = parse_pds_label(Path(label_path).read_text(encoding="latin-1"))
+
+    lines = int(label["LINES"])
+    samples = int(label["LINE_SAMPLES"])
+
+    order = ">" if label["SAMPLE_TYPE"].startswith(("MSB", "SUN", "MAC")) else "<"
+
+    values = np.memmap(data_path, dtype=order + "i2", mode="r", shape=(lines, samples))
+
+    return _Tile(
+        values=values,
+        scale=float(label.get("SCALING_FACTOR", 1.0)),
+        offset=float(label.get("OFFSET", 0.0)) - datum,
+        top=float(label.get("MAXIMUM_LATITUDE", 90.0)),
+        bottom=float(label.get("MINIMUM_LATITUDE", -90.0)),
+        left=float(label.get("WESTERNMOST_LONGITUDE", 0.0)),
+        right=float(label.get("EASTERNMOST_LONGITUDE", 360.0))
+    )
+
+
+def _netcdf_tile(
+    path: Path
+) -> _Tile:
+
+    variables = read_netcdf3(path, mapped=True)
+
+    latitude = np.asarray(variables["latitude"])
+    longitude = np.asarray(variables["longitude"])
+
+    step_lat = abs(float(latitude[1] - latitude[0]))
+    step_lon = abs(float(longitude[1] - longitude[0]))
+
+    flip = latitude[0] < latitude[-1]
+
+    north, south = (latitude[-1], latitude[0]) if flip else (latitude[0], latitude[-1])
+
+    return _Tile(
+        values=variables["altitude"],
+        scale=1.0,
+        offset=0.0,
+        top=float(north) + 0.5 * step_lat,
+        bottom=float(south) - 0.5 * step_lat,
+        left=float(longitude[0]) - 0.5 * step_lon,
+        right=float(longitude[-1]) + 0.5 * step_lon,
+        flip=bool(flip)
+    )
+
+
+@lru_cache(maxsize=4)
+def load_detail_map(
+    dataset_id: str
+) -> DetailMap | None:
+    """A sharper map, memory-mapped; None until downloaded."""
+
+    dataset = DATASETS.get(dataset_id)
+
+    if dataset is None or dataset.kind != "detail" or not dataset.available:
+        return None
+
+    try:
+
+        if dataset.format == "netcdf":
+            tiles = [_netcdf_tile(dataset.path)]
+        else:
+            names = [name for _, name in dataset.files]
+            tiles = [
+                _pds_tile(MAPS_DIRECTORY / image, MAPS_DIRECTORY / label, dataset.datum)
+                for image, label in zip(names[0::2], names[1::2])
+            ]
+
+    except (OSError, ValueError, KeyError) as error:
+
+        Logger.warning("[Maps] %s could not be read: %s", dataset.id, error)
+
+        return None
+
+    return DetailMap(dataset, tiles)
 
 
 def color_map_path(

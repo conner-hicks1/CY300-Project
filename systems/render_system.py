@@ -98,13 +98,18 @@ from graphics.renderer import Renderer
 from graphics.shader import Shader
 from graphics.shadow_map import ShadowMapArray
 from graphics.star_field import TWINKLE, BodyPoint, StarField, reflected_illuminance
+from graphics.scatter import ScatterRenderer
+from graphics.material import Material
 from graphics.shadows import (
+    Cascade,
     compute_cascades,
     spot_shadow,
+    terrain_shadow,
+    terrain_shadow_radius,
     to_render_space
 )
 from graphics.texture import Texture2D
-from graphics.uniform_blocks import MAX_BODIES, LightingFrame
+from graphics.uniform_blocks import MAX_BODIES, TERRAIN_SHADOW_LAYER, LightingFrame
 
 from math3d import quaternion
 from math3d.camera import Camera
@@ -226,6 +231,40 @@ class RenderSystem:
         self._star_field: StarField | None = None
         self._sky_view: dict | None = None
 
+        # Rocks, trees and grass: their meshes and buffers
+        # (created on first use), lit like everything else
+        # (lit.frag with an instancing vertex shader).
+        self._scatter: ScatterRenderer | None = None
+        self._scatter_frame = None
+        self._scatter_commands: dict = {}
+        self._scatter_shadow_commands: dict = {}
+
+        self._scatter_shader = self._resources.shaders.load(
+            "engine/scatter",
+            lambda: Shader(f"{SHADER_DIRECTORY}/scatter.vert.glsl", f"{SHADER_DIRECTORY}/lit.frag.glsl")
+        )
+
+        self._scatter_depth_shader = self._resources.shaders.load(
+            "engine/scatter_depth",
+            lambda: Shader(f"{SHADER_DIRECTORY}/scatter_depth.vert.glsl", f"{SHADER_DIRECTORY}/shadow_depth.frag.glsl")
+        )
+
+        self._scatter_material = Material(self._scatter_shader)
+
+        for name, value in (
+            ("uTerrainShading", 0.0),
+            ("uTerrainView", 0.0),
+            ("uColorMapStrength", 0.0),
+            ("uRoughness", 0.85),
+            ("uMetallic", 0.0),
+            ("uOcclusionStrength", 0.0),
+            ("uScatterDetail", 1.0),
+        ):
+            self._scatter_material.set_float(name, value)
+
+        self._scatter_material.set_vec3("uBaseColor", (1.0, 1.0, 1.0))
+        self._scatter_material.set_vec3("uEmissive", (0.0, 0.0, 0.0))
+
         # -------------------------------------------------
         # Default Textures
         # -------------------------------------------------
@@ -292,6 +331,10 @@ class RenderSystem:
         # Where the star is in the world (m), or None (no
         # orbits: the sunlight's direction is all there is).
         self.star_locator = lambda: None
+
+        # The rocks, trees and grass to draw this frame
+        # (graphics/scatter.py ScatterFrame), or None.
+        self.scatter_provider = lambda: None
 
         # -------------------------------------------------
         # GPU Resources
@@ -457,7 +500,8 @@ class RenderSystem:
 
             frame = self._build_lighting_frame(
                 camera,
-                lighting
+                lighting,
+                registry
             )
 
             sky = self._sky_parameters(
@@ -509,6 +553,9 @@ class RenderSystem:
             camera.projection_matrix
             @ camera.view_rotation_matrix
         )
+
+        with profiler.scope("Prepare scatter"):
+            self._prepare_scatter(camera_clip)
 
         # -------------------------------------------------
         # 2. Shadows
@@ -576,6 +623,12 @@ class RenderSystem:
                 self._resources,
                 visible
             )
+
+            if self._scatter_frame is not None:
+
+                with profiler.scope("Scatter", gpu=True):
+
+                    self._render_scatter()
 
             # The stars behind everything, before the air
             # (which dims them, or drowns them by day).
@@ -728,13 +781,33 @@ class RenderSystem:
     # Lighting Frame (shadow matrices)
     # =====================================================
 
+    # Near a solid surface the cascades reach further than a
+    # prop scene's (rocks, trees and hills nearby cast
+    # shadows): this far plus this much per meter of height,
+    # up to the limit (m).
+    GROUND_SHADOW_DISTANCE = (300.0, 3.0, 3_000.0)
+
     def _build_lighting_frame(
         self,
         camera: Camera,
-        lighting: LightEnvironment
+        lighting: LightEnvironment,
+        registry: Registry | None = None
     ) -> LightingFrame:
 
         settings = self.settings
+
+        # The solid body the camera is at (its ground shadows).
+        ground = None
+
+        if registry is not None:
+
+            solid = [
+                b for b in self._gather_bodies(registry, camera)
+                if not (b.body is not None and b.body.kind in ("gas_giant", "ice_giant"))
+            ]
+
+            if solid:
+                ground = min(solid, key=lambda b: b.surface_distance)
 
         frame = LightingFrame(
             ibl_intensity=settings.ibl_intensity,
@@ -752,14 +825,37 @@ class RenderSystem:
             and settings.shadow_distance > camera.near
         ):
 
+            distance = settings.shadow_distance
+
+            if ground is not None:
+
+                base, per_meter, limit = self.GROUND_SHADOW_DISTANCE
+
+                distance = max(
+                    distance,
+                    min(base + per_meter * max(ground.surface_distance, 0.0), limit)
+                )
+
             frame.cascades = compute_cascades(
                 camera,
                 directional.direction,
                 count=min(max(int(settings.cascade_count), 1), MAX_CASCADES),
-                distance=settings.shadow_distance,
+                distance=distance,
                 split_lambda=settings.cascade_split_lambda,
                 map_size=int(settings.shadow_map_size)
             )
+
+            # Mountains' shadows over the land in view.
+            if ground is not None and settings.terrain_shadows:
+
+                up = (np.asarray(camera.position, dtype=np.float64) - ground.center) / max(ground.distance, 1.0)
+
+                frame.terrain_shadow = self._cached_terrain_shadow(
+                    ground.center + up * ground.planet.radius,
+                    np.asarray(directional.direction, dtype=np.float64),
+                    terrain_shadow_radius(ground.surface_distance, ground.planet.radius),
+                    int(settings.shadow_map_size)
+                )
 
         frame.spot_shadows = [
             spot_shadow(
@@ -783,12 +879,72 @@ class RenderSystem:
         for cascade in frame.cascades:
             cascade.matrix = to_render_space(cascade.matrix, origin)
 
+        if frame.terrain_shadow is not None:
+            frame.terrain_shadow.matrix = to_render_space(frame.terrain_shadow.matrix, origin)
+
         for shadow in frame.spot_shadows:
 
             if shadow is not None:
                 shadow.matrix = to_render_space(shadow.matrix, origin)
 
         return frame
+
+    # The terrain shadow is redrawn only when its view has
+    # changed this much (share of its width; sun angle, rad),
+    # or this long (s) has passed (terrain streamed in):
+    # mountains do not move, and the sun only slowly.
+    TERRAIN_SHADOW_REUSE = (0.03, 2e-4, 1.0)
+
+    def _cached_terrain_shadow(
+        self,
+        center: np.ndarray,
+        direction: np.ndarray,
+        radius: float,
+        map_size: int
+    ):
+        """
+        This frame's terrain shadow (world space): last
+        frame's while still good (then its layer is not
+        redrawn), else a new one.
+        """
+
+        cached = getattr(self, "_terrain_shadow_cache", None)
+
+        now = time.perf_counter()
+
+        moved, turned, age = self.TERRAIN_SHADOW_REUSE
+
+        direction = direction / max(float(np.linalg.norm(direction)), 1e-12)
+
+        if (
+            cached is not None
+            and abs(cached["radius"] - radius) < moved * radius
+            and float(np.linalg.norm(cached["center"] - center)) < moved * radius
+            and float(cached["direction"] @ direction) > math.cos(turned)
+            and now - cached["time"] < age
+            and cached["size"] == map_size
+        ):
+
+            shadow = cached["shadow"]
+
+            self._terrain_shadow_fresh = False
+
+            return Cascade(matrix=shadow.matrix.copy(), split_far=shadow.split_far, texel_world_size=shadow.texel_world_size)
+
+        shadow = terrain_shadow(center, direction, radius, map_size)
+
+        self._terrain_shadow_cache = {
+            "center": np.array(center, dtype=np.float64),
+            "direction": direction.copy(),
+            "radius": radius,
+            "time": now,
+            "size": map_size,
+            "shadow": Cascade(matrix=shadow.matrix.copy(), split_far=shadow.split_far, texel_world_size=shadow.texel_world_size),
+        }
+
+        self._terrain_shadow_fresh = True
+
+        return shadow
 
     # =====================================================
     # Shadow Pass
@@ -803,9 +959,10 @@ class RenderSystem:
 
         settings = self.settings
 
+        # (One more layer: the terrain shadow.)
         self._cascade_maps.resize(
             int(settings.shadow_map_size),
-            MAX_CASCADES
+            MAX_CASCADES + 1
         )
 
         self._spot_maps.resize(
@@ -816,12 +973,16 @@ class RenderSystem:
         passes = []
 
         for layer, cascade in enumerate(frame.cascades):
-            passes.append((self._cascade_maps, layer, cascade.matrix))
+            passes.append((self._cascade_maps, layer, cascade.matrix, None))
+
+        # (Redrawn only when it changed: _cached_terrain_shadow.)
+        if frame.terrain_shadow is not None and getattr(self, "_terrain_shadow_fresh", True):
+            passes.append((self._cascade_maps, TERRAIN_SHADOW_LAYER, frame.terrain_shadow.matrix, "terrain"))
 
         for layer, shadow in enumerate(frame.spot_shadows):
 
             if shadow is not None:
-                passes.append((self._spot_maps, layer, shadow.matrix))
+                passes.append((self._spot_maps, layer, shadow.matrix, None))
 
         if not passes:
             return
@@ -831,6 +992,17 @@ class RenderSystem:
         casters = np.flatnonzero(
             prepared.casts_shadows
         )
+
+        # Planet terrain (the terrain shadow's only casters).
+        terrain_casters = casters[
+            np.array(
+                [
+                    float(prepared.items[i].material.get_value("uTerrainShading", 0.0)) > 0.5
+                    for i in casters
+                ],
+                dtype=bool
+            )
+        ] if len(casters) else casters
 
         shader = self._shader("shadow_depth")
 
@@ -847,9 +1019,11 @@ class RenderSystem:
         # reversed-Z scene.
         RenderState.set_depth_func(GL_LESS)
 
-        for shadow_map, layer, matrix in passes:
+        for shadow_map, layer, matrix, only in passes:
 
             shadow_map.clear_layer(layer)
+
+            members = terrain_casters if only == "terrain" else casters
 
             shader.set_mat4(
                 "uLightMatrix",
@@ -859,14 +1033,26 @@ class RenderSystem:
             # Only casters inside this layer's light volume.
             inside = spheres_in_frustum(
                 frustum_planes(matrix),
-                prepared.centers[casters],
-                prepared.radii[casters]
+                prepared.centers[members],
+                prepared.radii[members]
             )
 
             self._renderer.draw_depth_batch(
                 shader,
-                casters[inside]
+                members[inside]
             )
+
+            # Rocks and trees in the near cascades.
+            if only is None and shadow_map is self._cascade_maps and self._scatter_frame is not None:
+
+                depth = self._resources.shaders.get(self._scatter_depth_shader)
+
+                depth.bind()
+                depth.set_mat4("uLightMatrix", matrix)
+
+                self._scatter.draw(depth, self._scatter_frame, self._scatter_shadow_commands, 0.0)
+
+                shader.bind()
 
         RenderState.set_cull_front_faces(False)
 
@@ -1645,6 +1831,57 @@ class RenderSystem:
 
         return target
 
+    # =====================================================
+    # Rocks, Trees, Grass
+    # =====================================================
+
+    def _prepare_scatter(
+        self,
+        camera_clip: np.ndarray
+    ):
+        """This frame's scatter (planet/scatter.py): upload when it changed, the blocks to draw."""
+
+        frame = self.scatter_provider()
+
+        self._scatter_frame = None
+
+        if frame is None or not frame.layers:
+            return
+
+        if self._scatter is None:
+            self._scatter = ScatterRenderer()
+
+        self._scatter.update(frame)
+
+        self._scatter_frame = frame
+
+        self._scatter_commands = self._scatter.commands(frame, camera_clip)
+
+        # Shadows: everything within reach (casters beside
+        # the view still shade it).
+        self._scatter_shadow_commands = self._scatter.commands(frame, None, shadows=True)
+
+    def _render_scatter(self):
+
+        frame = self._scatter_frame
+
+        material = self._scatter_material
+
+        for name, value in frame.body_values.items():
+            if value is not None:
+                material.set_vec4(name, value)
+
+        shader = self._resources.shaders.get(self._scatter_shader)
+
+        self._renderer.bind_material(shader, material, self._resources)
+
+        self._scatter.draw(
+            shader,
+            frame,
+            self._scatter_commands,
+            time.perf_counter() - self._clock_start
+        )
+
     def _render_rings(self):
         """
         The ring system over the scene (premultiplied alpha,
@@ -2382,6 +2619,12 @@ class RenderSystem:
             self._star_field.delete()
 
             self._star_field = None
+
+        if self._scatter is not None:
+
+            self._scatter.delete()
+
+            self._scatter = None
 
         for attribute in ("_hdr_framebuffer", "_ldr_framebuffer", "_exposure_framebuffer"):
 

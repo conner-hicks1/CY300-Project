@@ -36,8 +36,8 @@ def test_block_sizes():
 
     assert CAMERA_BLOCK.size == 144
 
-    vec4s = 6 + 2 * MAX_POINT_LIGHTS + 4 * MAX_SPOT_LIGHTS
-    mat4s = MAX_CASCADES + MAX_SPOT_LIGHTS
+    vec4s = 7 + 2 * MAX_POINT_LIGHTS + 4 * MAX_SPOT_LIGHTS  # +1: terrain shadow params
+    mat4s = MAX_CASCADES + MAX_SPOT_LIGHTS + 1  # +1: terrain shadow matrix
 
     assert LIGHTS_BLOCK.size == 16 * vec4s + 64 * mat4s
 

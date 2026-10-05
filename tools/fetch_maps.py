@@ -4,6 +4,7 @@ into data/maps/ and build their cube-sphere caches.
 
     python tools/fetch_maps.py            # everything (~86 MB)
     python tools/fetch_maps.py mars moon  # some bodies
+    python tools/fetch_maps.py --sharp    # also the 4x sharper maps (~1.5 GB)
     python tools/fetch_maps.py --list
 
 Files already there are skipped. Sources are public domain
@@ -75,7 +76,9 @@ def main(
 
         return 0
 
-    bodies = set(arguments)
+    sharp = "--sharp" in arguments
+
+    bodies = {a for a in arguments if not a.startswith("--")}
 
     MAPS_DIRECTORY.mkdir(parents=True, exist_ok=True)
 
@@ -84,6 +87,10 @@ def main(
     for dataset in DATASETS.values():
 
         if bodies and dataset.body not in bodies:
+            continue
+
+        # The sharper maps (~0.5 GB each) only when asked.
+        if dataset.kind == "detail" and not sharp:
             continue
 
         print(f"{dataset.id}: {dataset.description}")

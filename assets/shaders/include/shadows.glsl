@@ -120,6 +120,43 @@ float directionalShadow(
 
 
 // ---------------------------------------------------------
+// Terrain (mountains' shadows, far and wide)
+// ---------------------------------------------------------
+
+float terrainShadow(
+    vec3 worldPosition,
+    vec3 geometricNormal
+)
+{
+    if (uTerrainShadowParams.y < 0.5)
+    {
+        return 1.0;
+    }
+
+    vec3 offsetPosition =
+        worldPosition
+        + geometricNormal
+        * uTerrainShadowParams.x
+        * uLightParams.z;
+
+    vec3 projected = shadowCoordinates(uTerrainShadowMatrix * vec4(offsetPosition, 1.0));
+
+    if (projected.z > 1.0 || any(lessThan(projected.xy, vec2(0.0))) || any(greaterThan(projected.xy, vec2(1.0))))
+    {
+        return 1.0;
+    }
+
+    float lit = shadowPCF(uCascadeShadowMaps, projected, uTerrainShadowParams.z);
+
+    // Fade out toward the map's edge (no hard line where it
+    // ends).
+    vec2 edge = abs(projected.xy * 2.0 - 1.0);
+
+    return mix(lit, 1.0, smoothstep(0.85, 1.0, max(edge.x, edge.y)));
+}
+
+
+// ---------------------------------------------------------
 // Spot
 // ---------------------------------------------------------
 

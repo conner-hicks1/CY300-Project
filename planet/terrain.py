@@ -5,6 +5,7 @@ import numpy as np
 from planet.climate import fallback_surface
 from planet.craters import CraterSettings, Craters
 from planet.dunes import DuneSettings, Dunes
+from planet.erosion import WAVELENGTHS as GULLY_WAVELENGTHS, gullies, relief_gradient
 from planet.hydrology import meander_offsets
 from core.disk_cache import cache_key
 
@@ -99,6 +100,12 @@ class TerrainSettings:
     # climate (planet/hydrology.py; needs a liquid), and
     # wind-blown dunes (planet/dunes.py).
     rivers: bool = False
+
+    # Slopes carved into gullies and valleys by running water
+    # (planet/erosion.py): 0 none (airless worlds), 1 rainy
+    # (Earth, Titan); Mars's ancient valleys about half.
+    gullies: float = 0.0
+
     dune_density: float = 0.0
     dune_amplitude: float = 50.0
     dune_wavelength: float = 1_500.0
@@ -507,7 +514,7 @@ class Terrain:
             )
 
         if self.elevation_map is not None:
-            return self._measured(directions, octaves)
+            return self._carve(self._measured(directions, octaves, spacing), directions, spacing, self._measured_relief)
 
         # -------------------------------------------------
         # Continents and mountain placement
@@ -591,6 +598,12 @@ class Terrain:
             )
 
         # -------------------------------------------------
+        # Gullies and valleys cut by running water
+        # -------------------------------------------------
+
+        elevation = self._carve(elevation, directions, spacing, self._relief_only, land)
+
+        # -------------------------------------------------
         # Volcanoes where magma reaches the surface
         # -------------------------------------------------
 
@@ -608,10 +621,84 @@ class Terrain:
 
         return elevation
 
+    def _carve(
+        self,
+        elevation: np.ndarray,
+        directions: np.ndarray,
+        spacing: float,
+        relief,
+        land=1.0
+    ) -> np.ndarray:
+        """
+        Gullies on the slopes (planet/erosion.py), where the
+        samples are fine enough to show them and the body has
+        had running water; not under seas.
+        """
+
+        s = self.settings
+
+        if s.gullies <= 0.0 or (spacing > 0.0 and spacing * 4.0 > GULLY_WAVELENGTHS[0]):
+            return elevation
+
+        # Over a map, only valleys finer than it shows.
+        largest = float("inf")
+
+        if self.elevation_map is not None:
+
+            detail = self.elevation_map.detail
+
+            largest = (detail or self.elevation_map).resolution(s.radius)
+
+            if largest < GULLY_WAVELENGTHS[-1] or spacing * 4.0 > largest:
+                return elevation
+
+        gradient = relief_gradient(relief, directions, s.radius, 2.0 * min(GULLY_WAVELENGTHS[0], largest))
+
+        cut = gullies(directions, s.radius, gradient, spacing, s.gullies, s.seed, largest)
+
+        if s.has_liquid:
+            cut = cut * _smoothstep(-20.0, 60.0, elevation)
+
+        return elevation + cut * land
+
+    def _relief_only(
+        self,
+        directions: np.ndarray,
+        spacing: float
+    ) -> np.ndarray:
+        """The relief before carving, at a coarse `spacing` (its gradient)."""
+
+        settings = self.settings
+
+        # (No carving inside, no volcanoes: the larger forms.)
+        saved, self.settings = settings, _without_gullies(settings)
+
+        volcanoes, self.volcanoes = self.volcanoes, None
+
+        try:
+            return self._shape(directions, spacing)
+        finally:
+            self.settings = saved
+            self.volcanoes = volcanoes
+
+    def _measured_relief(
+        self,
+        directions: np.ndarray,
+        spacing: float
+    ) -> np.ndarray:
+
+        radius = self.settings.radius
+
+        def octaves(frequency):
+            return octaves_for_spacing(radius / frequency, spacing, _MAX_OCTAVES)
+
+        return self._measured(directions, octaves, spacing)
+
     def _measured(
         self,
         directions: np.ndarray,
-        octaves
+        octaves,
+        spacing: float = 0.0
     ) -> np.ndarray:
         """
         A real map's heights, with hills finer than its
@@ -620,7 +707,9 @@ class Terrain:
 
         s = self.settings
 
-        elevation = self.elevation_map.sample(directions)
+        # (Sharper data where the samples are finer than the
+        # map: planet/maps.py.)
+        elevation = self.elevation_map.sample(directions, spacing, s.radius)
 
         detail_frequency = s.mountain_frequency * _DETAIL_FREQUENCY_SCALE
 
@@ -817,6 +906,13 @@ class Terrain:
             0.0,
             1.0
         )
+
+
+def _without_gullies(
+    settings: TerrainSettings
+) -> TerrainSettings:
+
+    return replace(settings, gullies=0.0)
 
 
 def _smoothstep(

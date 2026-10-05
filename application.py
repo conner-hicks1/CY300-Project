@@ -388,6 +388,7 @@ class Application:
         self.render_system.climate_provider = self.climate_system.field
         self.render_system.star_provider = self.orbit_system.star_distance
         self.render_system.star_locator = self.orbit_system.star_position
+        self.render_system.scatter_provider = lambda: self.planet_system.scatter.frame
 
         self.planet_system = PlanetSystem(
             self.resources,
@@ -1655,6 +1656,9 @@ class Application:
             )
 
         with profiler.scope("Planet"):
+
+            # Rocks, trees and grass (Render settings).
+            self.planet_system.scatter.enabled = self.render_system.settings.scatter
 
             self.planet_system.update(
                 self.scene,
