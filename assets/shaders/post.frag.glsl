@@ -23,7 +23,7 @@ uniform float uBloomIntensity;
 uniform float uExposure;
 uniform float uGamma;
 
-// Eye adaptation: a 1x1 scale (exposure.frag.glsl).
+// Eye adaptation: a 1x1 log scale (exposure.frag.glsl).
 uniform sampler2D uAutoExposureTexture;
 uniform bool uAutoExposure;
 
@@ -50,6 +50,18 @@ void main()
 {
     vec3 hdr = texture(uHdrBuffer, vTexCoord).rgb;
 
+    // Night vision: in dim light the eye's rods take over
+    // from its cones, which see color: moonlit and starlit
+    // scenes look grey-blue (the Purkinje shift), faint
+    // stars white. Luminance here is the scene's own (1 =
+    // ~1e4 cd/m2, sunlit snow): cones fade below ~3 cd/m2,
+    // rods alone below ~1e-3 cd/m2.
+    float luminance = dot(hdr, vec3(0.2126, 0.7152, 0.0722));
+
+    float rods = 1.0 - smoothstep(log(1e-7), log(3e-4), log(max(luminance, 1e-12)));
+
+    hdr = mix(hdr, luminance * vec3(0.86, 0.96, 1.16), 0.85 * rods);
+
     // Energy-conserving: blend toward the blurred image
     // rather than adding to it.
     if (uBloomEnabled)
@@ -65,7 +77,7 @@ void main()
 
     if (uAutoExposure)
     {
-        hdr *= texelFetch(uAutoExposureTexture, ivec2(0), 0).r;
+        hdr *= exp(texelFetch(uAutoExposureTexture, ivec2(0), 0).r);
     }
 
     vec3 mapped;
@@ -83,8 +95,13 @@ void main()
         mapped = clamp(hdr, 0.0, 1.0);
     }
 
-    FragColor = vec4(
-        pow(mapped, vec3(1.0 / uGamma)),
-        1.0
-    );
+    vec3 encoded = pow(mapped, vec3(1.0 / uGamma));
+
+    // Dither by under one 8-bit step: smooth dim gradients
+    // (a night sky) would otherwise show contour bands.
+    float noise = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+
+    encoded += (noise - 0.5) / 255.0;
+
+    FragColor = vec4(encoded, 1.0);
 }

@@ -4,7 +4,7 @@
   "kind": "comet",
   "seed": 242,
   "orbits": "Sun",
-  "description": "A comet nucleus of two lobes joined at a neck, darker than soot; Rosetta orbited it in 2014-16. (Its coma and tail are not simulated.)",
+  "description": "A comet nucleus of two lobes joined at a neck, darker than soot; Rosetta orbited it in 2014-16. Near the Sun it grows a faint coma and tails (next perihelion: 2028).",
   "physical": {
     "radius_km": 1.65,
     "mass_kg": 10000000000000.0,
@@ -12,7 +12,9 @@
     "solar_day_hours": 12.4043,
     "axial_tilt_deg": 52.0,
     "oblateness": 0.0,
-    "bond_albedo": 0.015
+    "bond_albedo": 0.015,
+    "geometric_albedo": 0.065,
+    "disc_color": [1.08, 1.0, 0.9]
   },
   "orbit": {
     "distance_au": 3.463,
@@ -69,5 +71,9 @@
       "axes_km": [1.05, 0.85, 0.9]
     },
     "lumpiness": 0.06
+  },
+  "comet": {
+    "afrho_cm": 3000.0,
+    "gas": 1.0
   }
 }

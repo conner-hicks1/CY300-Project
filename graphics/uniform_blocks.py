@@ -379,11 +379,13 @@ ATMOSPHERE_BLOCK = UniformBlockSpec(
 #     vec4 uRingParams;                 x inner, y outer radius (km), z 1 =
 #                                       rings, w optical depth scale
 #     vec4 uRingShape;                  x the planet's flattening
+#     vec4 uBodyLight[MAX_BODIES];      rgb geometric albedo x disc color:
+#                                       sunlight it sends its neighbors
 
 BODIES_BLOCK = UniformBlockSpec(
     name="BodiesBlock",
     binding=3,
-    size=(1 + 2 * MAX_BODIES + 4) * 16
+    size=(1 + 2 * MAX_BODIES + 4 + MAX_BODIES) * 16
 )
 
 

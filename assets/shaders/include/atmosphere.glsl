@@ -506,6 +506,34 @@ vec3 sunTransmittance(
     float sunCosZenith
 )
 {
+    // The planet's own horizon, exactly: the table's texels
+    // would blur its shadow's edge across ~half a degree,
+    // and the grazing light high in the air would leak into
+    // the night (faint, but the dark-adapted eye sees it as
+    // a fan of streaks). Below the horizon, none; across it,
+    // the sun's disc setting; just above, the table read
+    // from where it is sharp.
+    if (radius > groundRadius())
+    {
+        float ratio = groundRadius() / radius;
+
+        float horizon = -sqrt(max(1.0 - ratio * ratio, 0.0));
+
+        float disc = max(uMieAbsorption.w, 1e-3) * sqrt(max(1.0 - horizon * horizon, 0.0)) + 1e-4;
+
+        float visible = smoothstep(horizon - disc, horizon + disc, sunCosZenith);
+
+        if (visible <= 0.0)
+        {
+            return vec3(0.0);
+        }
+
+        float texel = 2.0 / float(textureSize(uTransmittanceLut, 0).x);
+
+        return texture(uTransmittanceLut, lutCoordinates(radius, max(sunCosZenith, horizon + 1.5 * texel))).rgb
+            * visible;
+    }
+
     return texture(uTransmittanceLut, lutCoordinates(radius, sunCosZenith)).rgb
         * belowGroundTransmittance(radius, sunCosZenith);
 }

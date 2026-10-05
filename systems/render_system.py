@@ -35,10 +35,12 @@ from ecs.components import (
     CameraComponent,
     DirectionalLightComponent,
     MeshRendererComponent,
+    OrbitComponent,
     PlanetComponent,
     RingsComponent,
     PointLightComponent,
     SpotLightComponent,
+    StarComponent,
     TransformComponent
 )
 from ecs.entity import Entity
@@ -52,6 +54,7 @@ from graphics.atmosphere import (
     pack_atmosphere_block
 )
 from graphics.bloom import Bloom
+from graphics.comets import MAX_COMETS, comet_view, pack_comet_uniforms
 from graphics.bodies_block import (
     BodySphere,
     RingSystem,
@@ -94,6 +97,7 @@ from graphics.render_state import RenderState
 from graphics.renderer import Renderer
 from graphics.shader import Shader
 from graphics.shadow_map import ShadowMapArray
+from graphics.star_field import TWINKLE, BodyPoint, StarField, reflected_illuminance
 from graphics.shadows import (
     compute_cascades,
     spot_shadow,
@@ -106,6 +110,8 @@ from math3d import quaternion
 from math3d.camera import Camera
 
 from planet.bodies import AU_M, SOLAR_RADIUS_M
+from planet.orbits import ecliptic_to_engine
+from planet.stars import load_catalog
 
 from resources.resources import Resources
 
@@ -128,7 +134,7 @@ class RenderSystem:
     #      Upload per-frame UBOs (Renderer.begin_scene).
     #   2. Shadows: depth from the directional light into
     #      each cascade, and from each shadowed spot light.
-    #   3. Scene (HDR, RGBA16F): PBR geometry, sky
+    #   3. Scene (HDR, RGBA32F): PBR geometry, sky, stars
     #      background, light gizmos, selection outline.
     #   4. Bloom: blur chain of the HDR image.
     #   5. Post: bloom mix, exposure, tone mapping, gamma
@@ -210,7 +216,15 @@ class RenderSystem:
             "atmosphere_transmittance": self._load_engine_shader("atmosphere_transmittance", "fullscreen"),
             "atmosphere_multiscatter": self._load_engine_shader("atmosphere_multiscatter", "fullscreen"),
             "atmosphere_diffuse": self._load_engine_shader("atmosphere_diffuse", "fullscreen"),
+            "stars": self._load_engine_shader("stars"),
+            "milky_way": self._load_engine_shader("milky_way", "fullscreen"),
+            "comets": self._load_engine_shader("comets", "fullscreen"),
         }
+
+        # The night sky (created on first use: it reads the
+        # star catalog), and what it shows this frame.
+        self._star_field: StarField | None = None
+        self._sky_view: dict | None = None
 
         # -------------------------------------------------
         # Default Textures
@@ -274,6 +288,10 @@ class RenderSystem:
         # entity -> (distance to its star m, star radius m),
         # live from the orbits; set by the application.
         self.star_provider = lambda entity: None
+
+        # Where the star is in the world (m), or None (no
+        # orbits: the sunlight's direction is all there is).
+        self.star_locator = lambda: None
 
         # -------------------------------------------------
         # GPU Resources
@@ -452,6 +470,8 @@ class RenderSystem:
                 lighting
             )
 
+            self._prepare_sky_view(registry, camera, lighting)
+
         with profiler.scope("Environment", gpu=True):
 
             self._fullscreen_state(True)
@@ -528,7 +548,7 @@ class RenderSystem:
                 "_hdr_framebuffer",
                 width,
                 height,
-                ColorFormat.RGBA16F,
+                ColorFormat.RGBA32F,
                 DepthMode.TEXTURE
             )
 
@@ -556,6 +576,16 @@ class RenderSystem:
                 self._resources,
                 visible
             )
+
+            # The stars behind everything, before the air
+            # (which dims them, or drowns them by day).
+            if atmosphere is not None and settings.show_stars:
+
+                with profiler.scope("Stars", gpu=True):
+
+                    self._render_stars(hdr, width, height)
+
+                    self._render_comets(hdr)
 
             if atmosphere is not None:
 
@@ -614,9 +644,10 @@ class RenderSystem:
 
         with profiler.scope("Post", gpu=True):
 
-            exposure_texture = self._update_exposure(
-                bloom_texture if bloom_texture is not None else hdr.color_texture_id
-            )
+            # (Measured on the full-float scene: the night's
+            # faint light is below the bloom chain's half
+            # floats.)
+            exposure_texture = self._update_exposure(hdr.color_texture_id, bloom_texture)
 
             if settings.fxaa_enabled:
 
@@ -1197,7 +1228,8 @@ class RenderSystem:
                 BodySphere(
                     center=tuple(float(v) for v in b.center),
                     radius=float(b.planet.radius),
-                    glow=umbra_glow(pressure) if b.atmosphere is not None else (0.0, 0.0, 0.0)
+                    glow=umbra_glow(pressure) if b.atmosphere is not None else (0.0, 0.0, 0.0),
+                    light=_body_light(b.body)
                 )
             )
 
@@ -1301,6 +1333,317 @@ class RenderSystem:
             outer=float(component.outer_radius),
             opacity=float(component.opacity)
         )
+
+    # =====================================================
+    # Night Sky
+    # =====================================================
+
+    def _prepare_sky_view(
+        self,
+        registry: Registry,
+        camera: Camera,
+        lighting: LightEnvironment
+    ):
+        """
+        What the star pass needs this frame: the planets and
+        moons as points of light (their brightness from the
+        sunlight on them, their albedo, size, distance and
+        phase), the camera's planet (it hides the stars
+        behind it) and how much air there is to make the
+        stars twinkle.
+        """
+
+        self._sky_view = None
+
+        if not self.settings.show_stars:
+            return
+
+        bodies = self._gather_bodies(registry, camera)
+
+        if not bodies:
+            return
+
+        camera_position = np.asarray(camera.position, dtype=np.float64)
+
+        star_component = next((s for _, s in registry.view_with(StarComponent)), None)
+
+        star_position = self.star_locator()
+
+        star = (
+            (np.asarray(star_position, dtype=np.float64), star_component)
+            if star_position is not None and star_component is not None
+            else None
+        )
+
+        directional = lighting.directional
+
+        toward_sun = (
+            -np.asarray(directional.direction, dtype=np.float64)
+            if directional is not None
+            else np.array([0.0, 1.0, 0.0])
+        )
+
+        toward_sun /= max(np.linalg.norm(toward_sun), 1e-12)
+
+        sun_color = (
+            np.asarray(directional.color, dtype=np.float64)
+            if directional is not None
+            else np.ones(3)
+        )
+
+        points = []
+
+        for b in bodies:
+
+            info = b.body
+
+            if info is None or b.distance <= b.planet.radius:
+                continue
+
+            # Sunlight on it (physical: 5 at 1 AU from the Sun).
+            if star is not None:
+
+                offset = star[0] - b.center
+
+                to_sun = offset / max(np.linalg.norm(offset), 1.0)
+
+                sunlight = 5.0 * star[1].luminosity / max(float(np.linalg.norm(offset)) / AU_M, 1e-6) ** 2
+
+            else:
+
+                to_sun = toward_sun
+
+                sunlight = 5.0 * info.star_luminosity / max(info.orbit_distance_au, 1e-6) ** 2
+
+            to_camera = (camera_position - b.center) / b.distance
+
+            phase = math.acos(float(np.clip(to_camera @ to_sun, -1.0, 1.0)))
+
+            illuminance = reflected_illuminance(
+                sunlight,
+                info.geometric_albedo,
+                b.planet.radius,
+                b.distance,
+                phase
+            )
+
+            if illuminance <= 0.0:
+                continue
+
+            color = np.asarray(info.disc_color, dtype=np.float64) * sun_color
+
+            color /= max(float(color @ np.array([0.2126, 0.7152, 0.0722])), 1e-6)
+
+            points.append(
+                BodyPoint(
+                    direction=tuple(float(v) for v in -to_camera),
+                    illuminance=float(illuminance),
+                    color=tuple(float(v) for v in color),
+                    angular_radius=math.asin(min(b.planet.radius / b.distance, 1.0))
+                )
+            )
+
+        # The camera's planet: it hides what is behind it, and
+        # its air makes stars twinkle.
+        primary = min(bodies, key=lambda b: b.surface_distance)
+
+        offset = camera_position - primary.center
+
+        distance = max(float(np.linalg.norm(offset)), 1.0)
+
+        twinkle = 0.0
+
+        if primary.atmosphere is not None and primary.body is not None:
+
+            altitude = max(distance - primary.planet.radius, 0.0)
+
+            density = primary.body.surface_pressure_bar * math.exp(
+                -altitude / max(primary.atmosphere.rayleigh_scale_height, 1.0)
+            )
+
+            twinkle = TWINKLE * min(density, 2.0)
+
+        # Active comets: coma and tails.
+        comets = []
+
+        if star is not None:
+
+            for b in bodies:
+
+                info = b.body
+
+                if info is None or info.comet_afrho <= 0.0:
+                    continue
+
+                orbit = registry.try_get(b.entity, OrbitComponent)
+
+                if orbit is None:
+                    continue
+
+                i = math.radians(orbit.inclination)
+                node = math.radians(orbit.ascending_node)
+
+                normal = ecliptic_to_engine((math.sin(i) * math.sin(node), -math.sin(i) * math.cos(node), math.cos(i)))
+
+                view = comet_view(
+                    b.center,
+                    star[0],
+                    normal,
+                    camera_position,
+                    info.comet_afrho,
+                    info.comet_gas,
+                    star[1].luminosity
+                )
+
+                if view is not None:
+                    comets.append(view)
+
+        comets.sort(key=lambda c: sum(v * v for v in c.center))
+
+        self._sky_view = {
+            "comets": comets[:MAX_COMETS],
+            "points": points,
+            "twinkle": twinkle,
+            "up": offset / distance,
+            "planet": (*((primary.center - camera_position) / 1000.0), primary.planet.radius / 1000.0),
+        }
+
+    def _render_stars(
+        self,
+        hdr: Framebuffer,
+        width: int,
+        height: int
+    ):
+        """
+        The Milky Way and the stars (graphics/star_field.py),
+        added where nothing has been drawn: depth-tested at
+        infinity, not written.
+        """
+
+        view = self._sky_view
+
+        if view is None:
+            return
+
+        if self._star_field is None:
+
+            catalog = load_catalog()
+
+            if not catalog.real:
+                Logger.warning(
+                    "[Stars] Catalog not found: random stars instead (python tools/fetch_stars.py)."
+                )
+
+            self._star_field = StarField(catalog)
+
+        field = self._star_field
+
+        if not field.baked:
+
+            RenderState.set_depth_test(False)
+            RenderState.set_blending(False)
+
+            field.bake_milky_way(self._shader("milky_way"), self._renderer.draw_fullscreen)
+
+            hdr.bind()
+
+        field.set_bodies(view["points"])
+
+        RenderState.set_depth_test(True)
+        RenderState.set_depth_func(GL_GEQUAL)
+        RenderState.set_blending(True)
+
+        glDepthMask(False)
+        glBlendFunc(GL_ONE, GL_ONE)
+
+        field.draw_milky_way(self._shader("milky_way"), self._renderer.draw_fullscreen)
+
+        field.draw_points(
+            self._shader("stars"),
+            (width, height),
+            view["twinkle"],
+            view["up"],
+            time.perf_counter() - self._clock_start,
+            view["planet"]
+        )
+
+        glDepthMask(True)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+        RenderState.set_blending(False)
+        RenderState.set_depth_func(GL_GREATER)
+
+    def _render_comets(
+        self,
+        hdr: Framebuffer
+    ):
+        """
+        Active comets' coma and tails (comets.frag.glsl),
+        added in front of the stars and behind what is drawn
+        (it reads the depth: a color-only target). Leaves the
+        HDR framebuffer bound.
+        """
+
+        view = self._sky_view
+
+        if view is None or not view["comets"]:
+            return
+
+        self._bind_hdr_color(hdr)
+
+        shader = self._shader("comets")
+
+        shader.bind()
+
+        for name, values in pack_comet_uniforms(view["comets"]).items():
+            for i, value in enumerate(values):
+                shader.set_vec4(f"{name}[{i}]", tuple(float(v) for v in value))
+
+        shader.set_int("uCometCount", len(view["comets"]))
+
+        RenderCommand.bind_texture(hdr.depth_texture_id, 0)
+
+        shader.set_int("uSceneDepth", 0)
+
+        RenderState.set_depth_test(False)
+        RenderState.set_blending(True)
+
+        glBlendFunc(GL_ONE, GL_ONE)
+
+        self._renderer.draw_fullscreen(shader)
+
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+        RenderState.set_blending(False)
+        RenderState.set_depth_test(True)
+
+        hdr.bind()
+
+    def _bind_hdr_color(
+        self,
+        hdr: Framebuffer
+    ) -> ColorTarget:
+        """Bind the HDR color alone (passes that sample its depth)."""
+
+        target = self._hdr_color_target
+
+        if (
+            target is None
+            or target.texture_id != hdr.color_texture_id
+            or target.width != hdr.width
+            or target.height != hdr.height
+        ):
+
+            if target is not None:
+                target.delete()
+
+            target = ColorTarget(hdr.color_texture_id, hdr.width, hdr.height)
+
+            self._hdr_color_target = target
+
+        target.bind()
+
+        return target
 
     def _render_rings(self):
         """
@@ -1440,23 +1783,7 @@ class RenderSystem:
         framebuffer bound.
         """
 
-        target = self._hdr_color_target
-
-        if (
-            target is None
-            or target.texture_id != hdr.color_texture_id
-            or target.width != hdr.width
-            or target.height != hdr.height
-        ):
-
-            if target is not None:
-                target.delete()
-
-            target = ColorTarget(hdr.color_texture_id, hdr.width, hdr.height)
-
-            self._hdr_color_target = target
-
-        target.bind()
+        self._bind_hdr_color(hdr)
 
         shader = self._shader("atmosphere")
 
@@ -1656,17 +1983,27 @@ class RenderSystem:
 
     # Average scene luminance that needs no adjustment
     # (Earth daylight at the default exposure), the limits of
-    # the adjustment, and how fast the eye follows (s).
+    # the adjustment in lit scenes, and how fast the eye
+    # follows (s).
     EXPOSURE_REFERENCE = 0.65
     EXPOSURE_LIMITS = (0.1, 12.0)
     EXPOSURE_TIME = 0.5
 
-    # Brightening stops before the brightest surfaces clip.
+    # How far the eye brightens in the dark (empty space, a
+    # night side): enough for starlight (~1e-10 of sunlight
+    # per star) and the Milky Way (exposure.frag.glsl).
+    EXPOSURE_DARK_LIMIT = 1.0e6
+
+    # Brightening stops before the brightest surfaces clip;
+    # in the dark, well before (a moonlit landscape looks
+    # dim).
     EXPOSURE_HIGHLIGHT = 1.6
+    EXPOSURE_NIGHT_HIGHLIGHT = 0.15
 
     def _update_exposure(
         self,
-        scene_texture: int
+        scene_texture: int,
+        blurred_texture: int | None = None
     ) -> int | None:
         """
         Eye adaptation: measure the scene into a 1x1 target,
@@ -1710,7 +2047,8 @@ class RenderSystem:
 
         if fresh:
 
-            glClearColor(1.0, 1.0, 1.0, 1.0)
+            # (The target holds log(exposure): 0 = x1.)
+            glClearColor(0.0, 0.0, 0.0, 1.0)
             glClear(GL_COLOR_BUFFER_BIT)
 
         shader = self._shader("exposure")
@@ -1720,10 +2058,17 @@ class RenderSystem:
         RenderCommand.bind_texture(scene_texture, 0)
 
         shader.set_int("uScene", 0)
+
+        RenderCommand.bind_texture(blurred_texture if blurred_texture is not None else scene_texture, 1)
+
+        shader.set_int("uPeak", 1)
+        shader.set_bool("uHasPeak", blurred_texture is not None)
         shader.set_float("uReference", self.EXPOSURE_REFERENCE)
         shader.set_float("uAdaptation", float(np.clip(settings.exposure_adaptation, 0.0, 1.0)))
         shader.set_vec2("uLimits", self.EXPOSURE_LIMITS)
+        shader.set_float("uDarkLimit", self.EXPOSURE_DARK_LIMIT)
         shader.set_float("uHighlight", self.EXPOSURE_HIGHLIGHT)
+        shader.set_float("uNightHighlight", self.EXPOSURE_NIGHT_HIGHLIGHT)
 
         # new = measured * a + previous * (1 - a)
         blend = 1.0 - math.exp(-max(elapsed, 0.0) / self.EXPOSURE_TIME)
@@ -2032,6 +2377,12 @@ class RenderSystem:
 
     def shutdown(self):
 
+        if self._star_field is not None:
+
+            self._star_field.delete()
+
+            self._star_field = None
+
         for attribute in ("_hdr_framebuffer", "_ldr_framebuffer", "_exposure_framebuffer"):
 
             framebuffer = getattr(self, attribute)
@@ -2078,6 +2429,21 @@ class _Body:
     center: np.ndarray          # world (m)
     distance: float             # from the camera to its center
     surface_distance: float     # ... to its (mean) surface
+
+
+def _body_light(
+    body: BodyComponent | None
+) -> tuple[float, float, float]:
+    """Geometric albedo x disc color (luminance 1): what a body reflects onto its neighbors."""
+
+    if body is None:
+        return (0.0, 0.0, 0.0)
+
+    color = np.asarray(body.disc_color, dtype=np.float64)
+
+    color = color / max(float(color @ np.array([0.2126, 0.7152, 0.0722])), 1e-6)
+
+    return tuple(float(c) * float(body.geometric_albedo) for c in color)
 
 
 def _inverse_rotation(

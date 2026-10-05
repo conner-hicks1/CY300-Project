@@ -110,6 +110,22 @@ class OrbitSystem:
 
         return float(np.linalg.norm(state[0])), self._star_radius
 
+    def star_position(
+        self
+    ) -> np.ndarray | None:
+        """
+        Where the star is in the world (m), live: body
+        positions are relative to it, and the anchor's world
+        place fixes it. None without orbits.
+        """
+
+        if self.anchor is None or self.inertial_to_world is None or self.anchor not in self.states:
+            return None
+
+        anchor_position, _ = self.states[self.anchor]
+
+        return self._anchor_center - self.inertial_to_world @ np.asarray(anchor_position, dtype=np.float64)
+
     def anchor_to(
         self,
         scene: Scene,

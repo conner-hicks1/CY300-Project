@@ -684,3 +684,13 @@ class BodyComponent:
 
     # Star surface temperature (K): the color of its light.
     star_temperature: float = 5772.0
+
+    # Seen from afar (planet/bodies.py): brightness at full
+    # phase, and the disc's color (relative).
+    geometric_albedo: float = 0.204
+    disc_color: tuple[float, float, float] = (1.0, 1.0, 1.0)
+
+    # Comets: dust activity A f rho at 1 AU (m; 0 = not
+    # active), gas relative to dust.
+    comet_afrho: float = 0.0
+    comet_gas: float = 0.0

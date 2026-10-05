@@ -21,6 +21,11 @@ import numpy as np
 # east of z), local time runs forward.
 #
 # Longitude is measured as atan2(x, z) in planet space.
+#
+# Retrograde bodies (Venus, Uranus) spin the other way about
+# their IAU north pole (y): there the sun rises in the -x
+# direction, so local time counts longitude the other way
+# (`retrograde`), and it still runs forward as they turn.
 
 MAX_DECLINATION = 23.44     # Earth's axial tilt, degrees
 
@@ -34,12 +39,14 @@ def _longitude(
 
 def solar_time(
     point_direction,
-    sun_direction
+    sun_direction,
+    retrograde: bool = False
 ) -> tuple[float, float, float]:
     """
     point_direction: unit planet-space direction of the
         observer (from the planet center).
     sun_direction: unit planet-space direction toward the sun.
+    retrograde: the body spins clockwise about its y axis.
 
     Returns (hour in [0, 24), declination (rad), sun
     elevation above the observer's horizon (rad)).
@@ -50,9 +57,11 @@ def solar_time(
 
     declination = math.asin(float(np.clip(sun_direction[1], -1.0, 1.0)))
 
+    sense = -1.0 if retrograde else 1.0
+
     hour = (
         12.0
-        + (_longitude(point_direction) - _longitude(sun_direction)) * 12.0 / math.pi
+        + sense * (_longitude(point_direction) - _longitude(sun_direction)) * 12.0 / math.pi
     ) % 24.0
 
     elevation = math.asin(float(np.clip(np.dot(point_direction, sun_direction), -1.0, 1.0)))
@@ -63,11 +72,14 @@ def solar_time(
 def sun_direction(
     point_direction,
     hour: float,
-    declination: float
+    declination: float,
+    retrograde: bool = False
 ) -> np.ndarray:
     """Planet-space unit direction toward the sun (inverse of solar_time)."""
 
-    longitude = _longitude(point_direction) - (hour - 12.0) * math.pi / 12.0
+    sense = -1.0 if retrograde else 1.0
+
+    longitude = _longitude(point_direction) - sense * (hour - 12.0) * math.pi / 12.0
 
     return np.array([
         math.cos(declination) * math.sin(longitude),

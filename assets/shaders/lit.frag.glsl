@@ -331,6 +331,41 @@ void main()
         );
 
         color += shadow * shadeDirect(surface, L, radiance);
+
+        // Planetshine: sunlight off the neighbors (the
+        // Moon's night side in earthshine, Jupiter lighting
+        // its moons, moonlight on Earth), from below their
+        // horizon nothing.
+        vec3 sunlight = uDirectionalColor.rgb * uDirectionalColor.a;
+
+        vec3 point = vWorldPosition * 0.001;
+
+        vec3 skip = hasBody() ? uBodyCenter.xyz : vec3(1e30);
+
+        vec3 up = hasBody() ? normalize(point - uBodyCenter.xyz) : surface.N;
+
+        int bodies = int(uBodyParams.x + 0.5);
+
+        for (int i = 0; i < MAX_BODIES; ++i)
+        {
+            if (i >= bodies)
+            {
+                break;
+            }
+
+            vec3 direction;
+
+            vec3 shine = planetshine(point, L, skip, i, direction);
+
+            if (dot(shine, shine) <= 0.0)
+            {
+                continue;
+            }
+
+            shine *= smoothstep(-0.02, 0.02, dot(up, direction));
+
+            color += shadeDirect(surface, direction, sunlight * shine);
+        }
     }
 
     // -----------------------------------------------------

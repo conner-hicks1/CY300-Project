@@ -43,6 +43,10 @@ class BodySphere:
     # per channel; 0 = airless).
     glow: tuple[float, float, float] = (0.0, 0.0, 0.0)
 
+    # Geometric albedo times its color: the sunlight it
+    # reflects onto its neighbors (planetshine).
+    light: tuple[float, float, float] = (0.0, 0.0, 0.0)
+
 
 @dataclass(frozen=True, slots=True)
 class RingSystem:
@@ -140,6 +144,11 @@ def pack_bodies_block(
         data[glows + 4 * i:glows + 4 * i + 3] = body.glow
 
     ring = glows + 4 * MAX_BODIES
+
+    lights = ring + 16
+
+    for i, body in enumerate(bodies):
+        data[lights + 4 * i:lights + 4 * i + 3] = body.light
 
     if rings is not None:
 

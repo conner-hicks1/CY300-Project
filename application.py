@@ -387,6 +387,7 @@ class Application:
         # follows each body's distance from it.
         self.render_system.climate_provider = self.climate_system.field
         self.render_system.star_provider = self.orbit_system.star_distance
+        self.render_system.star_locator = self.orbit_system.star_position
 
         self.planet_system = PlanetSystem(
             self.resources,
@@ -1045,6 +1046,10 @@ class Application:
 
         solar_day = abs(body.solar_day_hours) * 3_600.0 if body is not None and body.solar_day_hours else DAY
 
+        # Venus and Uranus turn backwards about their north
+        # poles (planet/solar.py).
+        retrograde = body is not None and body.rotation_hours < 0.0
+
         moment = start
 
         # The sun moves on in the sky while the body turns:
@@ -1056,7 +1061,7 @@ class Application:
 
             sun = frame.T @ (-position / np.linalg.norm(position))
 
-            now, _, _ = solar.solar_time(direction, sun)
+            now, _, _ = solar.solar_time(direction, sun, retrograde)
 
             error = (hour - now) % 24.0 if step == 0 else (hour - now + 12.0) % 24.0 - 12.0
 

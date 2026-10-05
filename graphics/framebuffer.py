@@ -17,6 +17,7 @@ from OpenGL.GL import (
     GL_RENDERBUFFER,
     GL_RGBA,
     GL_RGBA16F,
+    GL_RGBA32F,
     GL_RGBA8,
     GL_TEXTURE_2D,
     GL_TEXTURE_MAG_FILTER,
@@ -62,6 +63,10 @@ class ColorFormat(Enum):
 
     # Half-float; stores HDR values > 1 for tone mapping.
     RGBA16F = "rgba16f"
+
+    # Full float: also the faint end (starlight, the Milky
+    # Way: ~1e-8 of daylight, below half floats' range).
+    RGBA32F = "rgba32f"
 
 
 class DepthMode(Enum):
@@ -376,6 +381,11 @@ class Framebuffer:
         if color_format == ColorFormat.RGBA16F:
 
             internal_format = GL_RGBA16F
+            data_type = GL_FLOAT
+
+        elif color_format == ColorFormat.RGBA32F:
+
+            internal_format = GL_RGBA32F
             data_type = GL_FLOAT
 
         else:

@@ -299,6 +299,20 @@ class BodyProfile:
     # of lowlands.
     dichotomy: tuple[float, float] = (1.0, 0.5)
 
+    # How it looks from afar: geometric albedo (brightness at
+    # full phase relative to a white disc; 0 = from the Bond
+    # albedo, as a Lambert sphere: 2/3 of it) and the disc's
+    # color (relative; luminance taken as 1). For the points
+    # of light in the sky and the light it casts on its
+    # neighbors (earthshine).
+    geometric_albedo: float = 0.0
+    disc_color: tuple[float, float, float] = (1.0, 1.0, 1.0)
+
+    # Comets: (dust A f rho at 1 AU (cm), gas production
+    # relative to the dust) or None: their coma and tails
+    # (graphics/comets.py).
+    comet: tuple[float, float] | None = None
+
     # -----------------------------------------------------
     # Derived physics
     # -----------------------------------------------------
@@ -901,7 +915,10 @@ def parse_profile(
         dichotomy=(
             number(geology, "dichotomy", 0.0, default=1.0),
             number(geology, "lowlands", 0.05, default=0.5),
-        )
+        ),
+        geometric_albedo=number(physical, "geometric_albedo", 0.0, default=0.0),
+        disc_color=tint(physical, "disc_color"),
+        comet=_parse_comet(data.get("comet"), fail, number)
     )
 
     if profile.bond_albedo >= 1.0:
@@ -911,6 +928,22 @@ def parse_profile(
         fail("the 'bands' palette needs a 'bands' section")
 
     return profile
+
+
+def _parse_comet(
+    raw,
+    fail,
+    number
+) -> tuple[float, float] | None:
+    """A profile's "comet" section: {"afrho_cm": ..., "gas": ...}."""
+
+    if raw is None:
+        return None
+
+    if not isinstance(raw, dict):
+        fail("'comet' must be an object")
+
+    return (number(raw, "afrho_cm", 0.0), number(raw, "gas", 0.0, default=1.0))
 
 
 def _parse_decks(
@@ -1224,7 +1257,11 @@ def components_for(
         oblateness=profile.oblateness,
         greenhouse_depth=calibrated_greenhouse(profile, planet),
         lapse_rate=profile.lapse_rate_k_per_km,
-        star_temperature=profile.star_temperature_k
+        star_temperature=profile.star_temperature_k,
+        geometric_albedo=profile.geometric_albedo or 2.0 * profile.bond_albedo / 3.0,
+        disc_color=profile.disc_color,
+        comet_afrho=profile.comet[0] / 100.0 if profile.comet else 0.0,
+        comet_gas=profile.comet[1] if profile.comet else 0.0
     )
 
     climate = None

@@ -85,8 +85,12 @@ void main()
             + (j + k + l + m) * 0.125;
     }
 
-    // Guard against NaN/Inf from any source pixel.
-    result = max(result, vec3(0.0001));
+    // Guard against NaN/Inf from any source pixel. (No floor:
+    // in the dark the eye adapts ~1e5 times, and a floor
+    // would turn into a grey veil.)
+    result = any(isnan(result)) || any(isinf(result))
+        ? vec3(0.0)
+        : clamp(result, vec3(0.0), vec3(60000.0));
 
     FragColor = vec4(result, 1.0);
 }

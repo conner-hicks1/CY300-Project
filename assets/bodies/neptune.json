@@ -12,7 +12,9 @@
     "solar_day_hours": 16.11,
     "axial_tilt_deg": 28.32,
     "oblateness": 0.01708,
-    "bond_albedo": 0.29
+    "bond_albedo": 0.29,
+    "geometric_albedo": 0.442,
+    "disc_color": [0.62, 0.94, 1.5]
   },
   "orbit": {
     "distance_au": 30.07,

@@ -25,9 +25,63 @@ layout(std140) uniform BodiesBlock
     vec4 uRingParams;                   // x inner, y outer radius (km),
                                         // z 1 = rings, w optical depth scale
     vec4 uRingShape;                    // x the planet's flattening
+    vec4 uBodyLight[MAX_BODIES];        // rgb geometric albedo x color
 };
 
 const float BODIES_PI = 3.14159265358979;
+
+// ---------------------------------------------------------
+// Planetshine
+// ---------------------------------------------------------
+//
+// Sunlight a neighboring body sends a point (illuminance
+// per unit sun, per channel), and the direction it comes
+// from: its geometric albedo times its disc's solid angle
+// over pi, by the Lambert sphere's phase law (graphics/
+// star_field.py reflected_illuminance): full when the point
+// sees it fully lit ("full Earth" over the Moon's night
+// side, ~1e-4 of sunlight), nothing when it sees its night
+// side. The nearest bodies are in the block; the point's own
+// body is skipped (skip = its center).
+vec3 planetshine(
+    vec3 point,
+    vec3 towardSun,
+    vec3 skip,
+    int index,
+    out vec3 direction
+)
+{
+    vec4 body = uBodySpheres[index];
+
+    direction = vec3(0.0, 1.0, 0.0);
+
+    vec3 albedo = uBodyLight[index].rgb;
+
+    if (distance(body.xyz, skip) < 1.0 || dot(albedo, albedo) <= 0.0)
+    {
+        return vec3(0.0);
+    }
+
+    vec3 toBody = body.xyz - point;
+
+    float range = length(toBody);
+
+    if (range <= body.w)
+    {
+        return vec3(0.0);
+    }
+
+    direction = toBody / range;
+
+    // Phase angle at the body: between the sun and the point.
+    float a = acos(clamp(dot(towardSun, -direction), -1.0, 1.0));
+
+    float phase = (sin(a) + (BODIES_PI - a) * cos(a)) / BODIES_PI;
+
+    float size = body.w / range;
+
+    return albedo * size * size * phase;
+}
 
 // Rotate v by the unit quaternion q (xyzw).
 vec3 rotateByQuaternion(

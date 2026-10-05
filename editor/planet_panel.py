@@ -1323,7 +1323,7 @@ class _PlanetContext:
 
         sun_world = -np.asarray(self._sun_transform().forward, dtype=np.float64)
 
-        return solar.solar_time(point, rotation.T @ sun_world)
+        return solar.solar_time(point, rotation.T @ sun_world, self._retrograde())
 
     def set_solar_time(
         self,
@@ -1336,9 +1336,18 @@ class _PlanetContext:
         if point is None:
             return
 
-        sun_world = self.planet_rotation() @ solar.sun_direction(point, hour, declination)
+        sun_world = self.planet_rotation() @ solar.sun_direction(point, hour, declination, self._retrograde())
 
         self._sun_transform().orientation = sun_orientation(sun_world)
+
+    def _retrograde(
+        self
+    ) -> bool:
+        """The planet turns backwards about its north pole (Venus, Uranus)."""
+
+        body = self.scene.try_get_component(self.planet, BodyComponent) if self.planet is not None else None
+
+        return body is not None and body.rotation_hours < 0.0
 
     def _camera_direction(
         self

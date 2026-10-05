@@ -513,6 +513,7 @@ class DebugPanel:
             imgui.separator_text("Atmosphere")
 
             _checkbox(settings, "atmosphere_enabled", "Enabled##atmosphere")
+            _checkbox(settings, "show_stars", "Stars and Milky Way")
             _checkbox(settings, "aerial_perspective", "Haze over terrain")
 
             changed, samples = imgui.slider_int(

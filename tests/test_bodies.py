@@ -36,7 +36,7 @@ def test_all_presets_load(presets):
         "mercury", "venus", "earth", "moon", "mars", "jupiter", "io", "europa",
         "ganymede", "callisto", "saturn", "enceladus", "titan", "uranus",
         "neptune", "triton", "pluto", "phobos", "deimos", "vesta", "ceres",
-        "haumea", "churyumov_gerasimenko",
+        "haumea", "churyumov_gerasimenko", "halley",
     }
 
     assert set(presets) == expected
@@ -54,7 +54,7 @@ def test_groups(presets):
     groups = preset_groups(presets)
 
     assert [p.id for p in groups["Dwarf planets"]] == ["ceres", "pluto", "haumea"]
-    assert [p.id for p in groups["Asteroids & comets"]] == ["vesta", "churyumov_gerasimenko"]
+    assert [p.id for p in groups["Asteroids & comets"]] == ["vesta", "churyumov_gerasimenko", "halley"]
     assert "titan" in [p.id for p in groups["Moons"]]
     assert "jupiter" in [p.id for p in groups["Planets"]]
 

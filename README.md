@@ -142,7 +142,9 @@ building and saving scenes.
   from JPL's mean elements, moons around their planets, and every body's
   spin from its IAU pole and prime meridian, so the sun's direction, day
   and night, the seasons and the equation of time follow from the date
-  (12:00 UTC is solar noon at Greenwich, give or take a quarter hour)
+  (12:00 UTC is solar noon at Greenwich, give or take a quarter hour; on
+  Venus and Uranus, which spin backwards, the sun rises in the west and
+  local time still runs forward)
 - The Moon follows the main terms of its own theory (the Sun's pull,
   precessing nodes): eclipses fall on their real dates. New planets bring
   their planetary system: Earth its Moon, Mars Phobos and Deimos, Jupiter
@@ -154,12 +156,47 @@ building and saving scenes.
 - Eclipses from the overlap of the sun's disc with every other body's:
   penumbra, umbra and annular phases, the sky darkening in a total solar
   eclipse, Earth's air bending red light onto the eclipsed Moon, moons'
-  shadows crossing Jupiter. Moons and planets in the sky are lit by the
-  sun alone (their night sides dark), with their own air drawn as seen
-  from afar (Earth's blue limb and clouds from the Moon)
+  shadows crossing Jupiter. Moons and planets in the sky have their own
+  air drawn as seen from afar (Earth's blue limb and clouds from the Moon)
 - The star's brightness, color and apparent size follow the live distance;
   chunk building is shared across all the bodies at once, every body whole
   first, then detail where it looks largest
+
+**The night sky and space**
+
+![The night sky over Earth with Cassiopeia in the Milky Way, the Milky Way toward Sagittarius from space, the Moon's night side in earthshine, Io under a full Jupiter, Earth's night side from orbit, and Halley's Comet in March 1986](docs/images/space.png)
+
+- The real stars: all 9,110 of the Yale Bright Star Catalog (to magnitude
+  6.5, everything the eye sees), at their positions, brightness and colors
+  (from their B - V color index), so the constellations rise and set with
+  the clock; they twinkle through air, more near the horizon, and the air
+  dims them and the day sky drowns them. `python tools/fetch_stars.py`
+  downloads the catalog (574 KB); without it the sky gets random stars
+  with the same counts
+- The Milky Way: its band brightest toward Sagittarius, the Cygnus and
+  Carina star clouds, the yellowish bulge below the dust of the Great
+  Rift, the Coalsack, the Magellanic Clouds and the Andromeda galaxy, in
+  galactic coordinates (baked once into a map)
+- The planets and moons too far to show a disc are points of light that
+  move against the stars, as bright as they really are (their size,
+  albedo, distance and phase: Jupiter at opposition magnitude -2.7, the
+  full Moon -12.4)
+- Light between bodies (planetshine): a sunlit neighbor lights a night
+  side by its size, albedo and phase. The Moon's night side in earthshine,
+  Io under a full Jupiter, moonlight on Earth
+- All of it at its physical brightness (a star ~1e-10 of sunlight), seen
+  the way the eye sees it: auto exposure dark-adapts as the light fades,
+  up to a million times, so in the dark the stars and the Milky Way come
+  out, while a sunlit planet in view outshines them as in any photograph;
+  night scenes stay dim, and faint light turns grey-blue (rods instead of
+  cones). (The HDR image is 32-bit float for it: starlight is below half
+  floats' range)
+- Comets come alive near the Sun: a coma and two tails, from the dust
+  activity measured for each (A f rho, growing ~r^-3.5 inside ~4 AU): the
+  broad dust tail curving back along the orbit, brightest seen toward the
+  Sun, and the straight blue ion tail. 67P (next perihelion 2028) stays
+  faint, as Rosetta saw it; Halley's Comet (new: its 1986 and 2061
+  returns) grows tails millions of km long
 
 **Real maps**
 
@@ -423,7 +460,7 @@ building and saving scenes.
   terrain chunks, keyed by their inputs and the generators' source code:
   reopening a planet loads instead of simulating (startup 1.9 s to 0.7 s,
   chunks streaming in ~70% faster); oldest entries pruned past 2 GB
-- 598 unit tests (the GPU kernels' run where a GPU is available)
+- 618 unit tests (the GPU kernels' run where a GPU is available)
 
 ## Getting Started
 
@@ -533,6 +570,12 @@ python tools/fetch_maps.py
 
 ```bash
 python tools/compare_terrain.py --image terrain_check.png
+```
+
+Download the star catalog (574 KB) for the real night sky:
+
+```bash
+python tools/fetch_stars.py
 ```
 
 Switches (environment variables): `ENGINE_NO_GPU_SIMULATION` keeps every

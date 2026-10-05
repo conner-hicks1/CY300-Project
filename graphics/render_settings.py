@@ -85,6 +85,11 @@ class RenderSettings:
     # Scales ambient light and reflections from the sky.
     ibl_intensity: float = 1.0
 
+    # The night sky behind planets: the stars (Yale Bright
+    # Star Catalog), the Milky Way, distant planets as points
+    # of light; seen when the eye adapts to the dark.
+    show_stars: bool = True
+
     # Planet atmospheres (AtmosphereComponent) replace the
     # sky above. Samples per pixel along each view ray.
     atmosphere_enabled: bool = True

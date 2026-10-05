@@ -1,6 +1,6 @@
 import math
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import numpy as np
 import pytest
@@ -379,3 +379,38 @@ def test_bodies_block():
     assert not v[2 + MAX_BODIES, :3].any()
 
     assert umbra_glow(0.0) == (0.0, 0.0, 0.0)
+
+
+@pytest.mark.parametrize("name", ["venus", "uranus"])
+def test_local_time_runs_forward_on_retrograde_bodies(presets, name):
+
+    scene, e = system(presets, [name])
+
+    point = np.array([0.0, 0.0, 1.0])
+
+    solar_day = abs(presets[name].solar_day_hours) * 3_600.0
+
+    start = utc(2026, 5, 1)
+
+    def hour_at(seconds):
+
+        when = start + timedelta(seconds=seconds)
+
+        sun = sun_in_body_frame(states_at(scene, when), e[name])
+
+        return solar.solar_time(point, sun, retrograde=True)[0]
+
+    # A tenth of a solar day later: 2.4 hours later.
+    later = (hour_at(0.1 * solar_day) - hour_at(0.0)) % 24.0
+
+    assert later == pytest.approx(2.4, abs=0.15)
+
+    # Noon: the sun as high as it gets at this latitude.
+    sun = sun_in_body_frame(states_at(scene, start), e[name])
+
+    hour, declination, elevation = solar.solar_time(point, sun, retrograde=True)
+
+    noon = solar.sun_direction(point, 12.0, declination, retrograde=True)
+
+    assert float(noon @ point) == pytest.approx(math.cos(declination), abs=1e-6)
+    assert solar.solar_time(point, noon, retrograde=True)[0] == pytest.approx(12.0, abs=1e-6)
