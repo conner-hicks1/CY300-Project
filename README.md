@@ -1,20 +1,21 @@
 # CY300 OpenGL Engine
 
 A small 3D engine and scene editor written in Python on top of OpenGL 4.5,
-built as a CY300 course project. It renders with physically based materials,
-cascaded shadows and image-based lighting, streams an Earth-sized procedural
-planet under a physically based atmosphere, and comes with an ImGui editor for
-building and saving scenes.
+built as a CY300 course project, on its way to a rocketry and spaceflight
+game. It renders with physically based materials, cascaded shadows and
+image-based lighting, streams the bodies of the solar system as they were
+measured (real elevation and color maps) under physically based
+atmospheres, and comes with an ImGui editor for building and saving scenes.
 
 ![The procedural planet, seen from the surface](docs/images/scene.png)
 
 ## Features
 
-**Procedural planet**
+**Planets**
 
-- Earth-sized cube-sphere planet: continents and ocean basins from the plate
-  simulation (or seeded noise without it), ridged mountain ranges, hills,
-  and biomes, snow and sea ice from the climate model
+- Cube-sphere planets at full size: measured heights and colors where the
+  body has been mapped, seeded noise (continents, ridged mountain ranges,
+  hills) for the rest; biomes, snow and sea ice from an analytic climate
 - Quadtree level of detail per cube face with horizon culling; chunks are built
   on worker threads and streamed in coarse-to-fine without holes or cracks
 - Planet-aware camera: radial "up", altitude-scaled flying speed, stays above
@@ -30,7 +31,7 @@ building and saving scenes.
   comet 67P, Jupiter, Io, Europa, Ganymede, Callisto, Saturn, Enceladus,
   Titan, Uranus, Neptune, Triton, Pluto and Haumea:
   size, mass, rotation, tilt, orbit, star, temperature, surface liquid and
-  colors, terrain relief, atmosphere (pressure, gases, aerosols), geology
+  colors, terrain relief, atmosphere (pressure, gases, aerosols), maps
 - Physics derived from them: surface gravity, sunlight, equilibrium and
   greenhouse temperature, atmospheric scale height (H = RT / Mg), lapse rate
   (g / cp, less in moist or thin air), light scattering from pressure and gas
@@ -200,83 +201,44 @@ building and saving scenes.
 
 **Real maps**
 
-![Mars from MOLA heights and Viking colors, the Moon from LOLA heights and LROC colors, and Earth from ETOPO1 with its climate's biomes](docs/images/real_maps.png)
+![Mars from MOLA heights and Viking colors, the Moon from LOLA heights and LROC colors, and Earth from ETOPO1](docs/images/real_maps.png)
 
-- Measured terrain for the real bodies: Mars from MOLA's laser altimeter,
-  the Moon from LRO's LOLA, Earth's land and sea floor from ETOPO1, with
-  LROC and Viking color mosaics. `python tools/fetch_maps.py` downloads them
-  (~86 MB, public domain or free to redistribute) into `data/maps/`; they
-  are not part of the repository
+- Every body that has been mapped is shown as measured, by default:
+
+  | Body | Heights | Colors |
+  | --- | --- | --- |
+  | Mercury | MESSENGER stereo DEM, 665 m | MESSENGER MDIS basemap (its enhanced color toned down to true greys) |
+  | Venus | Magellan radar altimetry, 4.6 km | |
+  | Earth | ETOPO1, land and sea floor (1.8 km up close) | Blue Marble Next Generation, July |
+  | Moon | LRO LOLA (0.5 km up close) | LROC WAC mosaic |
+  | Mars | MGS MOLA (0.9 km up close) | Viking color mosaic |
+  | Ceres, Vesta | Dawn HAMO stereo DTMs (~140 m, ~90 m) | |
+  | Io, Europa, Ganymede, Callisto | | Galileo SSI and Voyager mosaics |
+  | Titan, Enceladus | | Cassini ISS mosaics |
+  | Triton | | Voyager 2 mosaic |
+  | Pluto | New Horizons stereo DEM, 300 m | New Horizons mosaic |
+
+  `python tools/fetch_maps.py` downloads them (~4.4 GB, from NASA, NOAA and
+  USGS Astrogeology; public domain or free to redistribute) into
+  `data/maps/`; they are not part of the repository. Without them a body
+  falls back to its generated surface
 - Each map is read in its archive's own format (PDS images and labels,
-  classic netCDF, images), resampled once onto the cube-sphere and cached
-  (loads in milliseconds); hills and craters smaller than the map can show
-  are added on top, colors keep the generated fine variation
-- Sharper maps up close, four times finer: Mars at 64 pixels/deg (~0.9 km,
-  four MOLA tiles), the Moon at 64 pixels/deg (~0.5 km), Earth every
-  arc-minute (~1.8 km). `python tools/fetch_maps.py --sharp` downloads them
-  (~1.5 GB); they are memory-mapped, never loaded, and only the samples the
-  detailed chunks near the camera need are read from disk, blended in over a
-  factor of two in detail so nothing pops
-- File > New Planet > Real maps (or Planet panel > Body > Real maps) shows
-  the body as measured; its climate, biomes and rivers then work on the real
-  topography (the Sahara comes out a desert), and the clock turns the real
-  continents to the sun at the right hours
-- Checking the generators against them: `python tools/compare_terrain.py`
-  measures the same statistics of the measured and the generated surface
-  (how much lies at each height, how relief grows with scale from 10 to
-  2,000 km, slopes) and draws both. That found real gaps, now calibrated:
-  Earth's sea floor was uniformly old and deep and its land twice too high;
-  the Moon was too smooth below 100 km and had no giant basins; lava flooded
-  Mars's whole northern lowlands up to a single level. After calibration
-  (generated vs measured): Earth's coasts, the 90th and 98th height
-  percentiles 0.09 / 0.85 / 3.3 km vs 0.08 / 0.72 / 2.6; the Moon's relief at
-  10, 100 and 1,000 km 0.60 / 1.36 / 2.65 km vs 0.68 / 1.58 / 2.73; Mars's
-  lowest and highest 2% -5.1 / +5.5 km vs -5.2 / +5.5
-
-![Shaded relief, measured (left) and generated (right): Mars, the Moon, Earth](docs/images/terrain_check.png)
-
-**Plate tectonics**
-
-![Crust-age view after a few hundred million years: young sea floor (red) at the ridges, older floor (blue), continents (tan)](docs/images/tectonics.png)
-
-- A plate simulation on a global cube-sphere grid (~98,000 cells, ~80 km
-  apart) shapes the continents: rigid plates rotate about their own poles at a
-  few cm per year, 5 million years per step
-- Where plates pull apart, new ocean floor forms at mid-ocean ridges and
-  deepens as it ages; where they converge, the denser crust sinks: island
-  arcs, Andes-style ranges (ocean under continent) and Himalaya-style ranges
-  (continent-continent collisions)
-- Erosion wears mountains down; colliding continents weld into one plate and
-  large plates rift apart again, opening new oceans (a Wilson cycle)
-- Runs in the background while you watch (Tectonics panel: play, pause,
-  step, reset, speed); the terrain rebuilds from each new state without
-  popping
-- Data views: plates, crust age (with magnetic-stripe bands), continental /
-  oceanic crust, converging / spreading boundaries
-- Deterministic: a saved scene stores the seed and simulated time and
-  re-simulates to the same planet on load
-
-**Tectonic regimes**
-
-![The Moon, Mars, Venus (without its clouds), Io and Europa](docs/images/regimes.png)
-
-- Plate tectonics is one of five regimes, each its own simulation on the same
-  grid (the terrain, data views and Tectonics panel work with all of them):
-  - **Stagnant lid** (Mars, Mercury, the Moon): one rigid shell with
-    ancient relief: a crustal dichotomy, giant impact basins, volcanic
-    provinces over mantle plumes, lowlands flooded by dark lava (the maria);
-    volcanism fades as the planet cools
-  - **Episodic resurfacing** (Venus): lava floods nearly the whole surface
-    every 400-800 Myr; only high tesserae plateaus survive, and rifts,
-    volcanic rises and coronae form in between
-  - **Heat-pipe volcanism** (Io): constant eruptions keep the surface a few
-    Myr old: sulfur plains, glowing lava lakes in calderas that open and
-    fill, tall mountain blocks that rise and slump
-  - **Ice shell** (Europa, Ganymede, Triton): tidal cracks become wandering
-    dark ridges and spreading bands, with chaos terrain, on young, low-relief
-    ice
-- Relief scales with gravity; the mineral palette colors each regime's crust
-  (dark maria and lava, bright highlands and ice)
+  classic netCDF, GeoTIFFs with their scale, offset and projection, images),
+  resampled once onto the cube-sphere and cached (loads in milliseconds);
+  hills and craters smaller than the map can show are added on top. Areas
+  never imaged (Pluto's and Triton's far sides, Venus's gaps) are filled
+  smoothly from around them. Heights measured from a sphere carry the
+  body's whole shape (Ceres's flattening, Vesta's giant basins) and are
+  taken as that
+- Sharper data up close: the full-resolution GeoTIFFs, Mars at 64
+  pixels/deg (four MOLA tiles), the Moon at 64 pixels/deg, Earth every
+  arc-minute (`python tools/fetch_maps.py --sharp`, ~1.5 GB for those three).
+  They are memory-mapped, never loaded: only the samples the detailed chunks
+  near the camera need are read from disk, blended in over a factor of two
+  in detail so nothing pops
+- Color mosaics too large for a texture (up to 23,040 x 11,520) are averaged
+  down once to 4096 x 2048 images in `data/cache/`
+- The clock turns the real continents to the sun at the right hours
 
 **Impact craters**
 
@@ -286,7 +248,7 @@ building and saving scenes.
   vertex like noise (a seamless 3D lattice per size octave), so they appear
   at any level of detail
 - A realistic size mix (N(>D) ~ D^-2) and a count that follows the surface's
-  age from its tectonic regime, by the lunar cratering chronology with its
+  age (each body's own), by the lunar cratering chronology with its
   heavy bombardment: saturated lunar highlands, sparser maria, nearly blank
   Io and Europa
 - Simple bowls below a transition diameter that shrinks with gravity (Moon
@@ -297,36 +259,8 @@ building and saving scenes.
 - Young craters on airless bodies throw bright, lopsided ejecta rays
 - Each body has its own seed (its own basins, maria and craters)
 
-**Volcanoes**
+**Erosion: dunes and gullies**
 
-![Mars's tallest volcano from 850 km (basal cliff, frosted summit caldera) and its relief map](docs/images/volcanoes.png)
-
-- Built where the tectonic simulation brings magma up: shield volcanoes over
-  mantle plumes and hot spots (Olympus Mons, Mauna Loa, Maat Mons) with
-  summit calderas, radial lava-flow ridges and, on the giants, a basal
-  cliff; stratovolcano chains above subduction zones; fields of small
-  shields on volcanic plains (Venus)
-- Gravity sets the ceiling: the tallest scale with 1/g (Earth ~10 km, Venus
-  ~11 km, Mars ~26 km)
-- Only bodies that sustain plumes build large edifices (Earth, Venus, Mars,
-  Io's low shields); the Moon and Mercury get small domes, icy moons none
-- Evaluated per sample on the same seamless lattice as craters (each
-  volcano exists if the ground at its center is volcanic), so they appear
-  at every level of detail; summits are cold enough for snow and frost
-
-**Erosion: rivers, glaciers and dunes**
-
-![Titan's linear dunes and Mars's transverse dunes (hillshade), and rivers, lakes and a delta on Earth](docs/images/erosion.png)
-
-- Rivers from the climate's rain: a priority flood routes every land cell
-  to the sea and fills depressions into lakes; discharge adds up downstream,
-  and the largest flows become rivers as wide as their water, smoothed and
-  meandering, in valleys carved down to their water level
-- Deltas fan out into the sea at the biggest mouths, with distributary
-  channels; where it is frozen, rivers become glaciers in wider U-shaped
-  valleys
-- Matched to the body: water on Earth, methane on Titan, none on dry or
-  boiled-away worlds
 - Wind-blown dunes where air can move sand and the ground is dry:
   transverse crests with steep slip faces across the wind (Earth's deserts,
   Mars's dark basaltic fields), long linear ridges along it in Titan's
@@ -339,7 +273,6 @@ building and saving scenes.
   where rain runs off (Earth, Titan), half as much on Mars (its ancient
   valley networks), a little on Venus, none on airless worlds; over a
   measured map only what it is too coarse to show
-- Climate panel: river, glacier, lake and delta counts
 
 **Close to the ground**
 
@@ -377,37 +310,22 @@ building and saving scenes.
 
 **Climate and biomes**
 
-![Natural colors, biomes, temperature and rainfall](docs/images/climate.png)
-
-- Annual-mean climate from an energy balance (~0.5 s, recomputed in the
-  background whenever the land or the physics change): sunlight by latitude
-  for the star's flux, distance, orbit eccentricity and axial tilt; albedo;
-  a greenhouse (infrared optical depth); heat carried by the air (more in
-  thick air: Venus is nearly the same temperature everywhere, Mars's thin air
-  barely evens anything out) and the oceans; cooler with height by the
-  body's own lapse rate
-- Each body's greenhouse is calibrated so its global mean matches the
-  observed one (Venus 464 C, Earth 15 C, Mars -63 C, Titan -180 C); airless
-  bodies follow from sunlight alone
-- Earth's wind belts (trade winds, westerlies, polar easterlies) carry ocean
-  moisture inland; it rains where air rises (the equatorial belt, mountains
-  facing the wind) and stays dry where it sinks (the ~30 degree desert belts)
-  and in mountains' rain shadows
+- An analytic annual-mean climate, no simulation: each body's measured mean
+  temperature, spread from equator to poles by how much its air evens heat
+  out (~45 C on Earth, ~60 C with no air, ~10 C under Venus's or Titan's
+  thick air), colder with height by the body's own lapse rate
+- Rain in Earth's latitude belts: the wet tropics and storm tracks, the dry
+  subtropics and poles, patchy with noise
 - Biomes from temperature and rainfall (a Whittaker diagram): ice, tundra,
   taiga, temperate forest, grassland, desert, savanna, tropical rainforest;
   snow and tree lines follow temperature, so they fall with latitude and rise
-  with warmth
-- Climate panel: global temperature, humidity, axial tilt, and physical
-  what-ifs (move the body closer to its star, change its albedo, thicken its
-  greenhouse) with sunlight, equilibrium temperature and lapse rate shown;
-  planet-wide min / mean / max, biome shares; temperature, rainfall and biome
-  views
+  with warmth. Temperature, rainfall and biome views in the Planet panel
 
 **Clouds**
 
 ![Earth from space with its weather, and a cloud deck seen from below over the ocean](docs/images/clouds.png)
 
-- A weather cloud layer where the climate rains: the equatorial belt and the
+- A weather cloud layer in the rain belts: the equatorial belt and the
   storm tracks cloudy, the subtropical deserts clear, the planet averaging
   its observed cover (Earth ~55-65%); domain-warped fractal noise per pixel
   shapes the clouds from continent-sized systems down to tens of meters,
@@ -495,20 +413,10 @@ building and saving scenes.
   under a per-frame time budget
 - Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
   output routed to the log
-- The simulations' heaviest steps on the GPU (compute shaders): the
-  climate's radiative balance (Newton steps, each a conjugate-gradient solve
-  inside one workgroup), the rivers' basin filling and discharge, and the
-  plates' crust tracking. Simulation threads hand them to the main thread,
-  which runs a few milliseconds of them per frame, so a solve spreads over
-  frames instead of stalling one or holding the Python lock: the climate
-  solve goes from 1.6 s to 0.2 s (30 s to 0.4 s at 4x the cells). Each keeps
-  its NumPy twin, the reference it is tested against and the fallback
-  without compute shaders
-- A disk cache (`data/cache/`) of tectonic states step by step, climates and
-  terrain chunks, keyed by their inputs and the generators' source code:
-  reopening a planet loads instead of simulating (startup 1.9 s to 0.7 s,
-  chunks streaming in ~70% faster); oldest entries pruned past 2 GB
-- 636 unit tests (the GPU kernels' run where a GPU is available)
+- A disk cache (`data/cache/`) of terrain chunks, keyed by their inputs and
+  the generators' source code: chunks stream in ~70% faster on a second
+  visit; oldest entries pruned past 2 GB
+- 547 unit tests
 
 ## Getting Started
 
@@ -539,8 +447,8 @@ python main.py
 ```
 
 This opens `assets/scenes/planet.scene.json` if it exists, otherwise the
-built-in demo: a procedural planet with an atmosphere, the camera above a
-mountain valley.
+built-in demo: Earth with its atmosphere, the camera above a mountain
+valley.
 The planet streams in over the first few seconds.
 
 | Option | Meaning |
@@ -576,22 +484,22 @@ The planet streams in over the first few seconds.
 | `main.py`, `application.py` | Entry point, main loop, demo content |
 | `core/` | Window, input, events, timer, logging, profiler, job system, disk cache |
 | `ecs/` | Entity registry and components |
-| `systems/` | Transform, camera controller, rotator, orbits and clock, tectonics, climate, planet streaming and render systems |
-| `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping and simulation grid, plate tectonics and other tectonic regimes, impact craters, volcanoes, rivers and dunes, climate, terrain, chunk building, level of detail, body shapes, orbits and spin, solar time, real maps |
-| `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, clouds, rings, eclipses, bloom, GPU compute and the simulations' kernels |
+| `systems/` | Transform, camera controller, rotator, orbits and clock, planet streaming and render systems |
+| `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping, impact craters, dunes, surface climate, terrain, chunk building, level of detail, body shapes, orbits and spin, solar time, real maps |
+| `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, clouds, rings, eclipses, bloom |
 | `editor/` | Scene editor, hierarchy / inspector / planet panels, picking, undo history |
 | `scene/` | Scene container and scene file (de)serialization |
 | `resources/` | Handle-based resource managers |
 | `math3d/` | Transforms, camera, matrix helpers |
 | `ui/` | ImGui integration, docked layout and panel registry, render / stats / profiler panels |
 | `assets/` | Shaders, textures, scenes, body profiles (`bodies/`) |
-| `tools/` | Asset generator, micro-benchmarks, real map downloader, terrain checker |
+| `tools/` | Asset generator, micro-benchmarks, real map and star catalog downloaders |
 | `data/` | Downloaded maps and caches (not in the repository) |
 | `tests/` | pytest suite (`tests/fixtures/` holds the OBJ / glTF test models) |
 
 ## Development
 
-Run the tests (the GPU kernel tests skip without a GPU):
+Run the tests (those on the real maps skip until they are downloaded):
 
 ```bash
 python -m pytest
@@ -609,18 +517,15 @@ Benchmark the per-frame hot paths:
 python tools/benchmark_hot_paths.py
 ```
 
-Download the real maps (~86 MB; `--list` shows what and from where), then
-compare the generators with them:
+Download the real maps (~4.4 GB; `--list` shows what and from where; name
+bodies to fetch only theirs, e.g. `mars moon`):
 
 ```bash
 python tools/fetch_maps.py
 ```
 
-```bash
-python tools/compare_terrain.py --image terrain_check.png
-```
-
-The four-times-sharper maps for flying close (~1.5 GB, memory-mapped):
+The four-times-sharper Mars, Moon and Earth maps for flying close (~1.5 GB,
+memory-mapped):
 
 ```bash
 python tools/fetch_maps.py --sharp
@@ -632,8 +537,8 @@ Download the star catalog (574 KB) for the real night sky:
 python tools/fetch_stars.py
 ```
 
-Switches (environment variables): `ENGINE_NO_GPU_SIMULATION` keeps every
-simulation on the CPU, `ENGINE_NO_DISK_CACHE` disables the disk cache.
+Switch (environment variable): `ENGINE_NO_DISK_CACHE` disables the disk
+cache.
 
 Shaders live in `assets/shaders/` and reload automatically when saved. The
 Profiler window (bottom of the screen) shows CPU and GPU time per render pass;

@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from planet.climate import prevailing_wind
+from planet.surface import prevailing_wind
 from planet.craters import lattice_cells
 from planet.noise import Perlin, fbm
 
@@ -71,13 +71,13 @@ class Dunes:
         self,
         settings: DuneSettings,
         radius: float,
-        climate=None
+        rainfall=None
     ):
-        """climate: ClimateField for rainfall (None: everywhere dry)."""
+        """rainfall: directions -> mm / year (None: everywhere dry)."""
 
         self.settings = settings
         self.radius = radius
-        self.climate = climate
+        self.rainfall = rainfall
 
         self.patches = [
             r for r in _PATCHES
@@ -117,9 +117,9 @@ class Dunes:
 
         band = _smoothstep(s.max_latitude, s.max_latitude - 5.0, latitude)
 
-        if self.climate is not None and not s.linear:
+        if self.rainfall is not None and not s.linear:
 
-            rain = self.climate.grid.sample(self.climate.precipitation, directions)
+            rain = self.rainfall(directions)
 
             dry = _smoothstep(400.0, 150.0, rain)
 

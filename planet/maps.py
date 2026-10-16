@@ -21,10 +21,14 @@ from planet.cube_sphere import FACE_NORMALS, FACE_U, FACE_V, face_directions
 # Measured elevation and color of real bodies, as the base
 # of their terrain instead of the generators: Mars from
 # MOLA's laser altimeter, the Moon from LRO's LOLA, Earth's
-# land and sea floor from ETOPO1, colors from LRO and
-# Viking mosaics. The files are not part of the repository:
-# tools/fetch_maps.py downloads them into data/maps/ (about
-# 86 MB), and without them the bodies stay procedural.
+# land and sea floor from ETOPO1, Mercury from MESSENGER,
+# Venus from Magellan's radar, Ceres and Vesta from Dawn,
+# Pluto from New Horizons; colors from LRO, Viking,
+# MESSENGER, Blue Marble and the Voyager, Galileo, Cassini
+# and New Horizons mosaics. The files are not part of the
+# repository: tools/fetch_maps.py downloads them into
+# data/maps/ (about 4.5 GB), and without them a body falls
+# back to the generators.
 #
 # Each elevation map (an equirectangular grid in its
 # archive's format) is resampled once onto the cube-sphere
@@ -46,6 +50,9 @@ CUBE_SIZE = 1536
 
 _CACHE_FORMAT = 1
 
+# Color maps made from GeoTIFF mosaics.
+_COLOR_CACHE_FORMAT = 2
+
 # (dataset id, directory) -> (when checked, downloaded).
 _AVAILABILITY: dict = {}
 
@@ -56,7 +63,7 @@ class MapDataset:
     id: str
     body: str
     kind: str                       # "elevation" or "color"
-    format: str                     # "pds", "netcdf" or "image"
+    format: str                     # "pds", "netcdf", "geotiff" or "image"
     files: tuple[tuple[str, str], ...]   # (url, file name); the first is the data
     description: str
     credit: str
@@ -72,6 +79,15 @@ class MapDataset:
     # sampled where the terrain is built finer than this one
     # resolves; "detail" kind datasets are those.
     detail: str = ""
+
+    # Heights measured from a sphere (the body's radius after
+    # the datum), not from its own shape: terrain takes the
+    # shape (oblateness, lumps) back out (planet/terrain.py).
+    above_sphere: bool = False
+
+    # Color: how much of the image's color to keep (0 = grey).
+    # Enhanced-color mosaics exaggerate the hues many times.
+    saturation: float = 1.0
 
     @property
     def path(
@@ -110,6 +126,21 @@ class MapDataset:
             "mola_megdr_64": "531 MB",
             "lola_ldem_64": "531 MB",
             "etopo1_1min": "467 MB",
+            "blue_marble_july": "2 MB",
+            "mercury_dem_665m": "531 MB",
+            "mercury_color_665m": "797 MB",
+            "venus_magellan_4641m": "67 MB",
+            "ceres_dawn_dtm": "467 MB",
+            "vesta_dawn_dtm": "597 MB",
+            "pluto_dem_300m": "620 MB",
+            "pluto_mosaic_300m": "310 MB",
+            "io_mosaic_1km": "197 MB",
+            "europa_mosaic_500m": "193 MB",
+            "ganymede_mosaic_1km": "137 MB",
+            "callisto_mosaic_1km": "115 MB",
+            "titan_mosaic_4km": "8 MB",
+            "enceladus_mosaic_110m": "104 MB",
+            "triton_mosaic_600m": "300 MB",
         }.get(self.id, "<1 MB")
 
 
@@ -117,6 +148,59 @@ _PDS_MOLA = "https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/mgsl
 _PDS_MOLA_64 = "https://pds-geosciences.wustl.edu/mgs/mgs-m-mola-5-megdr-l3-v1/mgsl_300x/meg064/"
 _MOLA_64_TILES = ("megt90n000gb", "megt90n180gb", "megt00n000gb", "megt00n180gb")
 _PDS_LOLA = "https://pds-geosciences.wustl.edu/lro/lro-l-lola-3-rdr-v1/lrolol_1xxx/data/lola_gdr/cylindrical/img/"
+_USGS = "https://planetarymaps.usgs.gov/mosaic/"
+_USGS_CREDIT = "NASA / USGS Astrogeology (planetarymaps.usgs.gov)"
+
+
+def _usgs(
+    id: str,
+    body: str,
+    kind: str,
+    name: str,
+    description: str,
+    credit: str = _USGS_CREDIT,
+    sharp: bool = True,
+    **fields
+) -> list[MapDataset]:
+    """
+    A USGS Astrogeology GeoTIFF; an elevation one also as
+    its own sharper "detail" dataset (the same file, read in
+    place up close) unless it has gaps (sharp=False: those
+    would read as pits).
+    """
+
+    sharp = sharp and kind == "elevation"
+
+    datasets = [
+        MapDataset(
+            id=id,
+            body=body,
+            kind=kind,
+            format="geotiff",
+            files=((_USGS + name, name),),
+            description=description,
+            credit=credit,
+            detail=id + "_full" if sharp else "",
+            **fields
+        )
+    ]
+
+    if sharp:
+
+        datasets.append(
+            MapDataset(
+                id=id + "_full",
+                body=body,
+                kind="detail",
+                format="geotiff",
+                files=((_USGS + name, name),),
+                description=description + ", at full resolution up close",
+                credit=credit,
+                **fields
+            )
+        )
+
+    return datasets
 
 DATASETS: dict[str, MapDataset] = {
     dataset.id: dataset
@@ -233,6 +317,113 @@ DATASETS: dict[str, MapDataset] = {
             ),
             description="Mars color, Viking global color mosaic",
             credit="NASA / USGS Astrogeology"
+        ),
+        MapDataset(
+            id="blue_marble_july",
+            body="earth",
+            kind="color",
+            format="image",
+            files=(
+                (
+                    "https://eoimages.gsfc.nasa.gov/images/imagerecords/74000/74092/"
+                    "world.200407.3x5400x2700.jpg",
+                    "world.200407.3x5400x2700.jpg"
+                ),
+            ),
+            description="Earth color, Blue Marble Next Generation (July 2004)",
+            credit="NASA Earth Observatory / Reto Stockli, NASA GSFC"
+        ),
+        # Heights of the USGS DEMs: stored value x scale +
+        # offset (the file's GDAL metadata), from a sphere of
+        # the file's radius (or absolute radii); `datum`
+        # brings them to the body's radius in assets/bodies.
+        *_usgs(
+            "mercury_dem_665m", "mercury", "elevation",
+            "Mercury_Messenger_USGS_DEM_Global_665m_v2.tif",
+            "Mercury topography, MESSENGER stereo DEM, 665 m/pixel, above 2439.4 km",
+            datum=300.0,                    # 2439.7 km - 2439.4 km
+            above_sphere=True
+        ),
+        *_usgs(
+            "mercury_color_665m", "mercury", "color",
+            "Mercury_MESSENGER_MDIS_Basemap_EnhancedColor_Mosaic_Global_665m.tif",
+            "Mercury color, MESSENGER MDIS enhanced-color basemap (toned down to its true greys)",
+            saturation=0.04
+        ),
+        *_usgs(
+            "venus_magellan_4641m", "venus", "elevation",
+            "Venus_Magellan_Topography_Global_4641m_v02.tif",
+            "Venus topography, Magellan radar altimetry, 4.6 km/pixel, above 6051 km",
+            datum=800.0,                    # 6051.8 km - 6051.0 km
+            above_sphere=True,
+            sharp=False
+        ),
+        *_usgs(
+            "ceres_dawn_dtm", "ceres", "elevation",
+            "Ceres_Dawn_FC_HAMO_DTM_DLR_Global_60ppd_Oct2016.tif",
+            "Ceres topography, Dawn HAMO stereo DTM (DLR), 60 pixels/deg (~140 m)",
+            credit="NASA / JPL-Caltech / DLR / USGS Astrogeology",
+            datum=482_100.0,                # absolute radii
+            above_sphere=True
+        ),
+        *_usgs(
+            "vesta_dawn_dtm", "vesta", "elevation",
+            "Vesta_Dawn_HAMO_DTM_DLR_Global_48ppd.tif",
+            "Vesta topography, Dawn HAMO stereo DTM (DLR), 48 pixels/deg (~90 m)",
+            credit="NASA / JPL-Caltech / DLR / USGS Astrogeology",
+            datum=262_700.0,                # absolute radii
+            above_sphere=True
+        ),
+        *_usgs(
+            "pluto_dem_300m", "pluto", "elevation",
+            "Pluto_NewHorizons_Global_DEM_300m_Jul2017_16bit.tif",
+            "Pluto topography, New Horizons stereo DEM, 300 m/pixel (the hemisphere seen up close)",
+            credit="NASA / JHUAPL / SwRI / USGS Astrogeology",
+            above_sphere=True,
+            sharp=False
+        ),
+        *_usgs(
+            "pluto_mosaic_300m", "pluto", "color",
+            "Pluto_NewHorizons_Global_Mosaic_300m_Jul2017_8bit.tif",
+            "Pluto, New Horizons LORRI/MVIC global mosaic",
+            credit="NASA / JHUAPL / SwRI / USGS Astrogeology"
+        ),
+        *_usgs(
+            "io_mosaic_1km", "io", "color",
+            "Io_GalileoSSI-Voyager_Global_Mosaic_ClrMerge_1km.tif",
+            "Io color, Galileo SSI and Voyager global mosaic"
+        ),
+        *_usgs(
+            "europa_mosaic_500m", "europa", "color",
+            "Europa_Voyager_GalileoSSI_global_mosaic_500m.tif",
+            "Europa, Voyager and Galileo SSI global mosaic"
+        ),
+        *_usgs(
+            "ganymede_mosaic_1km", "ganymede", "color",
+            "Ganymede_Voyager_GalileoSSI_global_mosaic_1km.tif",
+            "Ganymede, Voyager and Galileo SSI global mosaic"
+        ),
+        *_usgs(
+            "callisto_mosaic_1km", "callisto", "color",
+            "Callisto_Voyager_GalileoSSI_global_mosaic_1km.tif",
+            "Callisto, Voyager and Galileo SSI global mosaic"
+        ),
+        *_usgs(
+            "titan_mosaic_4km", "titan", "color",
+            "Titan_ISS_P19658_Mosaic_Global_4km.tif",
+            "Titan's surface, Cassini ISS near-infrared global mosaic",
+            credit="NASA / JPL / Space Science Institute / USGS Astrogeology"
+        ),
+        *_usgs(
+            "enceladus_mosaic_110m", "enceladus", "color",
+            "Enceladus_Cassini_mosaic_global_110m.tif",
+            "Enceladus, Cassini ISS global mosaic",
+            credit="NASA / JPL / Space Science Institute / USGS Astrogeology"
+        ),
+        *_usgs(
+            "triton_mosaic_600m", "triton", "color",
+            "Triton_Voyager2_ClrMosaic_GlobalFill_600m.tif",
+            "Triton color, Voyager 2 mosaic (unseen areas filled)"
         ),
     )
 }
@@ -412,6 +603,251 @@ def read_netcdf3(
     return variables
 
 
+# =========================================================
+# GeoTIFFs (USGS Astrogeology)
+# =========================================================
+#
+# Uncompressed, so read in place (memory-mapped): simple
+# cylindrical grids in meters on a sphere of the file's
+# radius, with GDAL's scale and offset for the values.
+
+# Heights of a resampled GeoTIFF: about the cube's own
+# spacing (4 samples per cube texel row of a face, around
+# the equator).
+_GEOTIFF_COLUMNS = 4 * CUBE_SIZE
+
+# Width of a color map built from a GeoTIFF mosaic (the GPU
+# texture; 2:1).
+COLOR_MAP_WIDTH = 4096
+
+
+@dataclass(slots=True)
+class _GeoTiff:
+
+    values: np.ndarray              # memory-mapped (rows, columns) or (bands, rows, columns)
+    scale: float
+    offset: float
+    nodata: float | None
+    top: float                      # cell-edge bounds (deg)
+    bottom: float
+    left: float
+    right: float
+
+
+def read_geotiff(
+    path: Path
+) -> _GeoTiff:
+
+    import logging
+
+    import tifffile
+
+    # (It cannot cast float32's lowest value back from its
+    # text and says so; parsed below.)
+    logging.getLogger("tifffile").setLevel(logging.ERROR)
+
+    with tifffile.TiffFile(path) as tiff:
+
+        page = tiff.pages[0]
+
+        tags = page.tags
+
+        pixel = tags["ModelPixelScaleTag"].value
+        tie = tags["ModelTiepointTag"].value
+
+        keys = tiff.geotiff_metadata or {}
+
+        metadata = tags.get("GDAL_METADATA")
+        metadata = metadata.value if metadata is not None else ""
+
+        nodata = tags.get("GDAL_NODATA")
+
+    nodata_value = None
+
+    if nodata is not None:
+        try:
+            nodata_value = float(str(nodata.value).strip("\x00 "))
+        except ValueError:
+            nodata_value = None
+
+    radius = float(keys.get("GeogSemiMajorAxisGeoKey", 0.0))
+    center = float(keys.get("ProjCenterLongGeoKey", keys.get("ProjNatOriginLongGeoKey", 0.0)))
+
+    if radius <= 0.0:
+        raise ValueError(f"{path.name}: no body radius in its GeoTIFF keys")
+
+    def item(name: str, default: float) -> float:
+
+        found = re.search(rf'<Item name="{name}" sample="0"[^>]*>([^<]+)</Item>', metadata)
+
+        return float(found.group(1)) if found else default
+
+    values = tifffile.memmap(path, mode="r")
+
+    rows, columns = values.shape[-2:]
+
+    degrees = 180.0 / (math.pi * radius)
+
+    left = center + tie[3] * degrees
+    top = tie[4] * degrees
+
+    return _GeoTiff(
+        values=values,
+        scale=item("SCALE", 1.0),
+        offset=item("OFFSET", 0.0),
+        nodata=nodata_value,
+        top=top,
+        bottom=top - rows * pixel[1] * degrees,
+        left=left,
+        right=left + columns * pixel[0] * degrees
+    )
+
+
+def _block_mean(
+    values: np.ndarray,
+    factor: int,
+    invalid
+) -> np.ndarray:
+    """
+    (rows, columns) averaged over factor x factor blocks,
+    read a band of rows at a time; NaN where a block has no
+    valid sample (invalid(values) marks those).
+    """
+
+    rows, columns = values.shape
+
+    out_rows, out_columns = rows // factor, columns // factor
+
+    out = np.empty((out_rows, out_columns), dtype=np.float32)
+
+    step = max(1, 4096 // factor)
+
+    for start in range(0, out_rows, step):
+
+        stop = min(out_rows, start + step)
+
+        block = np.asarray(
+            values[start * factor:stop * factor, :out_columns * factor],
+            dtype=np.float64
+        ).reshape(stop - start, factor, out_columns, factor)
+
+        bad = invalid(block)
+
+        count = (~bad).sum(axis=(1, 3))
+
+        total = np.where(bad, 0.0, block).sum(axis=(1, 3))
+
+        with np.errstate(invalid="ignore", divide="ignore"):
+            out[start:stop] = np.where(count > 0, total / np.maximum(count, 1), np.nan)
+
+    return out
+
+
+def fill_gaps(
+    values: np.ndarray
+) -> np.ndarray:
+    """
+    NaN cells filled smoothly from their surroundings (pull-
+    push: average down a pyramid until nothing is missing,
+    then fill each level's gaps from the coarser one).
+    """
+
+    missing = np.isnan(values)
+
+    if not missing.any():
+        return values
+
+    if missing.all():
+        return np.zeros_like(values)
+
+    rows, columns = values.shape
+
+    if rows < 2 or columns < 2:
+        return np.where(missing, np.nanmean(values), values)
+
+    # Next level down (padded to even sizes).
+    padded = np.pad(values, ((0, rows % 2), (0, columns % 2)), mode="edge")
+
+    blocks = padded.reshape(padded.shape[0] // 2, 2, padded.shape[1] // 2, 2)
+
+    valid = ~np.isnan(blocks)
+
+    count = valid.sum(axis=(1, 3))
+
+    total = np.where(valid, blocks, 0.0).sum(axis=(1, 3))
+
+    coarse = fill_gaps(np.where(count > 0, total / np.maximum(count, 1), np.nan))
+
+    return np.where(missing, _upsample(coarse, rows, columns), values)
+
+
+def _upsample(
+    coarse: np.ndarray,
+    rows: int,
+    columns: int
+) -> np.ndarray:
+    """A half-size grid back to (rows, columns), bilinear (smooth fills, no blocks)."""
+
+    def axis(fine: int, size: int):
+
+        # Fine cell i's center in coarse cells.
+        t = np.clip((np.arange(fine) + 0.5) / 2.0 - 0.5, 0.0, size - 1.0)
+
+        i0 = np.minimum(np.floor(t).astype(np.int64), max(size - 2, 0))
+        i1 = np.minimum(i0 + 1, size - 1)
+
+        return i0, i1, t - i0
+
+    y0, y1, fy = axis(rows, coarse.shape[0])
+    x0, x1, fx = axis(columns, coarse.shape[1])
+
+    fy = fy[:, None]
+
+    top = coarse[y0][:, x0] * (1.0 - fx) + coarse[y0][:, x1] * fx
+    bottom = coarse[y1][:, x0] * (1.0 - fx) + coarse[y1][:, x1] * fx
+
+    return top * (1.0 - fy) + bottom * fy
+
+
+def _geotiff_grid(
+    dataset: MapDataset
+) -> Grid:
+    """A GeoTIFF's heights (m from the body's radius), averaged down to about the cube's spacing."""
+
+    tiff = read_geotiff(dataset.path)
+
+    if tiff.values.ndim != 2:
+        raise ValueError(f"{dataset.id}: not a single-band elevation GeoTIFF")
+
+    factor = max(1, tiff.values.shape[1] // _GEOTIFF_COLUMNS)
+
+    nodata = tiff.nodata
+
+    def invalid(block):
+
+        bad = ~np.isfinite(block) | (block < -1e30)
+
+        if nodata is not None:
+            bad |= block == nodata
+
+        return bad
+
+    heights = fill_gaps(_block_mean(tiff.values, factor, invalid))
+
+    heights = heights * tiff.scale + (tiff.offset - dataset.datum)
+
+    rows, columns = heights.shape
+
+    # (The blocks may drop a last partial row or column.)
+    return Grid(
+        values=heights.astype(np.float32),
+        top=tiff.top,
+        bottom=tiff.top - (tiff.top - tiff.bottom) * rows * factor / tiff.values.shape[0],
+        left=tiff.left,
+        right=tiff.left + (tiff.right - tiff.left) * columns * factor / tiff.values.shape[1]
+    )
+
+
 def _read_head(
     path: Path,
     size: int
@@ -432,6 +868,10 @@ def read_dataset(
             MAPS_DIRECTORY / dataset.files[1][1],
             dataset.datum
         )
+
+    if dataset.format == "geotiff":
+
+        return _geotiff_grid(dataset)
 
     if dataset.format == "netcdf":
 
@@ -619,9 +1059,13 @@ def cube_from_grid(
     grid: Grid,
     size: int = CUBE_SIZE
 ) -> np.ndarray:
-    """Resample an equirectangular grid onto the cube faces (int16 m)."""
+    """
+    Resample an equirectangular grid onto the cube faces (m:
+    int16, or float32 where heights pass 32 km, as on Ceres
+    and Vesta).
+    """
 
-    faces = np.empty((6, size + 2, size + 2), dtype=np.int16)
+    faces = np.empty((6, size + 2, size + 2), dtype=np.float32)
 
     t = -1.0 + (np.arange(size + 2) - 0.5) * (2.0 / size)
 
@@ -633,7 +1077,10 @@ def cube_from_grid(
 
         heights = sample_grid(grid, directions)
 
-        faces[face] = np.clip(np.rint(heights), -32768, 32767).reshape(size + 2, size + 2)
+        faces[face] = heights.reshape(size + 2, size + 2)
+
+    if faces.min() >= -32768.0 and faces.max() <= 32767.0:
+        return np.rint(faces).astype(np.int16)
 
     return faces
 
@@ -851,6 +1298,31 @@ def _netcdf_tile(
     )
 
 
+def _geotiff_tile(
+    dataset: MapDataset
+) -> _Tile:
+
+    tiff = read_geotiff(dataset.path)
+
+    # Gaps would read as deep pits: those maps stay coarse.
+    if tiff.nodata is not None and tiff.values.dtype.kind in "iu":
+
+        sample = np.asarray(tiff.values[::97, ::97])
+
+        if np.any(sample == tiff.nodata):
+            raise ValueError("has unmapped areas")
+
+    return _Tile(
+        values=tiff.values,
+        scale=tiff.scale,
+        offset=tiff.offset - dataset.datum,
+        top=tiff.top,
+        bottom=tiff.bottom,
+        left=tiff.left,
+        right=tiff.right
+    )
+
+
 @lru_cache(maxsize=4)
 def load_detail_map(
     dataset_id: str
@@ -866,6 +1338,8 @@ def load_detail_map(
 
         if dataset.format == "netcdf":
             tiles = [_netcdf_tile(dataset.path)]
+        elif dataset.format == "geotiff":
+            tiles = [_geotiff_tile(dataset)]
         else:
             names = [name for _, name in dataset.files]
             tiles = [
@@ -885,11 +1359,113 @@ def load_detail_map(
 def color_map_path(
     dataset_id: str
 ) -> Path | None:
-    """The image file of a color map, if downloaded."""
+    """
+    The image file of a color map, if downloaded (a GeoTIFF
+    mosaic: an image made from it once and cached).
+    """
 
     dataset = DATASETS.get(dataset_id)
 
-    if dataset is None or dataset.kind != "color" or not dataset.available:
+    if dataset is None or dataset.kind != "color":
         return None
 
-    return dataset.path
+    if dataset.format != "geotiff":
+        return dataset.path if dataset.available else None
+
+    cache = CACHE_DIRECTORY / f"{dataset.id}_{COLOR_MAP_WIDTH}_v{_COLOR_CACHE_FORMAT}.png"
+
+    if cache.is_file():
+        return cache
+
+    if not dataset.available:
+        return None
+
+    try:
+        image = color_image_from_geotiff(dataset.path, COLOR_MAP_WIDTH, dataset.saturation)
+    except (OSError, ValueError, KeyError) as error:
+
+        Logger.warning("[Maps] %s could not be read: %s", dataset.id, error)
+
+        return None
+
+    from PIL import Image
+
+    CACHE_DIRECTORY.mkdir(parents=True, exist_ok=True)
+
+    Image.fromarray(image).save(cache)
+
+    return cache
+
+
+def color_image_from_geotiff(
+    path: Path,
+    width: int,
+    saturation: float = 1.0
+) -> np.ndarray:
+    """
+    (width / 2, width, 3) uint8 RGB of a GeoTIFF mosaic, in
+    the color maps' layout (north up, -180 deg at the left
+    edge); unmapped areas filled from around them.
+    """
+
+    Logger.info("[Maps] Building a %d px color map from %s (once).", width, path.name)
+
+    tiff = read_geotiff(path)
+
+    values = tiff.values
+
+    bands = [values] if values.ndim == 2 else [values[band] for band in range(min(values.shape[0], 3))]
+
+    rows, columns = bands[0].shape
+
+    factor = max(1, columns // (2 * width))
+
+    def invalid(block):
+        return block == (tiff.nodata if tiff.nodata is not None else -1.0)
+
+    averaged = [fill_gaps(_block_mean(band, factor, invalid)) for band in bands]
+
+    grid_rows, grid_columns = averaged[0].shape
+
+    height = width // 2
+
+    latitude = 90.0 - (np.arange(height) + 0.5) * 180.0 / height
+    longitude = -180.0 + (np.arange(width) + 0.5) * 360.0 / width
+
+    span_y = (tiff.top - tiff.bottom) * grid_rows * factor / rows
+    span_x = (tiff.right - tiff.left) * grid_columns * factor / columns
+
+    y = np.clip(((tiff.top - latitude) / span_y * grid_rows - 0.5), 0.0, grid_rows - 1.0)
+    x = ((longitude - tiff.left) % 360.0) / span_x * grid_columns - 0.5
+
+    y0 = np.minimum(np.floor(y).astype(np.int64), grid_rows - 2)[:, None]
+    x0 = np.floor(x).astype(np.int64)[None, :]
+
+    fy = y[:, None] - y0
+    fx = x[None, :] - x0
+
+    # (Around the globe: the right edge meets the left.)
+    x0 %= grid_columns
+    x1 = (x0 + 1) % grid_columns
+
+    channels = []
+
+    for grid in averaged:
+
+        top = grid[y0, x0] * (1.0 - fx) + grid[y0, x1] * fx
+        bottom = grid[y0 + 1, x0] * (1.0 - fx) + grid[y0 + 1, x1] * fx
+
+        channels.append(top * (1.0 - fy) + bottom * fy)
+
+    while len(channels) < 3:
+        channels.append(channels[0])
+
+    rgb = np.stack(channels, axis=-1)
+
+    if saturation != 1.0:
+
+        grey = rgb @ np.array([0.2126, 0.7152, 0.0722])
+
+        rgb = grey[..., None] + (rgb - grey[..., None]) * saturation
+
+    return np.clip(np.rint(rgb), 0, 255).astype(np.uint8)

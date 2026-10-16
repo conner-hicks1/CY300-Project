@@ -13,10 +13,9 @@ from core.logger import Logger
 # =========================================================
 #
 # Results of the expensive, deterministic work kept on disk
-# between runs (data/cache/, git-ignored): tectonic states
-# step by step, climates, and terrain chunks. Loading a
-# scene, coming back to a planet or reopening the engine
-# reads them instead of simulating and building again.
+# between runs (data/cache/, git-ignored): terrain chunks.
+# Coming back to a planet or reopening the engine reads them
+# instead of building them again.
 #
 # Keys are hashes of everything that determines a result:
 # its inputs (settings, the states it was built from) and

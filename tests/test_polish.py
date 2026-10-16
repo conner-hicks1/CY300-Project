@@ -182,29 +182,17 @@ def test_faster_noise_is_unchanged():
 @pytest.mark.parametrize("body", ["earth", "mars", "venus", "moon", "titan", "io", "europa"])
 def test_terrain_stays_in_a_sane_range(body):
 
-    from planet.sphere_grid import sphere_grid
-    from planet.tectonics import TectonicField, simulation_for
     from planet.terrain import Terrain
-    from systems.climate_system import climate_settings_for, compute_climate
     from systems.planet_system import terrain_settings_for
-    from systems.tectonics_system import tectonic_settings_for
 
     parts = components_for(load_presets()[body])
 
-    simulation = simulation_for(tectonic_settings_for(parts.planet, parts.tectonics))
+    terrain = Terrain(terrain_settings_for(parts.planet))
 
-    field = TectonicField.from_state(simulation.grid, simulation.initial_state(), 1)
+    directions = np.random.default_rng(2).normal(size=(60_000, 3))
+    directions /= np.linalg.norm(directions, axis=1, keepdims=True)
 
-    settings = terrain_settings_for(parts.planet)
-
-    climate, _ = compute_climate(
-        climate_settings_for(parts.climate, parts.planet, parts.body),
-        Terrain(settings, field)
-    )
-
-    terrain = Terrain(settings, field, climate)
-
-    elevation = terrain.elevation(sphere_grid(96).directions, 5_000.0)
+    elevation = terrain.elevation(directions, 5_000.0)
 
     # Deepest trenches and basins to the tallest volcanoes
     # (no runaway values from any process).

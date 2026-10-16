@@ -32,11 +32,11 @@ from OpenGL.GL import (
 #
 # A cloud layer on a planet with air (assets/shaders/
 # include/clouds.glsl draws it). Where it is cloudy comes
-# from a cover map built here: from the climate (rain falls
-# where air rises and its vapor condenses: the equatorial
-# belt and the storm tracks are cloudy, the subtropical
-# deserts clear), scaled so the planet averages its
-# observed cloud cover. The shader adds the clouds' shapes.
+# from a cover map built here, by latitude as on Earth (the
+# rising air of the equatorial belt and the storm tracks is
+# cloudy, the subtropics clearer), scaled so the planet
+# averages its observed cloud cover. The shader adds the
+# clouds' shapes.
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,17 +66,13 @@ MAP_SIZE = (256, 128)
 
 def cloud_cover_map(
     coverage: float,
-    climate=None,
     size: tuple[int, int] = MAP_SIZE
 ) -> np.ndarray:
     """
     (height, width) cloud cover fraction, 0..1, rows from
     the south pole up, columns from longitude -180 degrees
-    (as include/clouds.glsl cloudCover() samples it).
-
-    climate: planet.climate.ClimateField (rainfall), or None
-    for a generic pattern (cloudier at the equator and in
-    mid-latitudes).
+    (as include/clouds.glsl cloudCover() samples it):
+    cloudier at the equator and in mid-latitudes.
     """
 
     width, height = size
@@ -86,22 +82,7 @@ def cloud_cover_map(
 
     lon, lat = np.meshgrid(longitude, latitude)
 
-    directions = np.stack(
-        (np.cos(lat) * np.cos(lon), np.sin(lat), np.cos(lat) * np.sin(lon)),
-        axis=-1
-    ).reshape(-1, 3)
-
-    if climate is not None:
-
-        rain = np.maximum(climate.grid.sample(climate.precipitation, directions), 0.0)
-
-        relative = rain / max(float(np.mean(rain)), 1e-6)
-
-        shape = 0.15 + 0.85 * _smoothstep(0.1, 2.0, relative)
-
-    else:
-
-        shape = 0.55 + 0.25 * np.cos(2.0 * lat.reshape(-1)) + 0.2 * np.cos(4.0 * lat.reshape(-1))
+    shape = 0.55 + 0.25 * np.cos(2.0 * lat.reshape(-1)) + 0.2 * np.cos(4.0 * lat.reshape(-1))
 
     # Scale to the mean coverage (area-weighted).
     weight = np.cos(lat.reshape(-1))

@@ -12,7 +12,6 @@ from ecs.components import (
     AtmosphereComponent,
     BodyComponent,
     CameraComponent,
-    ClimateComponent,
     ClockComponent,
     OrbitComponent,
     CameraControllerComponent,
@@ -378,7 +377,7 @@ class PlanetPanel:
 
         imgui.set_item_tooltip(
             "Turn this planet into the chosen body: size, surface,\n"
-            "atmosphere, climate and geology (undo restores it)."
+            "and atmosphere (undo restores it)."
         )
 
     def _draw_real_maps(
@@ -582,13 +581,8 @@ class PlanetPanel:
         hour, declination, elevation = current
 
         # The sun's latitude swings between +-tilt over the
-        # year (the climate's axial tilt, Earth's without).
-        climate = context.scene.try_get_component(context.planet, ClimateComponent)
-
-        tilt = max(
-            0.1,
-            climate.axial_tilt if climate is not None else solar.MAX_DECLINATION
-        )
+        # year (Earth's, without an orbit clock).
+        tilt = solar.MAX_DECLINATION
 
         hours = int(hour)
         minutes = int((hour - hours) * 60.0)

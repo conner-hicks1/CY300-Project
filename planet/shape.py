@@ -22,7 +22,7 @@ from planet.noise import Perlin, fbm
 # reference radius along each direction from the center, so
 # the cube-sphere mesh, the terrain features and every
 # other system keep working in directions on the unit
-# sphere. Relief (continents, craters, rivers, sea level) is
+# sphere. Relief (continents, craters, dunes, sea level) is
 # measured from this surface, not from the sphere; the seas
 # of a flattened planet follow its shape.
 #

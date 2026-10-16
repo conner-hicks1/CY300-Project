@@ -55,11 +55,10 @@
     "detail_height": 80.0
   },
   "atmosphere": null,
-  "geology": {
-    "regime": "ice_shell",
-    "plate_count": 0
-  },
   "climate": {
     "humidity": 0.0
+  },
+  "maps": {
+    "color": "enceladus_mosaic_110m"
   }
 }

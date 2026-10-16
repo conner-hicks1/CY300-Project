@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from planet.climate import wetness
+from planet.surface import wetness
 from planet.terrain import Terrain
 
 

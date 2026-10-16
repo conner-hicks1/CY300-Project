@@ -208,10 +208,7 @@ def test_terrain_follows_the_map(monkeypatch):
 
     settings = TerrainSettings(radius=3_389_500.0, has_liquid=False, detail_height=0.0, elevation_map="mola_megdr_16")
 
-    terrain = Terrain(settings, field=object())
-
-    # The map replaces the simulated surface.
-    assert terrain.field is None
+    terrain = Terrain(settings)
 
     directions = fibonacci_directions(500)
 

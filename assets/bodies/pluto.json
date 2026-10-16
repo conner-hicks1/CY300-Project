@@ -70,11 +70,11 @@
     },
     "ozone": false
   },
-  "geology": {
-    "regime": "stagnant_lid",
-    "plate_count": 0
-  },
   "climate": {
     "humidity": 0.0
+  },
+  "maps": {
+    "elevation": "pluto_dem_300m",
+    "color": "pluto_mosaic_300m"
   }
 }

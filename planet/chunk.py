@@ -215,8 +215,8 @@ def build_chunk(
     # uv.y: quadtree depth, for the "Detail level" view.
     uv = np.stack((temperature, key.depth + 0.99 * np.clip(water, 0.0, 1.0)), axis=1)
 
-    # Tectonic data for the plate / crust views rides in
-    # the tangent slot (terrain shading uses no normal map).
+    # Surface data (crust brightness) rides in the tangent
+    # slot (terrain shading uses no normal map).
     tectonic = terrain.tectonic_data(directions)
 
     # Skirts are marked by a slope of 2 (no real slope is

@@ -100,10 +100,6 @@
       }
     ]
   },
-  "geology": {
-    "regime": "none",
-    "plate_count": 0
-  },
   "climate": {
     "humidity": 0.0
   },

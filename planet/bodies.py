@@ -7,11 +7,9 @@ from pathlib import Path
 from ecs.components import (
     AtmosphereComponent,
     BodyComponent,
-    ClimateComponent,
     OrbitComponent,
     PlanetComponent,
     RingsComponent,
-    TectonicsComponent
 )
 
 
@@ -23,12 +21,12 @@ from ecs.components import (
 # its real physical data: size and mass, rotation, tilt,
 # orbit and star, surface temperature and liquid, surface
 # colors, terrain relief, atmosphere (pressure, gases,
-# aerosols), geology and climate. Values for the solar
+# aerosols) and climate. Values for the solar
 # system come from NASA's planetary fact sheets.
 #
 # A profile turns into the planet entity's components
 # (components_for): Planet, Body, and when they apply
-# Atmosphere, Climate and Tectonics. Physical quantities
+# Atmosphere, Rings and Orbit. Physical quantities
 # the engine needs but the files do not list are derived
 # here (surface gravity, sunlight, equilibrium temperature,
 # atmospheric scale height, light scattering).
@@ -39,11 +37,9 @@ BODIES_DIRECTORY = Path("assets/bodies")
 
 from graphics.rings import flat_bands
 from planet.phases import ICES, SUBSTANCES, frost_point
-from planet.regimes import DEFAULT_TIME_STEPS
 from planet.air import AirColumn
 from planet.maps import DATASETS
 from planet.shape import MAX_BASINS, flat_basins
-from planet.volcanoes import max_volcano_height
 
 GRAVITATIONAL_CONSTANT = 6.674e-11
 GAS_CONSTANT = 8.314                            # J / (mol K)
@@ -60,14 +56,6 @@ KELVIN = 273.15
 NO_FROST_C = -1000.0
 LIQUIDS = ("none", "water", "methane", "lava")
 PALETTES = ("biomes", "mineral", "bands")
-REGIMES = (
-    "plate_tectonics",
-    "stagnant_lid",
-    "episodic_resurfacing",
-    "heat_pipe",
-    "ice_shell",
-    "none",
-)
 
 # Molar mass (g / mol), refractivity (n - 1 at STP, visible)
 # and specific heat (J / kg K, near room temperature) of
@@ -106,10 +94,6 @@ EARTH_PRESSURE_BAR = 1.01325
 EARTH_RAYLEIGH = (5.802, 13.558, 33.1)
 EARTH_OZONE = (0.650, 1.881, 0.085)
 
-# Global mean temperature the climate model produces with
-# no offset (planet/climate.py); presets shift it to their
-# real mean until the model is driven by sunlight itself.
-CLIMATE_MODEL_MEAN_C = 13.0
 
 
 class ProfileError(ValueError):
@@ -247,8 +231,6 @@ class BodyProfile:
 
     atmosphere: AtmosphereProfile | None
 
-    regime: str
-    plate_count: int
     humidity: float
 
     band_count: int = 0
@@ -265,7 +247,7 @@ class BodyProfile:
     ovals: float = 0.0
     polar_hexagon: bool = False
 
-    # Seed of the body's terrain and tectonics (each body
+    # Seed of the body's terrain (each body
     # its own layout of basins and craters).
     seed: int = 1
 
@@ -294,10 +276,6 @@ class BodyProfile:
     # Real maps available for the body (planet/maps.py
     # dataset ids, "" = none): elevation, color.
     maps: tuple[str, str] = ("", "")
-
-    # Stagnant lids: crustal dichotomy strength and the share
-    # of lowlands.
-    dichotomy: tuple[float, float] = (1.0, 0.5)
 
     # How it looks from afar: geometric albedo (brightness at
     # full phase relative to a white disc; 0 = from the Bond
@@ -547,7 +525,6 @@ def parse_profile(
     star = section("star")
     surface = section("surface")
     terrain = section("terrain")
-    geology = section("geology")
     climate = section("climate")
 
     colors = surface.get("colors")
@@ -890,8 +867,6 @@ def parse_profile(
         colors=parsed_colors,
         terrain=terrain_values,
         atmosphere=atmosphere,
-        regime=choice(geology, "regime", REGIMES),
-        plate_count=int(number(geology, "plate_count", 0.0, default=0)),
         humidity=number(climate, "humidity", 0.0),
         band_count=band_count,
         band_colors=band_colors,
@@ -912,10 +887,6 @@ def parse_profile(
         pole=pole,
         tidally_locked=locked,
         maps=tuple(maps),
-        dichotomy=(
-            number(geology, "dichotomy", 0.0, default=1.0),
-            number(geology, "lowlands", 0.05, default=0.5),
-        ),
         geometric_albedo=number(physical, "geometric_albedo", 0.0, default=0.0),
         disc_color=tint(physical, "disc_color"),
         comet=_parse_comet(data.get("comet"), fail, number)
@@ -1152,8 +1123,6 @@ class BodyComponents:
     planet: PlanetComponent
     body: BodyComponent
     atmosphere: AtmosphereComponent | None
-    climate: ClimateComponent | None
-    tectonics: TectonicsComponent | None
     rings: RingsComponent | None = None
     orbit: OrbitComponent | None = None
 
@@ -1164,7 +1133,7 @@ class BodyComponents:
         return [
             component
             for component in (
-                self.planet, self.body, self.atmosphere, self.climate, self.tectonics, self.rings, self.orbit
+                self.planet, self.body, self.atmosphere, self.rings, self.orbit
             )
             if component is not None
         ]
@@ -1225,13 +1194,23 @@ def components_for(
         frost_point=profile.frost_point_c,
         life=profile.life,
         **crater_settings(profile),
-        **volcano_settings(profile),
         **erosion_settings(profile),
         bands=profile.band_count if bands else 0,
         **giant_settings(profile),
         **shape_fields(profile),
-        max_depth=detail_depth(profile.radius_m)
+        max_depth=detail_depth(profile.radius_m),
+        mean_temperature=profile.mean_temperature_c,
+        surface_pressure=(
+            profile.atmosphere.surface_pressure_bar
+            if profile.atmosphere is not None
+            else 0.0
+        ),
+        lapse_rate=profile.lapse_rate_k_per_km
     )
+
+    # The body as measured, wherever it has been mapped (and
+    # the maps are downloaded: tools/fetch_maps.py).
+    use_real_maps(planet, profile)
 
     body = BodyComponent(
         profile=profile.id,
@@ -1255,7 +1234,6 @@ def components_for(
         ),
         mean_temperature=profile.mean_temperature_c,
         oblateness=profile.oblateness,
-        greenhouse_depth=calibrated_greenhouse(profile, planet),
         lapse_rate=profile.lapse_rate_k_per_km,
         star_temperature=profile.star_temperature_k,
         geometric_albedo=profile.geometric_albedo or 2.0 * profile.bond_albedo / 3.0,
@@ -1263,36 +1241,6 @@ def components_for(
         comet_afrho=profile.comet[0] / 100.0 if profile.comet else 0.0,
         comet_gas=profile.comet[1] if profile.comet else 0.0
     )
-
-    climate = None
-
-    if profile.has_solid_surface:
-
-        climate = ClimateComponent(
-            axial_tilt=min(profile.axial_tilt_deg, 180.0 - profile.axial_tilt_deg),
-            temperature_offset=0.0,
-            humidity=profile.humidity
-        )
-
-    tectonics = None
-
-    if profile.regime == "plate_tectonics":
-
-        tectonics = TectonicsComponent(
-            seed=seed,
-            plate_count=max(2, profile.plate_count or 12)
-        )
-
-    elif profile.regime in DEFAULT_TIME_STEPS and profile.has_solid_surface:
-
-        tectonics = TectonicsComponent(
-            regime=profile.regime,
-            seed=seed,
-            time_step=DEFAULT_TIME_STEPS[profile.regime],
-            relief_scale=relief_scale(profile.surface_gravity),
-            dichotomy=profile.dichotomy[0],
-            lowlands=profile.dichotomy[1]
-        )
 
     rings = None
 
@@ -1313,9 +1261,7 @@ def components_for(
         orbit=orbit_for(profile),
         planet=planet,
         body=body,
-        atmosphere=atmosphere_for(profile),
-        climate=climate,
-        tectonics=tectonics
+        atmosphere=atmosphere_for(profile)
     )
 
 
@@ -1425,47 +1371,14 @@ def crater_settings(
     }
 
 
-def volcano_settings(
-    profile: BodyProfile
-) -> dict:
-    """
-    PlanetComponent volcano fields from the body:
-    - the tallest volcano scales with 1 / gravity
-    - large shields need sustained mantle plumes: plate and
-      resurfacing worlds, heat-pipe Io (low shields only by
-      its activity), and rocky stagnant lids big enough to
-      stay hot (Mars, not the Moon or Mercury, which get
-      small domes)
-    - icy bodies: none (cryovolcanism is not modeled)
-    """
-
-    if profile.palette == "bands" or not profile.has_solid_surface:
-        return {"volcanism": 0.0}
-
-    density = profile.mass_kg / (4.0 / 3.0 * math.pi * profile.radius_m ** 3)
-
-    rocky = density > 3_000.0
-
-    if not rocky or profile.regime in ("ice_shell", "none"):
-        volcanism = 0.0
-    elif profile.regime == "stagnant_lid":
-        volcanism = 1.0 if profile.radius_km > 3_000.0 else 0.15
-    else:
-        volcanism = 1.0
-
-    return {
-        "volcanism": volcanism,
-        "volcano_max_height": max_volcano_height(profile.surface_gravity),
-    }
-
-
 def erosion_settings(
     profile: BodyProfile
 ) -> dict:
     """
     PlanetComponent erosion fields from the body:
-    - rivers wherever a liquid falls as rain and flows to
-      seas (Earth's water, Titan's methane)
+    - gullies and valleys where rain runs off (Earth's
+      water, Titan's methane), less on Mars (its old valley
+      networks), little on Venus
     - dunes need air to move sand (~1 mbar and up) and dry
       ground: everywhere dry on rainless worlds (Mars),
       in deserts where it rains (Earth); Venus's sluggish
@@ -1479,10 +1392,9 @@ def erosion_settings(
 
     pressure = air.surface_pressure_bar if air is not None else 0.0
 
-    rivers = profile.liquid in ("water", "methane") and profile.humidity > 0.0
+    rain = profile.liquid in ("water", "methane") and profile.humidity > 0.0
 
     settings = {
-        "rivers": rivers,
         "dune_density": 0.0,
         "gullies": 0.0,
     }
@@ -1493,7 +1405,7 @@ def erosion_settings(
     # Gullies and valleys: where rain runs off (Earth, Titan);
     # Mars's ancient valley networks, from when water ran
     # (thin air today); Venus's slow weathering, a little.
-    if rivers:
+    if rain:
         settings["gullies"] = 1.0
     elif pressure < 0.1:
         settings["gullies"] = 0.5
@@ -1599,145 +1511,6 @@ def detail_depth(
     edge = math.pi * 0.5 * radius / 32.0
 
     return int(min(15, max(6, math.ceil(math.log2(max(edge / target, 1.0))))))
-
-
-def relief_scale(
-    surface_gravity: float
-) -> float:
-    """
-    Relief relative to Earth's: weaker gravity holds up
-    taller mountains and deeper basins (roughly ~1/sqrt(g)
-    for the planets; capped for small moons).
-    """
-
-    return float(min(max((9.81 / max(surface_gravity, 0.1)) ** 0.5, 0.5), 2.2))
-
-
-def climate_physics(
-    body: BodyComponent,
-    liquid: str,
-    humidity: float
-) -> dict:
-    """ClimateSettings physics fields for a body."""
-
-    return dict(
-        stellar_flux=SOLAR_CONSTANT * body.star_luminosity / max(body.orbit_distance_au, 1e-6) ** 2,
-        bond_albedo=body.bond_albedo,
-        greenhouse_depth=body.greenhouse_depth,
-        surface_pressure=body.surface_pressure_bar,
-        lapse_rate=body.lapse_rate / 1000.0,
-        eccentricity=body.eccentricity,
-        ocean=liquid == "water" and humidity > 0.0
-    )
-
-
-_GREENHOUSE_CACHE: dict[str, float] = {}
-
-
-def calibrated_greenhouse(
-    profile: BodyProfile,
-    planet: PlanetComponent | None = None
-) -> float:
-    """
-    Greenhouse optical depth at which the energy-balance
-    climate (planet/climate.py) reproduces the body's
-    observed global mean temperature. Starts from the
-    uniform-planet estimate and corrects it with a few
-    secant steps on a coarse grid (~0.1 s, cached).
-    Airless bodies: 0 (their temperatures follow from
-    sunlight alone).
-
-    planet: the body's planet component; its terrain (land,
-    heights) is used so mountains and continents count.
-    """
-
-    if profile.id in _GREENHOUSE_CACHE:
-        return _GREENHOUSE_CACHE[profile.id]
-
-    estimate = profile.greenhouse_depth_estimate
-
-    if estimate <= 0.0 or not profile.has_solid_surface:
-
-        _GREENHOUSE_CACHE[profile.id] = estimate
-
-        return estimate
-
-    # Deferred: planet.climate is heavier and imports nothing
-    # from here, but keep body loading light.
-    from planet.climate import ClimateModel, ClimateSettings
-
-    body = BodyComponent(
-        orbit_distance_au=profile.distance_au,
-        star_luminosity=profile.star_luminosity,
-        bond_albedo=profile.bond_albedo,
-        surface_pressure_bar=profile.atmosphere.surface_pressure_bar,
-        eccentricity=profile.eccentricity,
-        lapse_rate=profile.lapse_rate_k_per_km
-    )
-
-    target = profile.mean_temperature_c
-
-    elevation = None
-
-    def mean_for(tau):
-
-        settings = ClimateSettings(
-            axial_tilt=min(profile.axial_tilt_deg, 180.0 - profile.axial_tilt_deg),
-            resolution=16,
-            **{
-                **climate_physics(body, profile.liquid, profile.humidity),
-                "greenhouse_depth": tau,
-            }
-        )
-
-        model = ClimateModel(settings)
-
-        nonlocal elevation
-
-        if elevation is None:
-            elevation = _calibration_terrain(model.grid, planet, profile)
-
-        return float(model.compute(elevation).temperature.mean())
-
-    low, high = estimate, estimate * 1.3 + 0.05
-
-    f_low, f_high = mean_for(low) - target, mean_for(high) - target
-
-    tau = estimate
-
-    for _ in range(6):
-
-        if abs(f_high - f_low) < 1e-9:
-            break
-
-        tau = max(0.0, high - f_high * (high - low) / (f_high - f_low))
-
-        f = mean_for(tau) - target
-
-        if abs(f) < 0.2:
-            break
-
-        low, f_low, high, f_high = high, f_high, tau, f
-
-    _GREENHOUSE_CACHE[profile.id] = tau
-
-    return tau
-
-
-def _calibration_terrain(grid, planet, profile):
-    """Ground heights on the climate grid for calibration."""
-
-    import numpy as np
-
-    if planet is None:
-        return np.full(grid.cell_count, -1000.0 if profile.liquid == "water" else 100.0)
-
-    from planet.terrain import Terrain
-    from systems.planet_system import terrain_settings_for
-
-    terrain = Terrain(terrain_settings_for(planet))
-
-    return terrain.elevation(grid.directions, grid.cell_angle * planet.radius)
 
 
 def derived_frost_point(

@@ -78,14 +78,11 @@
       "color": [1.0, 1.0, 1.0]
     }
   },
-  "geology": {
-    "regime": "plate_tectonics",
-    "plate_count": 12
-  },
   "climate": {
     "humidity": 1.0
   },
   "maps": {
-    "elevation": "etopo1_5min"
+    "elevation": "etopo1_5min",
+    "color": "blue_marble_july"
   }
 }

@@ -8,7 +8,6 @@ from graphics.atmosphere import AtmosphereParameters, pack_atmosphere_block
 from graphics.clouds import MAP_SIZE, CloudParameters, cloud_cover_map
 from math3d import quaternion
 from planet.bodies import components_for, load_presets, parse_profile
-from planet.climate import ClimateModel, ClimateSettings, ClimateField
 from systems.render_system import _inverse_rotation
 
 
@@ -37,19 +36,9 @@ def test_map_matches_the_mean_coverage(coverage):
     assert area_mean(cover) == pytest.approx(coverage, abs=0.01)
 
 
-@pytest.fixture(scope="module")
-def ocean_climate():
+def test_clouds_follow_the_rain_belts():
 
-    model = ClimateModel(ClimateSettings(resolution=24))
-
-    state = model.compute(np.full(model.grid.cell_count, -1000.0))
-
-    return ClimateField.from_state(model.grid, state, 1)
-
-
-def test_clouds_follow_the_rain(ocean_climate):
-
-    cover = cloud_cover_map(0.62, ocean_climate)
+    cover = cloud_cover_map(0.62)
 
     assert area_mean(cover) == pytest.approx(0.62, abs=0.01)
 

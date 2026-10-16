@@ -63,11 +63,10 @@
     "aerosols": null,
     "ozone": false
   },
-  "geology": {
-    "regime": "ice_shell",
-    "plate_count": 0
-  },
   "climate": {
     "humidity": 0.0
+  },
+  "maps": {
+    "color": "triton_mosaic_600m"
   }
 }

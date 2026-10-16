@@ -80,12 +80,6 @@
       "color": [0.92, 0.95, 1.0]
     }
   },
-  "geology": {
-    "regime": "stagnant_lid",
-    "plate_count": 0,
-    "dichotomy": 1.7,
-    "lowlands": 0.36
-  },
   "climate": {
     "humidity": 0.0
   },

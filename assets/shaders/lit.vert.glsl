@@ -38,7 +38,7 @@ out vec2 vTexCoord;
 // Material UV tiling.
 uniform vec2 uUVScale;
 
-// Planet terrain: the tangent attribute carries tectonic
+// Planet terrain: the tangent attribute carries surface
 // data (planet/chunk.py), passed through untransformed.
 uniform float uTerrainShading;
 

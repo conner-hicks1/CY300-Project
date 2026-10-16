@@ -380,10 +380,6 @@ class RenderSystem:
         # (see _update_exposure), and when it last did.
         self._exposure_framebuffer: Framebuffer | None = None
 
-        # entity -> climate field (for where clouds form);
-        # set by the application.
-        self.climate_provider = lambda entity: None
-
         self._clock_start = time.perf_counter()
         self._exposure_time: float | None = None
 
@@ -1937,8 +1933,7 @@ class RenderSystem:
     ):
         """
         The planet's cloud layer (or None) and a key for it;
-        rebuilds the cover map when the climate or coverage
-        changes.
+        rebuilds the cover map when the coverage changes.
         """
 
         cloud_map = luts.cloud_map
@@ -1958,17 +1953,12 @@ class RenderSystem:
             speed=float(component.cloud_speed)
         )
 
-        climate = self.climate_provider(entity)
-
-        version = climate.version if climate is not None else None
-
         cloud_map.update(
-            (version, round(clouds.coverage, 3)),
-            lambda: cloud_cover_map(clouds.coverage, climate)
+            round(clouds.coverage, 3),
+            lambda: cloud_cover_map(clouds.coverage)
         )
 
         key = (
-            version,
             round(clouds.coverage, 3),
             round(clouds.altitude, 2),
             round(clouds.optical_depth, 2),

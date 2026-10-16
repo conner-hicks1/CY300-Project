@@ -56,11 +56,11 @@
     "detail_height": 300.0
   },
   "atmosphere": null,
-  "geology": {
-    "regime": "stagnant_lid",
-    "plate_count": 0
-  },
   "climate": {
     "humidity": 0.0
+  },
+  "maps": {
+    "elevation": "mercury_dem_665m",
+    "color": "mercury_color_665m"
   }
 }

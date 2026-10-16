@@ -2,16 +2,14 @@ from dataclasses import dataclass, replace
 
 import numpy as np
 
-from planet.climate import fallback_surface
 from planet.craters import CraterSettings, Craters
 from planet.dunes import DuneSettings, Dunes
 from planet.erosion import WAVELENGTHS as GULLY_WAVELENGTHS, gullies, relief_gradient
-from planet.hydrology import meander_offsets
 from core.disk_cache import cache_key
 
 from planet.maps import load_elevation_map
 from planet.shape import BodyShape, ShapeSettings
-from planet.volcanoes import VolcanoSettings, Volcanoes
+from planet.surface import surface_precipitation, surface_temperature
 
 # Crust brightness of fresh ejecta and rays (1 = the
 # brightest highlands).
@@ -72,15 +70,14 @@ class TerrainSettings:
     shape: ShapeSettings | None = None
 
     # Measured heights (planet/maps.py dataset id; "" =
-    # generated terrain): Mars, the Moon, Earth as they are.
-    # They replace continents, plates, mountains and
-    # volcanoes; hills and craters smaller than the map can
-    # show are added on top.
+    # generated terrain, for bodies never mapped): the body as
+    # it is; hills and craters smaller than the map can show
+    # are added on top.
     elevation_map: str = ""
 
     # Impact craters (planet/craters.py): rate relative to
-    # the Moon's (0 = none), surface age where no tectonic
-    # field gives one (Myr), erosion time (Myr; 0 = never),
+    # the Moon's (0 = none), surface age (Myr), erosion time
+    # (Myr; 0 = never),
     # smallest crater the air lets through and simple ->
     # complex transition (m), bright rays.
     crater_density: float = 0.0
@@ -90,16 +87,14 @@ class TerrainSettings:
     crater_transition: float = 15_000.0
     crater_rays: bool = False
 
-    # Volcanoes (planet/volcanoes.py, with a tectonic
-    # field): 0..1 how much the body builds them, and the
-    # tallest its gravity allows (m).
-    volcanism: float = 0.0
-    volcano_max_height: float = 10_000.0
+    # The climate the surface is shaded by (planet/surface.py):
+    # mean temperature (C), air pressure (bar), lapse rate
+    # (C per km).
+    mean_temperature: float = 15.0
+    surface_pressure: float = 1.0
+    lapse_rate: float = 6.5
 
-    # Erosion: rivers, lakes, deltas and glaciers from the
-    # climate (planet/hydrology.py; needs a liquid), and
-    # wind-blown dunes (planet/dunes.py).
-    rivers: bool = False
+    # Wind-blown dunes (planet/dunes.py).
 
     # Slopes carved into gullies and valleys by running water
     # (planet/erosion.py): 0 none (airless worlds), 1 rainy
@@ -153,14 +148,6 @@ _RANGE_FREQUENCY_SCALE = 5.0
 # well under 1) so peaks approach mountain_height.
 _RIDGE_GAIN = 1.6
 
-# With a tectonic field: the share of the noise mountains
-# added on top (the field already raises the belts), and the
-# coastline roughening.
-_TECTONIC_RIDGE_SHARE = 0.85
-_TECTONIC_COAST_FREQUENCY = 14.0
-_TECTONIC_COAST_NOISE = 450.0
-
-
 class Terrain:
 
     # =====================================================
@@ -176,22 +163,10 @@ class Terrain:
 
     def __init__(
         self,
-        settings: TerrainSettings,
-        field=None,
-        climate=None
+        settings: TerrainSettings
     ):
-        """
-        field: optional planet.tectonics.TectonicField. With
-            one, continents, ocean basins and mountain belts
-            come from the plate simulation; noise adds the
-            detail it cannot resolve (~80 km cells).
-        climate: optional planet.climate.ClimateField:
-            temperature and rainfall for the biomes (without
-            one: latitude and noise).
-        """
 
         self.settings = settings
-        self.climate = climate
 
         # Computed on first use (cache_key).
         self._cache_key = False
@@ -204,19 +179,7 @@ class Terrain:
             else None
         )
 
-        # A measured surface needs no simulated one.
-        self.field = field if self.elevation_map is None else None
-
-        field = self.field
-
         self.craters = None
-
-        # Rivers come with the climate they drain.
-        self.hydrology = (
-            getattr(climate, "hydrology", None)
-            if settings.rivers and settings.has_liquid and not settings.bands
-            else None
-        )
 
         self.dunes = None
 
@@ -233,28 +196,11 @@ class Terrain:
                     darkening=settings.dune_darkening
                 ),
                 settings.radius,
-                climate
+                self._rainfall if settings.has_liquid else None
             )
 
             if not self.dunes.enabled:
                 self.dunes = None
-
-        self.volcanoes = None
-
-        if field is not None and settings.volcanism > 0.0 and not settings.bands:
-
-            volcanoes = Volcanoes(
-                VolcanoSettings(
-                    seed=settings.seed,
-                    volcanism=settings.volcanism,
-                    max_height=settings.volcano_max_height
-                ),
-                settings.radius,
-                field
-            )
-
-            if volcanoes.enabled:
-                self.volcanoes = volcanoes
 
         if settings.crater_density > 0.0 and not settings.bands:
 
@@ -279,20 +225,6 @@ class Terrain:
                 settings.radius
             )
 
-        # The field's height range (culling bounds), and the
-        # coastline roughening (plate worlds only: elsewhere
-        # it would swamp low relief such as Europa's).
-        if field is not None:
-
-            self._field_max = float(field.elevation.max())
-            self._field_min = float(field.elevation.min())
-
-            self._coast_noise = (
-                _TECTONIC_COAST_NOISE
-                if getattr(field, "regime", "plate_tectonics") == "plate_tectonics"
-                else 0.0
-            )
-
         seed = settings.seed * 7919
 
         self._continents = Perlin(seed)
@@ -310,27 +242,13 @@ class Terrain:
 
         rim = self.craters.max_rim if self.craters is not None else 0.0
 
-        if self.volcanoes is not None:
-            rim += self.volcanoes.max_height
-
         if self.dunes is not None:
             rim += self.dunes.max_height
 
         if self.elevation_map is not None:
-            return self.elevation_map.max_height + self.settings.detail_height + rim
+            return self.elevation_map.max_height - self._map_base_bounds[0] + self.settings.detail_height + rim
 
-        if self.field is None:
-            return self.settings.max_elevation + rim
-
-        s = self.settings
-
-        return (
-            rim
-            + max(self._field_max, 0.0)
-            + _RIDGE_GAIN * s.mountain_height * _TECTONIC_RIDGE_SHARE
-            + s.detail_height
-            + self._coast_noise
-        )
+        return self.settings.max_elevation + rim
 
     @property
     def min_elevation(
@@ -346,34 +264,29 @@ class Terrain:
         depth = self.craters.max_depth if self.craters is not None else 0.0
 
         if self.elevation_map is not None:
-            return self.elevation_map.min_height - s.detail_height - depth
+            return self.elevation_map.min_height - self._map_base_bounds[1] - s.detail_height - depth
 
-        if self.field is None:
-            return s.min_elevation - depth
+        return s.min_elevation - depth
 
-        return min(self._field_min, 0.0) - s.detail_height - self._coast_noise - 200.0 - depth
+    @property
+    def _map_base_bounds(
+        self
+    ) -> tuple[float, float]:
+        """The shape heights a map measured from a sphere has taken out of it."""
+
+        if self.elevation_map is None or not self.elevation_map.dataset.above_sphere:
+            return 0.0, 0.0
+
+        return self.base_bounds
 
     @property
     def cache_key(
         self
-    ) -> str | None:
-        """
-        Identifies everything the terrain is built from
-        (settings, tectonic state, climate) for the disk
-        cache; None when an input has no key.
-        """
+    ) -> str:
+        """Identifies everything the terrain is built from (the disk cache)."""
 
-        if self._cache_key is not False:
-            return self._cache_key
-
-        field_key = getattr(self.field, "content_key", "") if self.field is not None else "-"
-        climate_key = getattr(self.climate, "content_key", "") if self.climate is not None else "-"
-
-        self._cache_key = (
-            cache_key("terrain", self.settings, field_key, climate_key)
-            if field_key and climate_key
-            else None
-        )
+        if self._cache_key is False:
+            self._cache_key = cache_key("terrain", self.settings)
 
         return self._cache_key
 
@@ -427,8 +340,8 @@ class Terrain:
         spacing: float = 0.0
     ) -> tuple[np.ndarray, np.ndarray]:
         """
-        (elevation m, surface water 0..1: rivers, lakes and
-        delta channels, or glaciers where frozen).
+        (elevation m, surface water 0..1: none without a
+        hydrology; the shader's standing-liquid slot).
         """
 
         elevation = self._shape(directions, spacing)
@@ -459,26 +372,8 @@ class Terrain:
             elevation = elevation + craters
 
         # -------------------------------------------------
-        # Erosion: rivers carve valleys, lakes fill basins,
-        # deltas build out to sea; wind piles up dunes.
+        # Wind piles up dunes.
         # -------------------------------------------------
-
-        if self.hydrology is not None:
-
-            # Meander noise only where water might be.
-            meander = np.zeros_like(directions)
-
-            near = self.hydrology.near_water(directions)
-
-            if np.any(near):
-
-                meander[near] = meander_offsets(
-                    directions[near],
-                    self.hydrology.grid.cell_angle,
-                    self.settings.seed
-                )
-
-            elevation, water = self.hydrology.apply(directions, elevation, spacing, meander)
 
         if dunes is not None:
             elevation = elevation + dunes * (1.0 - water)
@@ -488,11 +383,14 @@ class Terrain:
     def _shape(
         self,
         directions: np.ndarray,
-        spacing: float = 0.0
+        spacing: float = 0.0,
+        carve: bool = True
     ) -> np.ndarray:
         """
-        The surface before impacts and erosion: continents,
-        mountains, hills and volcanoes.
+        The surface before impacts and dunes: continents,
+        mountains and hills (or the measured map), carved by
+        running water unless `carve` is off (the larger forms,
+        for the carving's own gradient).
         """
 
         s = self.settings
@@ -514,44 +412,37 @@ class Terrain:
             )
 
         if self.elevation_map is not None:
-            return self._carve(self._measured(directions, octaves, spacing), directions, spacing, self._measured_relief)
+
+            measured = self._measured(directions, octaves, spacing)
+
+            return self._carve(measured, directions, spacing, self._measured_relief) if carve else measured
 
         # -------------------------------------------------
         # Continents and mountain placement
         # -------------------------------------------------
 
-        if self.field is not None:
+        continent_points = directions * s.continent_frequency
 
-            elevation, land, mask = self._tectonic_base(directions, octaves)
+        continents = fbm(
+            self._continents,
+            continent_points,
+            min(octaves(s.continent_frequency), 7)
+        ) + s.land_bias
 
-            ridge_share = _TECTONIC_RIDGE_SHARE
+        # 0 in the ocean, rising to 1 just inland.
+        land = _smoothstep(-0.02, 0.06, continents)
 
-        else:
+        elevation = continents * (2.0 * s.continent_height)
 
-            continent_points = directions * s.continent_frequency
-
-            continents = fbm(
-                self._continents,
-                continent_points,
-                min(octaves(s.continent_frequency), 7)
-            ) + s.land_bias
-
-            # 0 in the ocean, rising to 1 just inland.
-            land = _smoothstep(-0.02, 0.06, continents)
-
-            elevation = continents * (2.0 * s.continent_height)
-
-            mask = _smoothstep(
-                0.0,
-                0.35,
-                fbm(
-                    self._mountain_mask,
-                    directions * (s.continent_frequency * _RANGE_FREQUENCY_SCALE),
-                    3
-                ) + 0.1
-            ) * land
-
-            ridge_share = 1.0
+        mask = _smoothstep(
+            0.0,
+            0.35,
+            fbm(
+                self._mountain_mask,
+                directions * (s.continent_frequency * _RANGE_FREQUENCY_SCALE),
+                3
+            ) + 0.1
+        ) * land
 
         # -------------------------------------------------
         # Mountains
@@ -574,7 +465,6 @@ class Terrain:
                 ridges * ridges * _RIDGE_GAIN
                 * mask
                 * s.mountain_height
-                * ridge_share
             )
 
         # -------------------------------------------------
@@ -601,23 +491,8 @@ class Terrain:
         # Gullies and valleys cut by running water
         # -------------------------------------------------
 
-        elevation = self._carve(elevation, directions, spacing, self._relief_only, land)
-
-        # -------------------------------------------------
-        # Volcanoes where magma reaches the surface
-        # -------------------------------------------------
-
-        if self.volcanoes is not None:
-
-            # A volcano grows until its summit reaches gravity's
-            # limit, whatever it stands on (a hot spot on a
-            # mountain range adds less).
-            volcano = self.volcanoes.height(directions, spacing)
-
-            elevation += np.minimum(
-                volcano,
-                np.maximum(self.settings.volcano_max_height - elevation, 0.0)
-            )
+        if carve:
+            elevation = self._carve(elevation, directions, spacing, self._relief_only, land)
 
         return elevation
 
@@ -668,18 +543,7 @@ class Terrain:
     ) -> np.ndarray:
         """The relief before carving, at a coarse `spacing` (its gradient)."""
 
-        settings = self.settings
-
-        # (No carving inside, no volcanoes: the larger forms.)
-        saved, self.settings = settings, _without_gullies(settings)
-
-        volcanoes, self.volcanoes = self.volcanoes, None
-
-        try:
-            return self._shape(directions, spacing)
-        finally:
-            self.settings = saved
-            self.volcanoes = volcanoes
+        return self._shape(directions, spacing, carve=False)
 
     def _measured_relief(
         self,
@@ -711,6 +575,11 @@ class Terrain:
         # map: planet/maps.py.)
         elevation = self.elevation_map.sample(directions, spacing, s.radius)
 
+        # Measured from a sphere: the body's shape is already
+        # in the map (Ceres' flattening, Vesta's basins).
+        if self.elevation_map.dataset.above_sphere and self.shape is not None:
+            elevation = elevation - self.shape.height(directions)
+
         detail_frequency = s.mountain_frequency * _DETAIL_FREQUENCY_SCALE
 
         if s.detail_height > 0.0:
@@ -729,101 +598,29 @@ class Terrain:
         self,
         directions: np.ndarray
     ):
-        """
-        Surface age (Myr) per point: the tectonic field's
-        crust age, else the planet's.
-        """
+        """Surface age (Myr): how long craters have gathered."""
 
-        if self.field is None:
-            return self.settings.surface_age
-
-        return self.field.sample("age", directions)
-
-    def _tectonic_base(
-        self,
-        directions: np.ndarray,
-        octaves
-    ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-        """
-        (elevation, land 0..1, mountain mask) from the plate
-        simulation, roughened below its resolution.
-        """
-
-        field = self.field
-
-        elevation = field.sample("elevation", directions)
-
-        # Coastlines and shelves finer than the grid.
-        if self._coast_noise > 0.0:
-
-            elevation = elevation + fbm(
-                self._continents,
-                directions * _TECTONIC_COAST_FREQUENCY,
-                min(octaves(_TECTONIC_COAST_FREQUENCY), 6)
-            ) * self._coast_noise
-
-        # Peaks where crust was recently uplifted (young
-        # belts); rugged foothills wherever land stands high.
-        orogeny = field.sample("orogeny", directions)
-
-        if getattr(field, "regime", "plate_tectonics") != "plate_tectonics":
-
-            # Other regimes have no continents and no ranges
-            # beyond what they uplift themselves (Venus's
-            # tesserae, Io's blocks); craters roughen the
-            # rest.
-            land = np.ones_like(elevation)
-
-            return elevation, land, _smoothstep(200.0, 2_000.0, orogeny)
-
-        land = _smoothstep(-100.0, 200.0, elevation)
-
-        # Ranges along the belts, and on the highest plateaus
-        # (not on all land: most continental crust is low;
-        # checked against ETOPO1 with tools/compare_terrain.py).
-        mask = np.maximum(
-            _smoothstep(400.0, 2_500.0, orogeny),
-            _smoothstep(1_500.0, 4_000.0, elevation)
-        ) * land
-
-        return elevation, land, mask
+        return self.settings.surface_age
 
     def tectonic_data(
         self,
         directions: np.ndarray
     ) -> np.ndarray:
         """
-        (n, 4) per-vertex data for the tectonic views:
-        plate index, crust age / 400 Myr, continental
-        fraction, boundary closing speed (cm/yr). Plate -1
-        without a simulation.
+        (n, 4) per-vertex surface data (the tangent slot): x 0
+        (a crust value follows), z crust brightness 0 dark ..
+        1 bright (the mineral palette; past 1 on fresh crater
+        rays). Bare ground is mottled at every scale (from
+        ~500 km patches down to the vertex spacing).
         """
 
         data = np.zeros((len(directions), 4), dtype=np.float32)
 
-        field = self.field
-
-        if field is None:
-
-            data[:, 0] = -1.0
-
-            return data
-
-        data[:, 0] = field.plate_at(directions)
-        data[:, 1] = field.sample("age", directions) / getattr(field, "age_scale", 400.0)
-        data[:, 2] = field.sample("continental", directions)
-        data[:, 3] = field.sample("activity", directions)
-
-        # Mottled ground on the other regimes' bare worlds:
-        # regolith and rock vary in brightness at every scale
-        # (from ~500 km patches down to the vertex spacing).
-        if getattr(field, "regime", "plate_tectonics") != "plate_tectonics":
-
-            data[:, 2] = np.clip(
-                data[:, 2] + 0.12 * fbm(self._mottle, directions * (self.settings.radius / 500_000.0), 6),
-                0.0,
-                None
-            )
+        data[:, 2] = np.clip(
+            0.5 + 0.12 * fbm(self._mottle, directions * (self.settings.radius / 500_000.0), 6),
+            0.0,
+            None
+        )
 
         # Dune fields: often darker sand (Mars's basalt,
         # Titan's organics), visible even from orbit.
@@ -834,8 +631,7 @@ class Terrain:
             data[:, 2] = np.clip(data[:, 2] - self.settings.dune_darkening * cover, 0.0, None)
 
         # Young craters' bright ejecta and rays lighten the
-        # crust (the mineral palette colors by it), past the
-        # brightest highlands (fresh, unweathered rock).
+        # crust, past the brightest highlands (fresh rock).
         if self.craters is not None and self.settings.crater_rays:
 
             data[:, 2] = np.clip(
@@ -861,16 +657,28 @@ class Terrain:
     ) -> tuple[np.ndarray, np.ndarray]:
         """
         (annual mean temperature C at each point's own
-        height, precipitation mm / year).
+        height, precipitation mm / year): planet/surface.py.
         """
 
         if self.settings.bands:
             return self._bands(directions)
 
-        if self.climate is not None:
-            return self.climate.surface(directions, elevation)
+        s = self.settings
 
-        return fallback_surface(directions, elevation, self.moisture(directions))
+        temperature = surface_temperature(directions, elevation, s.mean_temperature, s.surface_pressure, s.lapse_rate)
+
+        return temperature, self._rainfall(directions)
+
+    def _rainfall(
+        self,
+        directions: np.ndarray
+    ) -> np.ndarray:
+        """mm / year: rain belts, patchy (none without a liquid to rain)."""
+
+        if not self.settings.has_liquid:
+            return np.zeros(len(directions))
+
+        return surface_precipitation(directions, self.moisture(directions))
 
     def _bands(
         self,
@@ -906,13 +714,6 @@ class Terrain:
             0.0,
             1.0
         )
-
-
-def _without_gullies(
-    settings: TerrainSettings
-) -> TerrainSettings:
-
-    return replace(settings, gullies=0.0)
 
 
 def _smoothstep(

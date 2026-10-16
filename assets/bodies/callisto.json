@@ -55,11 +55,10 @@
     "detail_height": 250.0
   },
   "atmosphere": null,
-  "geology": {
-    "regime": "stagnant_lid",
-    "plate_count": 0
-  },
   "climate": {
     "humidity": 0.0
+  },
+  "maps": {
+    "color": "callisto_mosaic_1km"
   }
 }

@@ -23,8 +23,8 @@ import numpy as np
 #   * Sizes follow a power law, N(>D) ~ D^-2 (each halving
 #     of size brings 4x as many craters), so every octave
 #     fills the same fraction of its cells.
-#   * How many there are follows the surface's age (from
-#     the tectonic regime): the lunar cratering chronology
+#   * How many there are follows the surface's age (each
+#     body's own): the lunar cratering chronology
 #     (Neukum), with the late heavy bombardment before
 #     ~3.8 billion years ago. The Moon's highlands are
 #     saturated, its maria much sparser, Europa and Io
@@ -105,7 +105,7 @@ class CraterSettings:
     # Impact rate relative to the Moon's (0 = no craters).
     density: float = 1.0
 
-    # Surface age (Myr) where no tectonic field gives one.
+    # Surface age (Myr): how long craters have gathered.
     surface_age: float = 4_000.0
 
     # Craters older than about this are erased (weather,

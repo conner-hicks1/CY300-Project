@@ -59,12 +59,6 @@
     "detail_height": 300.0
   },
   "atmosphere": null,
-  "geology": {
-    "regime": "stagnant_lid",
-    "plate_count": 0,
-    "dichotomy": 0.75,
-    "lowlands": 0.6
-  },
   "climate": {
     "humidity": 0.0
   },

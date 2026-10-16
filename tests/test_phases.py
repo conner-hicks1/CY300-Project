@@ -1,11 +1,8 @@
 import math
 
-import numpy as np
 import pytest
 
-from ecs.components import ClimateComponent, PlanetComponent
 from planet.bodies import components_for, derived_frost_point, load_presets
-from planet.climate import ClimateField, ClimateModel, ClimateSettings
 from planet.phases import (
     SUBSTANCES,
     boiling_point,
@@ -13,8 +10,6 @@ from planet.phases import (
     liquid_range,
     vapor_pressure
 )
-from systems.climate_system import climate_settings_for
-from systems.planet_system import terrain_settings_for
 
 
 WATER = SUBSTANCES["water"]
@@ -123,78 +118,3 @@ def test_frost_from_composition(presets):
     assert frost == pytest.approx(-127.0, abs=4.0)
 
     assert derived_frost_point("none", "none", None) < -500.0
-
-
-# =========================================================
-# Climate
-# =========================================================
-
-def ocean_world(**settings):
-
-    model = ClimateModel(ClimateSettings(resolution=16, **settings))
-
-    state = model.compute(np.full(model.grid.cell_count, -1000.0))
-
-    return model, state
-
-
-def test_earth_seas_are_liquid_with_polar_ice():
-
-    _, state = ocean_world()
-
-    assert state.liquid_state == "partly frozen"
-    assert 0.0 < state.frozen_fraction < 0.3
-
-
-def test_seas_boil_away_close_to_the_star():
-
-    _, state = ocean_world(stellar_flux=1361.0 * 4.0)
-
-    assert state.liquid_state == "boiled away"
-
-
-def test_seas_freeze_far_from_the_star():
-
-    _, state = ocean_world(stellar_flux=1361.0 / 9.0)
-
-    assert state.liquid_state == "frozen"
-    assert state.frozen_fraction > 0.98
-
-
-def test_boiled_seas_leave_dry_basins():
-
-    model, state = ocean_world(stellar_flux=1361.0 * 4.0)
-
-    field = ClimateField.from_state(model.grid, state, 1)
-
-    assert field.liquid_boiled
-
-    planet = PlanetComponent()
-
-    assert terrain_settings_for(planet).has_liquid
-    assert not terrain_settings_for(planet, field).has_liquid
-
-
-def test_climate_settings_carry_the_liquid_range(presets):
-
-    titan = components_for(presets["titan"])
-
-    settings = climate_settings_for(titan.climate, titan.planet, titan.body)
-
-    assert settings.liquid_freezing == pytest.approx(-200.0)
-    assert settings.liquid_boiling == pytest.approx(-155.0, abs=3.0)
-
-    # Water on a dry body at Mars's pressure: ice only.
-    planet = PlanetComponent(liquid="water")
-
-    mars = components_for(presets["mars"])
-
-    settings = climate_settings_for(ClimateComponent(), planet, mars.body)
-
-    assert math.isinf(settings.liquid_freezing)
-    assert not settings.ocean
-
-    # No liquid, no phase range.
-    settings = climate_settings_for(ClimateComponent(), PlanetComponent(liquid="none"))
-
-    assert settings.liquid_boiling is None

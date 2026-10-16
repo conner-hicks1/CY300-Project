@@ -55,11 +55,10 @@
     "detail_height": 150.0
   },
   "atmosphere": null,
-  "geology": {
-    "regime": "heat_pipe",
-    "plate_count": 0
-  },
   "climate": {
     "humidity": 0.0
+  },
+  "maps": {
+    "color": "io_mosaic_1km"
   }
 }

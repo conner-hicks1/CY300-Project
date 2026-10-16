@@ -7,7 +7,6 @@ from ecs.components import (
     BodyComponent,
     CameraComponent,
     CameraControllerComponent,
-    ClimateComponent,
     ClockComponent,
     OrbitComponent,
     StarComponent,
@@ -20,7 +19,6 @@ from ecs.components import (
     PointLightComponent,
     RotatorComponent,
     SpotLightComponent,
-    TectonicsComponent,
     TransformComponent
 )
 from ecs.entity import Entity
@@ -586,7 +584,7 @@ def _edit_planet(
     inspector.slider(component, "crater_density", "Impact rate", 0.0, 4.0, "%.2f x Moon")
     imgui.set_item_tooltip("0 = no craters. How many show also depends on the surface's age.")
     inspector.slider(component, "surface_age", "Surface age (Myr)", 0.0, 4_500.0, "%.0f")
-    imgui.set_item_tooltip("Used where no tectonic simulation gives the crust's age.")
+    imgui.set_item_tooltip("How long craters have gathered (older: more of them).")
     inspector.slider(component, "crater_erosion", "Erosion (Myr)", 0.0, 5_000.0, "%.0f")
     imgui.set_item_tooltip("Craters older than about this are worn away (0 = never).")
     inspector.slider(component, "crater_min_diameter", "Smallest (m)", 0.0, 5_000.0, "%.0f")
@@ -595,20 +593,8 @@ def _edit_planet(
     imgui.set_item_tooltip("Larger craters have flat floors and central peaks.")
     inspector.checkbox(component, "crater_rays", "Bright rays")
 
-    imgui.separator_text("Volcanoes")
-
-    inspector.slider(component, "volcanism", "Volcanism", 0.0, 1.0, "%.2f")
-    imgui.set_item_tooltip(
-        "How much the body builds volcanoes where its tectonics bring magma up "
-        "(large shields need 0.5 or more). Needs a tectonic simulation."
-    )
-    inspector.slider(component, "volcano_max_height", "Tallest (m)", 1_000.0, 30_000.0, "%.0f")
-    imgui.set_item_tooltip("Gravity's limit: ~10 km on Earth, ~25 km on Mars.")
-
     imgui.separator_text("Erosion")
 
-    inspector.checkbox(component, "rivers", "Rivers, lakes, glaciers")
-    imgui.set_item_tooltip("Drain the climate's rain to the seas (needs a liquid and a climate).")
     inspector.slider(component, "dune_density", "Dune fields", 0.0, 2.0, "%.2f")
     imgui.set_item_tooltip("How common wind-blown dune fields are on dry ground (0 = none).")
     inspector.slider(component, "dune_amplitude", "Dune height (m)", 5.0, 300.0, "%.0f")
@@ -727,7 +713,7 @@ def _edit_atmosphere(
     imgui.separator_text("Clouds")
 
     inspector.slider(component, "cloud_coverage", "Coverage", 0.0, 1.0, "%.2f")
-    imgui.set_item_tooltip("Mean share of the sky covered (0 = none). Where: from the climate's rain.")
+    imgui.set_item_tooltip("Mean share of the sky covered (0 = none). Where: the rain belts.")
     inspector.slider(component, "cloud_altitude", "Altitude (m)", 500.0, 60_000.0, "%.0f", logarithmic=True)
     inspector.slider(component, "cloud_optical_depth", "Thickness (tau)", 0.1, 60.0, "%.1f", logarithmic=True)
     inspector.slider(component, "cloud_scale", "Feature size (m)", 20_000.0, 3_000_000.0, "%.0f", logarithmic=True)
@@ -748,32 +734,6 @@ def _edit_atmosphere(
         "Coefficients per megameter (1e-6 / m).\n"
         "Defaults: Earth."
     )
-
-
-def _edit_tectonics(
-    inspector: _Inspector,
-    component: TectonicsComponent
-):
-
-    imgui.text(f"Simulated: {component.simulated_time:,.0f} million years")
-
-    imgui.text_disabled(
-        "Play, step and settings: Tectonics panel.\n"
-        "Saved scenes re-simulate to this time\n"
-        "on load (from the seed)."
-    )
-
-
-def _edit_climate(
-    inspector: _Inspector,
-    component: ClimateComponent
-):
-
-    inspector.slider(component, "temperature_offset", "Temperature (C)", -25.0, 25.0, "%+.1f")
-    inspector.slider(component, "humidity", "Humidity", 0.1, 4.0, "%.2f", logarithmic=True)
-    inspector.slider(component, "axial_tilt", "Axial tilt", 0.0, 60.0, "%.1f")
-
-    imgui.text_disabled("Summary and views: Climate panel.")
 
 
 def _edit_body(
@@ -971,8 +931,6 @@ _COMPONENT_EDITORS = {
     PlanetComponent: _edit_planet,
     RingsComponent: _edit_rings,
     AtmosphereComponent: _edit_atmosphere,
-    TectonicsComponent: _edit_tectonics,
-    ClimateComponent: _edit_climate,
     BodyComponent: _edit_body,
     DirectionalLightComponent: _edit_directional_light,
     PointLightComponent: _edit_point_light,

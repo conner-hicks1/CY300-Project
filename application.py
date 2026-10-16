@@ -42,13 +42,11 @@ from ecs.components import (
     AtmosphereComponent,
     BodyComponent,
     CameraComponent,
-    ClimateComponent,
     ClockComponent,
     OrbitComponent,
     PlanetComponent,
     StarComponent,
     RingsComponent,
-    TectonicsComponent,
     CameraControllerComponent,
     DirectionalLightComponent,
     HierarchyComponent,
@@ -57,9 +55,7 @@ from ecs.components import (
 )
 from ecs.entity import Entity
 
-from graphics.compute import GpuQueue, compute_supported
 from graphics.framebuffer import Framebuffer
-from graphics.gpu_simulation import GpuSimulation
 from graphics.gpu_timer import GpuTimer
 from graphics.material import Material
 from graphics.mesh_factory import MeshFactory
@@ -73,7 +69,6 @@ from math3d import quaternion
 from math3d.transform import Transform
 
 from planet import solar
-from planet.acceleration import set_accelerator
 from planet.bodies import (
     ProfileError,
     components_for,
@@ -82,12 +77,9 @@ from planet.bodies import (
     star_color,
     sun_intensity,
     system_members,
-    use_real_maps
 )
-from planet.maps import DATASETS
 from planet.orbits import DAY, seconds_since_j2000
 from planet.spawn import find_spawn
-from planet.tectonics import TectonicField, simulation_for
 from planet.terrain import Terrain
 
 from resources.resources import Resources
@@ -96,8 +88,6 @@ from systems.camera_controller_system import (
     CameraControllerSystem
 )
 from systems.planet_system import PlanetSystem, planet_extent, terrain_settings_for
-from systems.tectonics_system import TectonicsSystem, tectonic_settings_for
-from systems.climate_system import ClimateSystem, climate_settings_for, compute_climate
 from systems.orbit_system import OrbitSystem, body_states
 from systems.render_system import RenderSystem
 from systems.rotator_system import RotatorSystem
@@ -110,8 +100,6 @@ from scene.scene_serializer import (
 )
 
 from editor.planet_panel import PlanetPanel, sun_orientation
-from editor.tectonics_panel import TectonicsPanel
-from editor.climate_panel import ClimatePanel
 from editor.scene_editor import SceneEditor
 
 from ui.debug_panel import DebugContext, DebugPanel
@@ -144,7 +132,6 @@ class Application:
 
     # Main-thread time per frame for the simulations' GPU
     # work (each slice is one small dispatch).
-    GPU_BUDGET_SECONDS = 0.003
 
     # =====================================================
     # Construction
@@ -197,17 +184,7 @@ class Application:
         # results are handed back in update().
         self.jobs: JobSystem | None = None
 
-        # GPU work handed to the GL thread by simulation
-        # jobs, and the compute kernels behind it (None
-        # without compute shaders).
-        self.gpu_queue: GpuQueue | None = None
-        self.gpu_simulation: GpuSimulation | None = None
-
         self.planet_system: PlanetSystem | None = None
-        self.tectonics_system: TectonicsSystem | None = None
-        self.tectonics_panel: TectonicsPanel | None = None
-        self.climate_system: ClimateSystem | None = None
-        self.climate_panel: ClimatePanel | None = None
         self.orbit_system: OrbitSystem | None = None
 
         # -------------------------------------------------
@@ -288,10 +265,6 @@ class Application:
 
         self.renderer = Renderer()
 
-        # Simulations' heavy steps on the GPU (compute
-        # shaders, OpenGL 4.3); the NumPy versions otherwise.
-        self._start_gpu_simulation()
-
         if GpuTimer.is_supported():
 
             self.gpu_timer = GpuTimer()
@@ -343,8 +316,7 @@ class Application:
 
         self.jobs = JobSystem()
 
-        # Simulation states, climates and terrain chunks kept
-        # on disk between runs (core/disk_cache.py), oldest
+        # Terrain chunks kept on disk between runs (core/disk_cache.py), oldest
         # pruned in the background.
         if not os.environ.get("ENGINE_NO_DISK_CACHE"):
 
@@ -374,18 +346,7 @@ class Application:
 
         self._load_resources()
 
-        self.tectonics_system = TectonicsSystem(
-            self.jobs
-        )
-
-        self.climate_system = ClimateSystem(
-            self.jobs,
-            tectonic_field=self.tectonics_system.field
-        )
-
-        # Clouds form where the climate rains; the sun's size
-        # follows each body's distance from it.
-        self.render_system.climate_provider = self.climate_system.field
+        # The sun's size follows each body's distance from it.
         self.render_system.star_provider = self.orbit_system.star_distance
         self.render_system.star_locator = self.orbit_system.star_position
         self.render_system.scatter_provider = lambda: self.planet_system.scatter.frame
@@ -393,9 +354,7 @@ class Application:
         self.planet_system = PlanetSystem(
             self.resources,
             self.jobs,
-            self.handles["planet_material"],
-            field_provider=self.tectonics_system.field,
-            climate_provider=self.climate_system.field
+            self.handles["planet_material"]
         )
 
         self.serializer = SceneSerializer(
@@ -418,16 +377,8 @@ class Application:
             load_model_material=self._load_model_material_handle,
             panels=PanelRegistry(),
             body_presets={
-                **{
-                    group: [(profile.id, profile.name) for profile in members]
-                    for group, members in preset_groups(self.body_presets).items()
-                },
-                # Bodies whose real maps are downloaded.
-                "Real maps": [
-                    (f"{profile.id}@real", f"{profile.name} (measured)")
-                    for profile in self.body_presets.values()
-                    if any(DATASETS[d].available for d in profile.maps if d)
-                ],
+                group: [(profile.id, profile.name) for profile in members]
+                for group, members in preset_groups(self.body_presets).items()
             },
             populate_body_scene=self._populate_body_scene
         )
@@ -446,18 +397,6 @@ class Application:
                 profile.id: profile.maps
                 for profile in self.body_presets.values()
             }
-        )
-
-        self.tectonics_panel = TectonicsPanel(
-            self.editor,
-            self.tectonics_system,
-            self.planet_system
-        )
-
-        self.climate_panel = ClimatePanel(
-            self.editor,
-            self.climate_system,
-            self.planet_system
         )
 
         self.debug_panel = DebugPanel(
@@ -480,43 +419,6 @@ class Application:
         Logger.info(
             "[Application] Initialization complete."
         )
-
-    def _start_gpu_simulation(self):
-
-        if os.environ.get("ENGINE_NO_GPU_SIMULATION"):
-
-            Logger.info("[Application] GPU simulation switched off (ENGINE_NO_GPU_SIMULATION).")
-
-            return
-
-        if not compute_supported():
-
-            Logger.info("[Application] No compute shaders; simulations run on the CPU.")
-
-            return
-
-        try:
-
-            queue = GpuQueue()
-
-            simulation = GpuSimulation(queue)
-
-        except Exception as error:
-
-            Logger.error(
-                "[Application] GPU simulation unavailable (%s: %s); using the CPU.",
-                type(error).__name__,
-                error
-            )
-
-            return
-
-        self.gpu_queue = queue
-        self.gpu_simulation = simulation
-
-        set_accelerator(simulation)
-
-        Logger.info("[Application] Simulations' heavy steps run on the GPU.")
 
     # =====================================================
     # Initial Scene
@@ -790,8 +692,8 @@ class Application:
     ):
         """
         Turn an existing planet into another body: its
-        planet, body, atmosphere, climate and tectonics
-        components are replaced by the profile's (the
+        planet, body and atmosphere components are
+        replaced by the profile's (the
         transform stays). The camera backs off to show the
         whole new planet. One undo step.
         """
@@ -804,8 +706,6 @@ class Application:
             PlanetComponent,
             BodyComponent,
             AtmosphereComponent,
-            ClimateComponent,
-            TectonicsComponent,
             RingsComponent,
             OrbitComponent,
         ):
@@ -1002,14 +902,11 @@ class Application:
 
     def _add_system_members(
         self,
-        body_id: str,
-        real: bool = False
+        body_id: str
     ):
         """
         Add the other bodies of a body's planetary system
-        (OrbitSystem places them; their simulations run in
-        the background). real: with their real maps where
-        downloaded.
+        (OrbitSystem places them).
         """
 
         for member_id in system_members(self.body_presets, body_id):
@@ -1017,9 +914,6 @@ class Application:
             member = self.body_presets[member_id]
 
             parts = components_for(member)
-
-            if real:
-                use_real_maps(parts.planet, member)
 
             self._create_entity(
                 member.name,
@@ -1074,7 +968,7 @@ class Application:
         self,
         scene: Scene
     ):
-        """Earth (with tectonics, climate and atmosphere)."""
+        """Earth."""
 
         self._populate_body_scene(scene, self.DEMO_BODY)
 
@@ -1094,10 +988,8 @@ class Application:
         assume +Y is up there); the camera stands above it.
         Gas giants: the camera starts in orbit.
 
-        Tectonics and climate, when the body has them, are
-        computed up front (~1 s) so the spawn point is
-        chosen on the real terrain and the first frame
-        already shows it.
+        Bodies are as measured, wherever their maps are
+        downloaded (tools/fetch_maps.py).
         """
 
         engine_assert(
@@ -1105,10 +997,8 @@ class Application:
             "The planet builder fills the application's scene."
         )
 
-        # "<id>@real": the body as measured (planet/maps.py).
-        body_id, _, variant = body_id.partition("@")
-
-        real = variant == "real"
+        # (Old "<id>@real" names: every body is real now.)
+        body_id = body_id.partition("@")[0]
 
         profile = self.body_presets[body_id]
 
@@ -1116,38 +1006,9 @@ class Application:
 
         planet = parts.planet
 
-        if real:
-            use_real_maps(planet, profile)
-
         terrain_settings = terrain_settings_for(planet)
 
-        # -------------------------------------------------
-        # Simulations
-        # -------------------------------------------------
-
-        initial = None
-        tectonic_field = None
-
-        if parts.tectonics is not None:
-
-            simulation = simulation_for(
-                tectonic_settings_for(planet, parts.tectonics)
-            )
-
-            initial = simulation.initial_state()
-
-            tectonic_field = TectonicField.from_state(simulation.grid, initial, version=0)
-
-        climate_field = None
-
-        if parts.climate is not None:
-
-            climate_field, _ = compute_climate(
-                climate_settings_for(parts.climate, planet, parts.body),
-                Terrain(terrain_settings, tectonic_field)
-            )
-
-        terrain = Terrain(terrain_settings, tectonic_field, climate_field)
+        terrain = Terrain(terrain_settings)
 
         # -------------------------------------------------
         # Where to stand
@@ -1303,28 +1164,14 @@ class Application:
         )
 
         # Its moons, or its planet and sibling moons, in the
-        # sky; their geology and climate stream in later.
-        self._add_system_members(body_id, real)
+        # sky.
+        self._add_system_members(body_id)
 
         # Mid-morning where the camera stands; the system
         # placed around this body.
         clock.time = self._time_of_day(planet_entity, spawn_direction, clock.time, 10.5)
 
         self.orbit_system.anchor_to(scene, planet_entity)
-
-        if parts.tectonics is not None:
-            self.tectonics_system.prime(planet_entity, planet, parts.tectonics, initial)
-
-        if parts.climate is not None:
-
-            self.climate_system.prime(
-                planet_entity,
-                planet,
-                parts.climate,
-                climate_field,
-                self.tectonics_system.field(planet_entity),
-                parts.body
-            )
 
     # =====================================================
     # Main Loop
@@ -1577,15 +1424,6 @@ class Application:
                 self.JOB_BUDGET_SECONDS
             )
 
-        # GPU work the simulation threads are waiting on.
-        if self.gpu_queue is not None:
-
-            with profiler.scope("GPU simulation", gpu=True):
-
-                self.gpu_queue.process(
-                    self.GPU_BUDGET_SECONDS
-                )
-
         # -------------------------------------------------
         # Camera
         # -------------------------------------------------
@@ -1642,18 +1480,6 @@ class Application:
         self.render_system.suppress_haze = (
             self.planet_system.view_mode != 0
         )
-
-        with profiler.scope("Tectonics"):
-
-            self.tectonics_system.update(
-                self.scene
-            )
-
-        with profiler.scope("Climate"):
-
-            self.climate_system.update(
-                self.scene
-            )
 
         with profiler.scope("Planet"):
 
@@ -1755,10 +1581,6 @@ class Application:
                     self.timer.delta_time,
                     self.timer.fps
                 )
-
-                self.tectonics_panel.draw()
-
-                self.climate_panel.draw()
 
                 self.debug_panel.draw(
                     DebugContext(
@@ -2066,18 +1888,6 @@ class Application:
         # Systems
         # =================================================
 
-        if self.climate_system is not None:
-
-            self.climate_system.shutdown()
-
-            self.climate_system = None
-
-        if self.tectonics_system is not None:
-
-            self.tectonics_system.shutdown()
-
-            self.tectonics_system = None
-
         # Chunk meshes live in the renderer's geometry pool.
         if self.planet_system is not None:
 
@@ -2095,14 +1905,6 @@ class Application:
         self.transform_system = None
         self.rotator_system = None
 
-        # Simulation threads waiting on the GPU give up (it
-        # is going away) instead of hanging.
-        if self.gpu_queue is not None:
-
-            self.gpu_queue.shutdown()
-
-            set_accelerator(None)
-
         if self.jobs is not None:
 
             self.jobs.shutdown()
@@ -2116,21 +1918,6 @@ class Application:
             Logger.info("[Cache] %d hit(s), %d miss(es) this run.", cache.hits, cache.misses)
 
             set_disk_cache(None)
-
-        if self.gpu_simulation is not None:
-
-            for name, (calls, seconds) in self.gpu_simulation.timings.items():
-
-                Logger.info(
-                    "[GPU] %s: %d call(s), %.2f s total (including frames waited).",
-                    name,
-                    calls,
-                    seconds
-                )
-
-            self.gpu_simulation.delete()
-
-            self.gpu_simulation = None
 
         self.handles.clear()
 

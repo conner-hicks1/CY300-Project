@@ -109,11 +109,10 @@
       }
     ]
   },
-  "geology": {
-    "regime": "episodic_resurfacing",
-    "plate_count": 0
-  },
   "climate": {
     "humidity": 0.0
+  },
+  "maps": {
+    "elevation": "venus_magellan_4641m"
   }
 }

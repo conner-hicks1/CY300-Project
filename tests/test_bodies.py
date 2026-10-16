@@ -151,8 +151,8 @@ def test_earth_components_match_the_earth_defaults(presets):
 
     assert parts.planet.liquid == "water"
     assert parts.planet.palette == "biomes"
-    assert parts.tectonics is not None
-    assert parts.climate is not None
+    assert parts.planet.mean_temperature == pytest.approx(presets["earth"].mean_temperature_c)
+    assert parts.planet.surface_pressure == pytest.approx(1.0, abs=0.02)
 
     # The derived atmosphere is Earth's (Hillaire's defaults).
     default = AtmosphereComponent()
@@ -169,7 +169,6 @@ def test_airless_moon(presets):
     parts = components_for(presets["moon"])
 
     assert parts.atmosphere is None
-    assert parts.tectonics.regime == "stagnant_lid"
     assert parts.planet.liquid == "none"
     assert parts.planet.palette == "mineral"
     assert parts.planet.radius == pytest.approx(1_737_400.0)
@@ -212,7 +211,6 @@ def test_gas_giant(presets):
 
     assert parts.planet.palette == "bands"
     assert parts.planet.bands > 0
-    assert parts.climate is None
     assert parts.body.kind == "gas_giant"
     assert parts.body.oblateness > 0.06
 
@@ -333,26 +331,26 @@ def test_lapse_rates(presets):
     assert presets["moon"].lapse_rate_k_per_km == 0.0
 
 
-@pytest.mark.parametrize("body_id", ["venus", "earth", "mars", "titan"])
-def test_calibrated_climate_reproduces_the_mean(presets, body_id):
+@pytest.mark.parametrize("body_id", ["venus", "earth", "mars", "titan", "moon"])
+def test_surface_temperature_averages_the_measured_mean(presets, body_id):
 
-    from systems.climate_system import climate_settings_for, compute_climate
+    from planet.surface import surface_temperature
 
     parts = components_for(presets[body_id])
 
-    field, _ = compute_climate(
-        climate_settings_for(parts.climate, parts.planet, parts.body),
-        Terrain(terrain_settings_for(parts.planet))
+    # Uniform directions over the sphere, at sea level.
+    directions = np.random.default_rng(1).normal(size=(200_000, 3))
+    directions /= np.linalg.norm(directions, axis=1, keepdims=True)
+
+    temperature = surface_temperature(
+        directions,
+        np.zeros(len(directions)),
+        parts.planet.mean_temperature,
+        parts.planet.surface_pressure,
+        parts.planet.lapse_rate
     )
 
-    assert field.global_mean_temperature == pytest.approx(presets[body_id].mean_temperature_c, abs=3.0)
-
-
-def test_greenhouse_depths(presets):
-
-    assert components_for(presets["venus"]).body.greenhouse_depth > 50.0
-    assert 0.5 < components_for(presets["earth"]).body.greenhouse_depth < 2.0
-    assert components_for(presets["moon"]).body.greenhouse_depth == 0.0
+    assert temperature.mean() == pytest.approx(presets[body_id].mean_temperature_c, abs=0.5)
 
 
 def test_star_light():

@@ -15,11 +15,11 @@ from imgui_bundle import imgui
 #   * drives the View menu,
 #   * tells EditorLayout where each panel docks by default.
 #
-# Adding a tool window (e.g. a tectonics or climate panel)
+# Adding a tool window (e.g. a flight or map panel)
 # is one register() call plus:
 #
-#     if panels.is_visible("Tectonics"):
-#         if panels.begin("Tectonics"):
+#     if panels.is_visible("Planet"):
+#         if panels.begin("Planet"):
 #             ...widgets...
 #         panels.end()
 

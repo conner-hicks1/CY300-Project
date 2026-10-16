@@ -78,11 +78,10 @@
       "color": [1.0, 0.95, 0.88]
     }
   },
-  "geology": {
-    "regime": "stagnant_lid",
-    "plate_count": 0
-  },
   "climate": {
     "humidity": 0.3
+  },
+  "maps": {
+    "color": "titan_mosaic_4km"
   }
 }

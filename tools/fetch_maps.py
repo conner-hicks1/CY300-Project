@@ -1,10 +1,11 @@
 """
 Download the real elevation and color maps (planet/maps.py)
-into data/maps/ and build their cube-sphere caches.
+into data/maps/ and build their caches (cube-sphere heights,
+color images from the GeoTIFF mosaics).
 
-    python tools/fetch_maps.py            # everything (~86 MB)
+    python tools/fetch_maps.py            # every body (~4.4 GB)
     python tools/fetch_maps.py mars moon  # some bodies
-    python tools/fetch_maps.py --sharp    # also the 4x sharper maps (~1.5 GB)
+    python tools/fetch_maps.py --sharp    # also the 4x sharper Mars, Moon and Earth maps (~1.5 GB)
     python tools/fetch_maps.py --list
 
 Files already there are skipped. Sources are public domain
@@ -19,7 +20,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from planet.maps import DATASETS, MAPS_DIRECTORY, load_elevation_map   # noqa: E402
+from planet.maps import DATASETS, MAPS_DIRECTORY, color_map_path, load_elevation_map   # noqa: E402
 
 
 def download(
@@ -89,8 +90,9 @@ def main(
         if bodies and dataset.body not in bodies:
             continue
 
-        # The sharper maps (~0.5 GB each) only when asked.
-        if dataset.kind == "detail" and not sharp:
+        # The sharper maps (~0.5 GB each) only when asked
+        # (a GeoTIFF's is its own file, already fetched).
+        if dataset.kind == "detail" and (not sharp or dataset.format == "geotiff"):
             continue
 
         print(f"{dataset.id}: {dataset.description}")
@@ -123,6 +125,13 @@ def main(
 
             if load_elevation_map(dataset.id) is not None:
                 print(f"  cube-sphere cache ready ({time.perf_counter() - started:.1f} s)")
+
+        if dataset.kind == "color" and dataset.format == "geotiff" and dataset.available:
+
+            started = time.perf_counter()
+
+            if color_map_path(dataset.id) is not None:
+                print(f"  color image ready ({time.perf_counter() - started:.1f} s)")
 
     return 1 if failed else 0
 

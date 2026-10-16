@@ -349,8 +349,8 @@ class PlanetComponent:
 
     # Impact craters (planet/craters.py): impact rate
     # relative to the Moon's (0 = none); how many show
-    # depends on the surface's age (the tectonic field's, or
-    # surface_age in Myr). Erosion (Myr, 0 = never) wears
+    # depends on the surface's age (surface_age, Myr).
+    # Erosion (Myr, 0 = never) wears
     # old ones away; air stops impactors smaller than
     # crater_min_diameter (m); craters above
     # crater_transition (m) get flat floors and central
@@ -362,21 +362,18 @@ class PlanetComponent:
     crater_transition: float = 3_000.0
     crater_rays: bool = False
 
-    # Volcanoes (planet/volcanoes.py; need a tectonic
-    # simulation, which says where magma comes up): 0..1 how
-    # much the body builds them (large shields need >= 0.5),
-    # and the tallest its gravity allows (m).
-    volcanism: float = 1.0
-    volcano_max_height: float = 10_000.0
+    # The climate the ground is shaded by (planet/surface.py):
+    # the body's measured mean temperature (C), its air
+    # pressure (bar), and how much colder per km of height.
+    mean_temperature: float = 15.0
+    surface_pressure: float = 1.0
+    lapse_rate: float = 6.5
 
-    # Erosion matched to the body: rivers, lakes, deltas and
-    # glaciers draining the climate's rain into the seas
-    # (planet/hydrology.py), and wind-blown dune fields on
+    # Erosion matched to the body: wind-blown dune fields on
     # dry ground (planet/dunes.py): how common, crest
     # height and spacing (m), linear ridges along the wind
     # (Titan) or transverse crests across it, the latitude
     # band, and how much darker the sand is.
-    rivers: bool = True
 
     # Slopes carved into gullies and valleys (planet/
     # erosion.py): 0 none .. 1 rainy.
@@ -487,6 +484,8 @@ class ClockComponent:
 # =========================================================
 # Atmosphere
 # =========================================================
+# Atmosphere
+# =========================================================
 #
 # Physically based atmosphere around the planet on the same
 # entity (needs a PlanetComponent; its radius is sea
@@ -562,97 +561,13 @@ class AtmosphereComponent:
 
 
 # =========================================================
-# Tectonics
-# =========================================================
-#
-# Plate tectonics for the planet on the same entity
-# (planet/tectonics.py; driven by TectonicsSystem). The
-# simulation's continents, ocean basins and mountain belts
-# replace the planet's noise continents.
-#
-# The simulation state itself is not saved: simulated_time
-# is, and loading re-simulates from the seed to that time
-# (deterministic).
-
-@dataclass(slots=True)
-class TectonicsComponent:
-
-    # How the outer shell moves (planet/regimes.py):
-    #   plate_tectonics       Earth: plates, ridges, collisions
-    #   stagnant_lid          Mars, Mercury, the Moon: one
-    #                         rigid shell, ancient relief
-    #   episodic_resurfacing  Venus: global lava floods
-    #   heat_pipe             Io: constant volcanism
-    #   ice_shell             Europa: tidal cracks in ice
-    regime: str = "plate_tectonics"
-
-    seed: int = 1
-
-    # Plates only.
-    plate_count: int = 12
-
-    # Fraction of the surface that starts as continent.
-    land_fraction: float = 0.3
-
-    # Typical plate speed, cm / year (Earth: 2-10).
-    plate_speed: float = 5.0
-
-    # Simulated time per step (million years).
-    time_step: float = 5.0
-
-    # Other regimes: relief multiplier (weaker gravity
-    # holds up taller mountains).
-    relief_scale: float = 1.0
-
-    # Stagnant lids: strength of the crustal dichotomy (one
-    # hemisphere low, 1 = default), and the share of the
-    # surface in the low one.
-    dichotomy: float = 1.0
-    lowlands: float = 0.5
-
-    # Grid cells per cube-face edge (6 * n^2 cells).
-    resolution: int = 128
-
-    # Million years simulated so far.
-    simulated_time: float = 0.0
-
-
-# =========================================================
-# Climate
-# =========================================================
-#
-# Annual-mean climate for the planet on the same entity
-# (planet/climate.py; ClimateSystem): temperature from
-# sunlight and height, winds, and rainfall carried from the
-# oceans. Drives the biomes (forests, deserts, tundra...)
-# and where snow lies. Recomputed whenever the land changes.
-
-@dataclass(slots=True)
-class ClimateComponent:
-
-    # Degrees (Earth: 23.44): how unevenly the year's
-    # sunlight is spread between equator and poles.
-    axial_tilt: float = 23.44
-
-    # Added to every temperature (C): a warmer or colder
-    # world (ice ages, hothouse climates).
-    temperature_offset: float = 0.0
-
-    # Scales evaporation, so rainfall (1 = Earth-like).
-    humidity: float = 1.0
-
-    # Grid cells per cube-face edge.
-    resolution: int = 64
-
-
-# =========================================================
 # Body
 # =========================================================
 #
 # What the planet entity is, physically: the facts a body
 # profile (assets/bodies/*.json, planet/bodies.py) brings,
 # kept on the entity for display and for the physics that
-# will use them (energy-balance climate, gravity, orbits).
+# will use them (gravity, orbits, light).
 
 @dataclass(slots=True)
 class BodyComponent:
@@ -681,10 +596,7 @@ class BodyComponent:
     mean_temperature: float = 15.0              # C (observed)
     oblateness: float = 0.0
 
-    # Climate physics (planet/climate.py energy balance):
-    # infrared optical depth (greenhouse), and how much
-    # colder the air gets per km of height.
-    greenhouse_depth: float = 0.85
+    # How much colder the air gets per km of height.
     lapse_rate: float = 6.5                     # C per km
 
     # Star surface temperature (K): the color of its light.

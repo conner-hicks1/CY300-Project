@@ -12,9 +12,8 @@
 //     aTexCoord.x annual mean temperature (C) at this
 //                 point's own height
 //
-// Temperature and rainfall come from the climate model
-// (planet/climate.py), or from latitude and noise without
-// one. Biomes follow a Whittaker diagram: how wet a place
+// Temperature and rainfall come from the analytic climate
+// (planet/surface.py: latitude, height and noise). Biomes follow a Whittaker diagram: how wet a place
 // is depends on rain relative to how warm it is (warm air
 // dries the ground faster).
 //
@@ -688,9 +687,8 @@ vec3 mineralLand(
     // highlands), cliffs their own color, frost where cold.
     float bright = smoothstep(-3000.0, 4000.0, elevation);
 
-    // With a tectonic regime (planet/regimes.py), mostly
-    // its crust type: dark maria and lava, Europa's
-    // reddish lineae, bright ice and sulfur plains.
+    // Mostly the crust's own brightness (mottling, dark
+    // dune sand, bright crater rays).
     if (crust >= 0.0)
     {
         bright = mix(bright, crust, 0.75);
@@ -709,12 +707,11 @@ vec3 mineralLand(
     return mix(land, uColorIce, frost);
 }
 
-// water: 0..1 rivers, lakes and delta channels (planet/
-// hydrology.py), drawn as the planet's liquid, or as ice
-// (glaciers) where it is colder than the liquid freezes.
-// crust: 0 dark .. 1 bright crust from a tectonic regime
-// (the tectonic data's "continental" channel; up to 1.6
-// on fresh crater rays), -1 without.
+// water: 0..1 standing liquid, drawn as the planet's
+// liquid, or as ice where it is colder than it freezes.
+// crust: 0 dark .. 1 bright crust (the tectonic data's
+// "continental" channel; up to 1.6 on fresh crater
+// rays), -1 without.
 TerrainSurface terrainSurface(
     float elevation,
     float slope,
@@ -853,7 +850,7 @@ TerrainSurface terrainSurface(
     float landRelief = mix(1.0, 0.4, snowy);
 
     // -----------------------------------------------------
-    // Rivers, lakes and glaciers on land
+    // Standing liquid and ice on land
     // -----------------------------------------------------
 
     float landRoughness = 0.9;
@@ -1011,15 +1008,7 @@ vec3 biomeColor(
 //   1 elevation (hypsometric tint, 500 m contours, coast)
 //   2 slope        3 temperature    4 rainfall
 //   5 detail level (quadtree depth, from aTexCoord.y)
-//   6 plates       7 crust age      8 crust type
-//   9 plate boundaries (red converging, blue pulling apart)
-//  10 biomes
-//
-// Modes 6-9 read the tectonic data each chunk vertex
-// carries in its tangent slot (planet/terrain.py
-// tectonic_data): x plate index (-1 = no simulation),
-// y age / 400 Myr, z continental fraction, w closing
-// speed at a boundary (cm/yr).
+//   6 biomes
 //
 // New data layers are added here as further modes.
 
@@ -1082,72 +1071,6 @@ float contourLine(
     return 1.0 - smoothstep(0.5 * width, 1.5 * width, distance);
 }
 
-vec3 plateColor(
-    float plate
-)
-{
-    float hue = fract(plate * 0.618034);
-
-    return 0.55 + 0.45 * cos(6.2831853 * (hue + vec3(0.0, 0.33, 0.67)));
-}
-
-vec3 tectonicOverlayColor(
-    int mode,
-    vec4 tectonic
-)
-{
-    if (tectonic.x < -0.5)
-    {
-        // No simulation on this planet.
-        return vec3(0.35);
-    }
-
-    if (mode == 6)
-    {
-        // Nearest-cell plate ids interpolate across a
-        // boundary triangle; round, and outline where the
-        // id changes.
-        float plate = floor(tectonic.x + 0.5);
-
-        float edge = clamp(fwidth(tectonic.x) * 2.0, 0.0, 1.0);
-
-        return plateColor(plate) * (1.0 - 0.8 * edge);
-    }
-
-    if (mode == 7)
-    {
-        float age = tectonic.y * 400.0;
-
-        if (tectonic.z > 0.5)
-        {
-            return vec3(0.55, 0.5, 0.45);       // continental (old)
-        }
-
-        // Young (red, at ridges) to old (blue) sea floor,
-        // banded every 20 Myr like magnetic stripes.
-        vec3 color = mix(vec3(0.95, 0.25, 0.15), vec3(0.15, 0.25, 0.85), clamp(age / 180.0, 0.0, 1.0));
-
-        return color * (0.85 + 0.15 * step(0.5, fract(age / 20.0)));
-    }
-
-    if (mode == 8)
-    {
-        return mix(vec3(0.1, 0.25, 0.6), vec3(0.75, 0.6, 0.35), smoothstep(0.35, 0.65, tectonic.z));
-    }
-
-    // 9: boundaries.
-    float closing = tectonic.w;
-
-    vec3 base = vec3(0.6);
-
-    if (closing > 0.0)
-    {
-        return mix(base, vec3(0.9, 0.1, 0.05), clamp(closing / 6.0, 0.0, 1.0));
-    }
-
-    return mix(base, vec3(0.1, 0.3, 0.95), clamp(-closing / 6.0, 0.0, 1.0));
-}
-
 vec3 terrainOverlayColor(
     int mode,
     float elevation,
@@ -1158,7 +1081,7 @@ vec3 terrainOverlayColor(
     vec4 tectonic
 )
 {
-    if (mode == 10)
+    if (mode == 6)
     {
         if (elevation < 0.0)
         {
@@ -1168,10 +1091,6 @@ vec3 terrainOverlayColor(
         return biomeColor(terrainBiome(precipitation, temperature));
     }
 
-    if (mode >= 6)
-    {
-        return tectonicOverlayColor(mode, tectonic);
-    }
 
     if (mode == 1)
     {

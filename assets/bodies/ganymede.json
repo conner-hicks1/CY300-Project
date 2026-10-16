@@ -55,11 +55,10 @@
     "detail_height": 200.0
   },
   "atmosphere": null,
-  "geology": {
-    "regime": "ice_shell",
-    "plate_count": 0
-  },
   "climate": {
     "humidity": 0.0
+  },
+  "maps": {
+    "color": "ganymede_mosaic_1km"
   }
 }
