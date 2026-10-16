@@ -41,19 +41,6 @@ from scene.scene import Scene
 from systems.scatter_system import ScatterSystem, surface_settings
 
 
-# Terrain view modes (assets/shaders/include/terrain.glsl
-# terrainOverlay; index = uTerrainView).
-TERRAIN_VIEWS: tuple[tuple[str, str], ...] = (
-    ("Natural", "Biome colors."),
-    ("Elevation", "Height map with 500 m contour lines; coast in black."),
-    ("Slope", "Flat ground bright, cliffs dark."),
-    ("Temperature", "Annual mean, blue (-30 C) to red (35 C); dark line at freezing."),
-    ("Rainfall", "Yearly rain, dry (tan) to wet (blue), log scale."),
-    ("Detail level", "Quadtree depth of each chunk."),
-    ("Biomes", "Ice, tundra, taiga, forest, grassland, desert, savanna, rainforest."),
-)
-
-
 @dataclass(slots=True)
 class PlanetStats:
 
@@ -276,9 +263,6 @@ class PlanetSystem:
         self._materials: dict[Entity, object] = {}
 
         self.stats = PlanetStats()
-
-        # Index into TERRAIN_VIEWS.
-        self.view_mode = 0
 
         # entity -> (config waiting to be applied, since).
         self._pending_config: dict[Entity, tuple[tuple, float]] = {}
@@ -560,7 +544,6 @@ class PlanetSystem:
 
             self._materials[entity] = material
 
-        material.set_float("uTerrainView", float(self.view_mode))
         material.set_float("uSurfacePalette", self._PALETTE_CODES.get(component.palette, 0.0))
         material.set_float("uLiquid", self._LIQUID_CODES.get(liquid, 1.0))
         material.set_float("uLiquidFreezing", phase)

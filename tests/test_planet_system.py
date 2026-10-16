@@ -254,19 +254,6 @@ def test_rebuild_waits_for_settings_to_settle(world):
     assert system.stats.chunks_drawn > 0
 
 
-def test_view_mode_reaches_material(world):
-
-    scene, system, _, _ = world
-
-    system.view_mode = 3
-
-    system.update(scene, np.array([0.0, 500.0, 0.0]))
-
-    (material,) = system._materials.values()
-
-    assert material.values["uTerrainView"] == 3.0
-
-
 def test_planet_surface_reaches_its_material(world):
 
     scene, system, _, planet = world

@@ -99,8 +99,7 @@ class RenderSettings:
     atmosphere_enabled: bool = True
     atmosphere_samples: int = 24
 
-    # Haze over distant geometry. (Also suppressed while a
-    # planet data view is shown, so its colors read true.)
+    # Haze over distant geometry.
     aerial_perspective: bool = True
 
     # -----------------------------------------------------
@@ -137,9 +136,6 @@ class RenderSettings:
     # -----------------------------------------------------
     # Debug
     # -----------------------------------------------------
-
-    show_light_gizmos: bool = True
-    gizmo_scale: float = 0.12
 
     # Tints the scene by shadow cascade.
     visualize_cascades: bool = False

@@ -62,10 +62,6 @@ uniform float uTerrainShading;
 // break up its albedo up close.
 uniform float uScatterDetail;
 
-// Planet terrain data view (0 = natural colors); see
-// terrainOverlay() in include/terrain.glsl.
-uniform float uTerrainView;
-
 // The body this surface belongs to (PlanetSystem): its
 // center relative to the camera (km), w 0 = none (a prop,
 // on the atmosphere's planet), 1 = a body, 2 = an
@@ -249,7 +245,7 @@ void main()
         // camera's body, within reach of the detail origin).
         float closeAlbedo = 0.0;
 
-        if (near && uTerrainView < 0.5)
+        if (near)
         {
             float footprint = length(fwidth(vWorldPosition));
 
@@ -282,23 +278,6 @@ void main()
         baseColor *= max(1.0 + closeAlbedo, 0.2);
         roughness = terrain.roughness;
         terrainEmissive = terrain.emissive;
-
-        int view = int(uTerrainView + 0.5);
-
-        if (view > 0)
-        {
-            baseColor = terrainOverlay(
-                view,
-                vColor.r,
-                slope,
-                vColor.b,
-                vTexCoord.x,
-                floor(vTexCoord.y) / 20.0,
-                vTangent
-            );
-
-            roughness = 0.9;
-        }
     }
 
     if (uScatterDetail > 0.5)

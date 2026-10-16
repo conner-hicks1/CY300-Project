@@ -7,35 +7,24 @@ from imgui_bundle import imgui
 # Panel Registry
 # =========================================================
 #
-# Every tool window of the editor is registered here with
-# its default dock slot. The registry
+# The developer tool windows (F3) are registered here. The
+# registry
 #
 #   * remembers which panels are open (closing a panel's
-#     tab hides it; View menu shows it again),
-#   * drives the View menu,
-#   * tells EditorLayout where each panel docks by default.
+#     window hides it; the Developer menu shows it again),
+#   * drives the Developer menu.
 #
-# Adding a tool window (e.g. a flight or map panel)
-# is one register() call plus:
+# Adding a tool window is one register() call plus:
 #
-#     if panels.is_visible("Planet"):
-#         if panels.begin("Planet"):
+#     if panels.is_visible("Stats"):
+#         if panels.begin("Stats"):
 #             ...widgets...
 #         panels.end()
-
-class DockSlot:
-
-    LEFT_TOP = "left_top"
-    LEFT_BOTTOM = "left_bottom"
-    RIGHT = "right"
-    BOTTOM = "bottom"
-
 
 @dataclass(slots=True)
 class Panel:
 
     name: str
-    slot: str
     visible: bool = True
 
     # One line for the View menu tooltip.
@@ -56,12 +45,11 @@ class PanelRegistry:
     def register(
         self,
         name: str,
-        slot: str,
         visible: bool = True,
         description: str = ""
     ) -> Panel:
 
-        panel = Panel(name, slot, visible, description)
+        panel = Panel(name, visible, description)
 
         self._panels[name] = panel
 
@@ -123,6 +111,24 @@ class PanelRegistry:
 
                 imgui.set_next_window_focus()
 
+        # First time only (then wherever it was left): down
+        # the right edge, each a little lower than the last,
+        # clear of the HUD on the left.
+        index = list(self._panels).index(name) if name in self._panels else 0
+
+        viewport = imgui.get_main_viewport()
+
+        imgui.set_next_window_pos(
+            (
+                viewport.work_pos.x + viewport.work_size.x - 10.0,
+                viewport.work_pos.y + 30.0 + 40.0 * index
+            ),
+            imgui.Cond_.first_use_ever,
+            (1.0, 0.0)
+        )
+
+        imgui.set_next_window_size((440.0, 0.0), imgui.Cond_.first_use_ever)
+
         expanded, keep_open = imgui.begin(name, True)
 
         if not keep_open:
@@ -148,7 +154,7 @@ class PanelRegistry:
     # -----------------------------------------------------
 
     def draw_menu_items(self):
-        """Checkable item per panel (inside a View menu)."""
+        """Checkable item per panel (inside a menu)."""
 
         for panel in self._panels.values():
 

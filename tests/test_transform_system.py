@@ -3,12 +3,10 @@ import pytest
 
 from ecs.components import (
     HierarchyComponent,
-    RotatorComponent,
     TransformComponent
 )
 from math3d.transform import Transform
 from scene.scene import Scene
-from systems.rotator_system import RotatorSystem
 from systems.transform_system import TransformSystem
 
 
@@ -82,21 +80,3 @@ def test_destroyed_parent_is_reported():
 
     with pytest.raises(Exception, match="parent"):
         TransformSystem().update(scene)
-
-
-def test_rotator_spins_on_fixed_steps():
-
-    scene = Scene("test")
-
-    entity = add(scene, Transform())
-
-    scene.add_component(entity, RotatorComponent(degrees_per_second=(0.0, 30.0, 0.0)))
-
-    system = RotatorSystem()
-
-    for _ in range(60):
-        system.fixed_update(scene, 1.0 / 60.0)
-
-    rotation = scene.get_component(entity, TransformComponent).transform.rotation
-
-    assert rotation[1] == pytest.approx(30.0, abs=1e-3)

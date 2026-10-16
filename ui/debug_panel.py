@@ -7,7 +7,7 @@ from imgui_bundle import imgui
 
 from core.cprofile_capture import CProfileCapture
 from core.jobs import JobSystem
-from ui.panels import DockSlot, PanelRegistry
+from ui.panels import PanelRegistry
 from core.profiler import Profiler
 from core.timer import Timer
 from core.window import Window
@@ -69,19 +69,18 @@ class DebugPanel:
 
         panels.register(
             "Stats",
-            DockSlot.BOTTOM,
             description="Frame rate, draw calls, streaming."
         )
 
         panels.register(
             "Render",
-            DockSlot.BOTTOM,
+            visible=False,
             description="Exposure, bloom, sky, shadows, materials."
         )
 
         panels.register(
             "Profiler",
-            DockSlot.BOTTOM,
+            visible=False,
             description="CPU / GPU time per frame stage."
         )
 
@@ -571,19 +570,6 @@ class DebugPanel:
             "Debug",
             imgui.TreeNodeFlags_.default_open
         ):
-
-            _, settings.show_light_gizmos = imgui.checkbox(
-                "Light gizmos",
-                settings.show_light_gizmos
-            )
-
-            _, settings.gizmo_scale = imgui.slider_float(
-                "Gizmo scale",
-                settings.gizmo_scale,
-                0.02,
-                0.5,
-                "%.2f"
-            )
 
             if imgui.button("Reload shaders (F5)"):
 

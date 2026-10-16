@@ -201,23 +201,6 @@ class SpotLightComponent:
 
 
 # =========================================================
-# Rotator
-# =========================================================
-#
-# Spins the entity's local transform at a constant rate
-# (degrees per second around X, Y, Z). Driven by
-# RotatorSystem on the fixed timestep.
-
-@dataclass(slots=True)
-class RotatorComponent:
-    degrees_per_second: tuple[float, float, float] = (
-        0.0,
-        30.0,
-        0.0
-    )
-
-
-# =========================================================
 # Camera Controller
 # =========================================================
 

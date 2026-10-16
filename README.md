@@ -1,11 +1,12 @@
-# CY300 OpenGL Engine
+# CY300 Spaceflight
 
-A small 3D engine and scene editor written in Python on top of OpenGL 4.5,
-built as a CY300 course project, on its way to a rocketry and spaceflight
-game. It renders with physically based materials, cascaded shadows and
-image-based lighting, streams the bodies of the solar system as they were
-measured (real elevation and color maps) under physically based
-atmospheres, and comes with an ImGui editor for building and saving scenes.
+A rocketry and spaceflight game in the making, written in Python on top of
+OpenGL 4.5 as a CY300 course project. Its engine renders with physically
+based materials, cascaded shadows and image-based lighting, and streams the
+bodies of the solar system as they were measured (real elevation and color
+maps) under physically based atmospheres, on real orbits with a real clock.
+Vessels (building them, flying them) come next; today you fly a free camera
+anywhere in the solar system.
 
 ![The procedural planet, seen from the surface](docs/images/scene.png)
 
@@ -20,7 +21,6 @@ atmospheres, and comes with an ImGui editor for building and saving scenes.
   on worker threads and streamed in coarse-to-fine without holes or cracks
 - Planet-aware camera: radial "up", altitude-scaled flying speed, stays above
   the terrain
-- Terrain parameters editable live in the inspector (the planet rebuilds)
 
 **Bodies of the solar system**
 
@@ -45,8 +45,7 @@ atmospheres, and comes with an ImGui editor for building and saving scenes.
   methane form below the frost point set by the gas's partial pressure
   (Mars's water-ice caps at ~-76 C, Pluto's and Triton's nitrogen ice).
   Life is a switch: without it, the same climate zones are bare ground
-- File > New Planet builds any of them; Planet panel > Body shows its facts
-  and turns the planet into another body (undoable)
+- Travel (pause menu) starts over at any of them
 - Dry worlds keep their basins, methane seas (Titan), glowing lava lakes
   (Io), mineral surface palettes, gas-giant cloud bands, and a black sky with
   hard shadows where there is no air
@@ -138,8 +137,8 @@ atmospheres, and comes with an ImGui editor for building and saving scenes.
 
 ![Jupiter from Io with a moon's shadow crossing it, the Moon's shadow on Earth in the 2027 eclipse, the red Moon of the March 2026 lunar eclipse, and Saturn from Enceladus](docs/images/orbits.png)
 
-- A simulation clock (Planet panel > Sun & time: the date, how fast time
-  runs, local time, Now) drives everything: planets on Keplerian orbits
+- A simulation clock (time warp from real time to a million times faster)
+  drives everything: planets on Keplerian orbits
   from JPL's mean elements, moons around their planets, and every body's
   spin from its IAU pole and prime meridian, so the sun's direction, day
   and night, the seasons and the equation of time follow from the date
@@ -149,8 +148,7 @@ atmospheres, and comes with an ImGui editor for building and saving scenes.
 - The Moon follows the main terms of its own theory (the Sun's pull,
   precessing nodes): eclipses fall on their real dates. New planets bring
   their planetary system: Earth its Moon, Mars Phobos and Deimos, Jupiter
-  its Galilean moons, a moon its planet and siblings (Planet panel > System
-  flies to any of them)
+  its Galilean moons, a moon its planet and siblings
 - The body the camera is nearest stays put while the sky wheels around it,
   so the ground never slides away; flying to another body hands over
   seamlessly
@@ -289,8 +287,8 @@ atmospheres, and comes with an ImGui editor for building and saving scenes.
   one multi-draw per layer for the blocks in view (trees switch to cheap far
   shapes past 160 m), lit and shadowed like everything else; they grow in
   over the last part of their reach, and sway in the wind. Built on the
-  workers after the terrain (it streams first). Render settings > Rocks,
-  trees, grass
+  workers after the terrain (it streams first). Off at Low graphics
+  quality
 - Ground texture all the way down: below the terrain's finest vertices each
   material has its own detail to ~5 cm: rock cracked and blocky with strata
   on cliffs, sand smooth with ripples across the wind where there is air,
@@ -319,7 +317,7 @@ atmospheres, and comes with an ImGui editor for building and saving scenes.
 - Biomes from temperature and rainfall (a Whittaker diagram): ice, tundra,
   taiga, temperate forest, grassland, desert, savanna, tropical rainforest;
   snow and tree lines follow temperature, so they fall with latitude and rise
-  with warmth. Temperature, rainfall and biome views in the Planet panel
+  with warmth
 
 **Clouds**
 
@@ -384,39 +382,32 @@ atmospheres, and comes with an ImGui editor for building and saving scenes.
 - OBJ and glTF / GLB model loading, including glTF materials and embedded textures
 - Shader `#include`s and hot reload (edit a `.glsl` file while the engine runs)
 
-**Editor**
+**Game shell**
 
-![The scene editor](docs/images/editor.png)
-
-- Docked layout around the 3D viewport (drag panels to rearrange; View menu to
-  show / hide them or reset the layout; Help > Controls lists every shortcut)
-- **Planet panel**: jump to the surface / low orbit / whole-planet view, fly
-  speed, local **time of day and season** (moves the sun; optional day cycle),
-  terrain presets and sliders (the planet rebuilds when you release), seed,
-  atmosphere density and haze, and **data views**: elevation with contour
-  lines, slope, moisture, latitude, level of detail
-- Viewport HUD: altitude above ground and sea level (depth below a giant's
-  cloud tops), the air's pressure and temperature, speed, latitude /
-  longitude, local time, frame rate
-- Hierarchy with drag-and-drop parenting, inspector for every component
-- Click-to-select in the viewport, move / rotate / scale gizmos with snapping
-- Undo / redo (including planet and sun edits), scene files (JSON) with native
-  open / save dialogs, model import
-- Play / Stop: run the simulation, then restore the scene exactly
-- Render settings, material editing, stats and a frame profiler (CPU + GPU
-  timings) in the bottom panel
+- Flight HUD over the view: the date and time warp at the top; at the
+  bottom the body you are nearest, altitude above ground and sea level
+  (depth below a giant's cloud tops), speed, the air's pressure and
+  temperature outside, latitude / longitude and local time
+- Time warp in steps from real time to 1,000,000x (**,** and **.**; **/**
+  back to real time)
+- Pause menu (**Esc**, stops the clock): Travel to any body, Camera
+  (surface, low orbit, the whole body in view), Graphics quality (Low /
+  Medium / High: atmosphere samples, rocks / trees / grass, shadow reach and
+  mountain shadows, bloom), Controls, Quit
+- Developer tools (**F3**, or `--dev`): stats, every render setting, a frame
+  profiler (CPU + GPU timings) and cProfile capture, shader hot reload
 
 **Engine**
 
 - Entity-component-system with parent / child transforms (quaternion rotations)
 - Background job system: worker threads, results handed back to the main thread
   under a per-frame time budget
-- Fixed-timestep simulation, uniform buffers for per-frame data, OpenGL debug
-  output routed to the log
+- Fixed-timestep simulation (where vessel physics will run), uniform buffers
+  for per-frame data, OpenGL debug output routed to the log
 - A disk cache (`data/cache/`) of terrain chunks, keyed by their inputs and
   the generators' source code: chunks stream in ~70% faster on a second
   visit; oldest entries pruned past 2 GB
-- 547 unit tests
+- 518 unit tests
 
 ## Getting Started
 
@@ -446,16 +437,14 @@ py -3.14 -m pip install -r requirements.txt
 python main.py
 ```
 
-This opens `assets/scenes/planet.scene.json` if it exists, otherwise the
-built-in demo: Earth with its atmosphere, the camera above a mountain
-valley.
-The planet streams in over the first few seconds.
+This starts on Earth, the camera above a valley in the mountains. The
+planet streams in over the first few seconds.
 
 | Option | Meaning |
 | --- | --- |
-| `--scene PATH` | Open a different scene file |
-| `--play` | Start with the simulation running |
-| `--hide-ui` | Start with the editor and debug UI hidden (**F1** toggles) |
+| `--body ID` | Start at another body (`moon`, `mars`, `titan`... any file in `assets/bodies/`) |
+| `--dev` | Start with the developer tools open (**F3** toggles) |
+| `--hide-ui` | Start with the HUD hidden (**F2** toggles) |
 | `--no-vsync` | Uncapped frame rate (for measuring performance) |
 | `--cprofile N` | Record a Python profile of the first N frames into `logs/profiles/` |
 | `--exit-after S` | Quit after S seconds (smoke tests) |
@@ -466,32 +455,28 @@ The planet streams in over the first few seconds.
 | Input | Action |
 | --- | --- |
 | Hold right mouse button | Look around; **W A S D** move, **Space** up, **Shift** down. On a planet, W A S D move along the ground (around the planet when in orbit) and Space / Shift move straight away from / toward it; speed grows with altitude |
-| Left click | Select an object |
-| **Q / W / E / R** | Select / move / rotate / scale tool |
-| **F** | Focus the camera on the selection (a planet: fit the whole planet in view) |
-| **Delete**, **Ctrl+D** | Delete / duplicate the selection |
-| **Ctrl+Z**, **Ctrl+Y** | Undo / redo |
-| **Ctrl+S**, **Ctrl+O** | Save / open a scene |
-| **Ctrl+P** | Play / stop |
-| **Esc** | Clear the selection |
-| **F1** | Show / hide the UI |
-| **F5** | Reload all shaders |
+| **.** / **,** | Time warp faster / slower |
+| **/** | Back to real time |
+| **Esc** | Pause menu (travel, camera, graphics, controls, quit) |
+| **F2** | Show / hide the HUD |
+| **F3** | Developer tools |
+| **F5** | Reload all shaders (with the developer tools open) |
 
 ## Project Layout
 
 | Path | Contents |
 | --- | --- |
-| `main.py`, `application.py` | Entry point, main loop, demo content |
+| `main.py`, `application.py` | Entry point, main loop, building a body's scene |
 | `core/` | Window, input, events, timer, logging, profiler, job system, disk cache |
 | `ecs/` | Entity registry and components |
-| `systems/` | Transform, camera controller, rotator, orbits and clock, planet streaming and render systems |
+| `systems/` | Transform, camera controller, orbits and clock, planet streaming and render systems |
 | `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping, impact craters, dunes, surface climate, terrain, chunk building, level of detail, body shapes, orbits and spin, solar time, real maps |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, clouds, rings, eclipses, bloom |
-| `editor/` | Scene editor, hierarchy / inspector / planet panels, picking, undo history |
-| `scene/` | Scene container and scene file (de)serialization |
+| `game/` | Flight HUD and readout, pause menu, time warp, graphics quality presets |
+| `scene/` | Scene container and (de)serialization (for save games) |
 | `resources/` | Handle-based resource managers |
 | `math3d/` | Transforms, camera, matrix helpers |
-| `ui/` | ImGui integration, docked layout and panel registry, render / stats / profiler panels |
+| `ui/` | ImGui integration, developer tool windows (render / stats / profiler) |
 | `assets/` | Shaders, textures, scenes, body profiles (`bodies/`) |
 | `tools/` | Asset generator, micro-benchmarks, real map and star catalog downloaders |
 | `data/` | Downloaded maps and caches (not in the repository) |
@@ -540,9 +525,10 @@ python tools/fetch_stars.py
 Switch (environment variable): `ENGINE_NO_DISK_CACHE` disables the disk
 cache.
 
-Shaders live in `assets/shaders/` and reload automatically when saved. The
-Profiler window (bottom of the screen) shows CPU and GPU time per render pass;
-untick VSync there to see the real cost of a frame.
+Shaders live in `assets/shaders/` and reload automatically when saved while
+the developer tools are open (**F3**). Their Profiler window (Developer menu)
+shows CPU and GPU time per render pass; untick VSync there to see the real
+cost of a frame.
 
 ## License
 

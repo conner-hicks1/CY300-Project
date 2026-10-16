@@ -90,7 +90,6 @@ from graphics.lighting import (
     PointLight,
     SpotLight
 )
-from graphics.mesh_factory import MeshFactory
 from graphics.render_command import RenderCommand
 from graphics.render_settings import RenderSettings
 from graphics.render_state import RenderState
@@ -140,7 +139,7 @@ class RenderSystem:
     #   2. Shadows: depth from the directional light into
     #      each cascade, and from each shadowed spot light.
     #   3. Scene (HDR, RGBA32F): PBR geometry, sky, stars
-    #      background, light gizmos, selection outline.
+    #      background, rings.
     #   4. Bloom: blur chain of the HDR image.
     #   5. Post: bloom mix, exposure, tone mapping, gamma
     #      -> LDR buffer (or the window if FXAA is off).
@@ -184,13 +183,10 @@ class RenderSystem:
 
         self._profiler = profiler
 
-        # Camera used for the most recent frame (editor
-        # picking / gizmos); None before the first render.
+        # Camera used for the most recent frame (projecting
+        # world points to the screen); None before the first
+        # render.
         self.last_camera: Camera | None = None
-
-        # Set per frame by the application: no haze over
-        # geometry (planet data views).
-        self.suppress_haze = False
 
         # Messages already logged by _warn_once().
         self._warnings: set[str] = set()
@@ -253,7 +249,6 @@ class RenderSystem:
 
         for name, value in (
             ("uTerrainShading", 0.0),
-            ("uTerrainView", 0.0),
             ("uColorMapStrength", 0.0),
             ("uRoughness", 0.85),
             ("uMetallic", 0.0),
@@ -290,15 +285,6 @@ class RenderSystem:
                 sampler_name,
                 texture
             )
-
-        # -------------------------------------------------
-        # Gizmo Mesh
-        # -------------------------------------------------
-
-        self._gizmo_mesh_handle = resources.meshes.load(
-            "engine/gizmo_cube",
-            MeshFactory.create_cube
-        )
 
         # Rings: a unit disc scaled to each ring system.
         self._ring_mesh_handle = resources.meshes.load(
@@ -435,16 +421,13 @@ class RenderSystem:
         scene: Scene,
         width: int,
         height: int,
-        selected: Entity | None = None,
         extra_items: list[DrawItem] | None = None,
         output_origin: tuple[int, int] = (0, 0)
     ):
         """
-        width, height: size of the image (the editor's 3D
-            viewport, or the whole window).
+        width, height: size of the image.
         output_origin: where the image goes in the window's
             framebuffer (pixels, bottom-left origin).
-        selected: entity to outline (editor selection).
         extra_items: draws that are not entities (planet
             terrain chunks), rendered and shadowed like
             scene meshes.
@@ -653,24 +636,6 @@ class RenderSystem:
                 with profiler.scope("Rings"):
 
                     self._render_rings()
-
-            if settings.show_light_gizmos:
-
-                with profiler.scope("Gizmos"):
-
-                    self._render_light_gizmos(
-                        lighting
-                    )
-
-            if (
-                selected is not None
-                and registry.is_alive(selected)
-            ):
-
-                self._render_selection(
-                    registry,
-                    selected
-                )
 
         # -------------------------------------------------
         # 4-6. Bloom, Post, FXAA
@@ -1340,10 +1305,7 @@ class RenderSystem:
             sun_direction=sun_direction,
             sun_illuminance=sun_illuminance,
             steps=steps,
-            aerial_perspective=(
-                self.settings.aerial_perspective
-                and not self.suppress_haze
-            ),
+            aerial_perspective=self.settings.aerial_perspective,
             sun_angular_radius=math.degrees(self._sun_angular_radius),
             clouds=clouds,
             cloud_drift=cloud_drift,
@@ -2080,129 +2042,6 @@ class RenderSystem:
         RenderState.set_face_culling(True)
 
         RenderState.set_depth_func(GL_GREATER)
-
-    # =====================================================
-    # Light Gizmos
-    # =====================================================
-
-    def _render_light_gizmos(
-        self,
-        lighting: LightEnvironment
-    ):
-
-        shader = self._shader("unlit")
-
-        mesh = self._resources.meshes.get(
-            self._gizmo_mesh_handle
-        )
-
-        scale = self.settings.gizmo_scale
-
-        lights = [
-            (point.position, point.color, point.intensity)
-            for point in lighting.point_lights
-        ] + [
-            (spot.position, spot.color, spot.intensity)
-            for spot in lighting.spot_lights
-        ]
-
-        for position, color, intensity in lights:
-
-            model = np.diag(
-                [scale, scale, scale, 1.0]
-            )
-
-            # float64: a world position at planet scale does
-            # not fit float32 (the renderer narrows after
-            # making it camera-relative).
-            model[:3, 3] = position
-
-            # Bright enough (> 1) to read as a glowing
-            # source after tone mapping, and to bloom.
-
-            brightness = max(
-                1.0,
-                intensity
-            )
-
-            self._renderer.draw_unlit(
-                mesh,
-                shader,
-                model,
-                tuple(
-                    float(c) * brightness
-                    for c in color
-                )
-            )
-
-    # =====================================================
-    # Selection Outline
-    # =====================================================
-
-    # Bright (HDR) orange so it stays saturated after tone
-    # mapping.
-    SELECTION_COLOR = (4.0, 1.4, 0.15)
-
-    def _render_selection(
-        self,
-        registry: Registry,
-        entity: Entity
-    ):
-
-        transform = registry.try_get(
-            entity,
-            TransformComponent
-        )
-
-        if transform is None:
-            return
-
-        mesh_renderer = registry.try_get(
-            entity,
-            MeshRendererComponent
-        )
-
-        shader = self._shader("unlit")
-
-        if mesh_renderer is not None:
-
-            mesh = self._resources.meshes.get(
-                mesh_renderer.mesh
-            )
-
-            model = transform.world_matrix
-
-        else:
-
-            # Lights, cameras and empty entities have no
-            # geometry: outline a marker cube at their
-            # position, a bit larger than a light gizmo.
-
-            mesh = self._resources.meshes.get(
-                self._gizmo_mesh_handle
-            )
-
-            scale = self.settings.gizmo_scale * 1.6
-
-            model = np.diag(
-                [scale, scale, scale, 1.0]
-            )
-
-            # float64: a world position at planet scale does
-            # not fit float32 (the renderer narrows after
-            # making it camera-relative).
-            model[:3, 3] = transform.world_position
-
-        RenderState.set_wireframe(True)
-
-        self._renderer.draw_unlit(
-            mesh,
-            shader,
-            model,
-            self.SELECTION_COLOR
-        )
-
-        RenderState.set_wireframe(False)
 
     # =====================================================
     # Post / FXAA

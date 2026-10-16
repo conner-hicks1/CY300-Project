@@ -14,23 +14,22 @@ from core.logger import Logger
 def parse_arguments(argv=None):
 
     parser = argparse.ArgumentParser(
-        description="OpenGL engine demo."
+        description="CY300 spaceflight game."
     )
 
     parser.add_argument(
-        "--scene",
-        metavar="PATH",
+        "--body",
+        metavar="ID",
         help=(
-            "Scene file to open (default: "
-            "assets/scenes/planet.scene.json, or the built-in "
-            "planet demo if that is missing)."
+            "Body to start at: a profile in assets/bodies/ "
+            "(earth, moon, mars, titan...; default earth)."
         )
     )
 
     parser.add_argument(
-        "--play",
+        "--dev",
         action="store_true",
-        help="Start in Play mode (simulation running)."
+        help="Start with the developer tools open (F3 toggles)."
     )
 
     parser.add_argument(
@@ -49,7 +48,7 @@ def parse_arguments(argv=None):
     parser.add_argument(
         "--hide-ui",
         action="store_true",
-        help="Start with the editor and debug UI hidden (F1 toggles)."
+        help="Start with the HUD hidden (F2 toggles)."
     )
 
     parser.add_argument(
@@ -102,7 +101,7 @@ def main():
     Logger.initialize()
 
     Logger.info(
-        "[Main] Starting engine."
+        "[Main] Starting."
     )
 
     # Application construction itself acquires no external
@@ -117,11 +116,9 @@ def main():
         # -------------------------------------------------
 
         application.initialize(
-            scene_path=arguments.scene
+            body=arguments.body,
+            dev=arguments.dev
         )
-
-        if arguments.play:
-            application.editor.play()
 
         if arguments.no_vsync:
 

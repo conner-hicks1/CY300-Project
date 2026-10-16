@@ -10,7 +10,6 @@ from ecs.components import (
     MeshRendererComponent,
     NameComponent,
     PointLightComponent,
-    RotatorComponent,
     TransformComponent
 )
 from graphics.render_settings import RenderSettings, Tonemapper
@@ -63,7 +62,6 @@ def build_scene(resources):
         material=resources.materials.get_handle("red"),
         casts_shadows=False
     ))
-    scene.add_component(root, RotatorComponent(degrees_per_second=(0.0, 45.0, 0.0)))
 
     child = scene.create_entity()
     scene.add_component(child, NameComponent("Child"))
@@ -117,7 +115,6 @@ def test_round_trip_preserves_components(resources, serializer):
     assert resources.materials.key_of(renderer.material) == "red"
     assert renderer.casts_shadows is False
 
-    assert loaded.get_component(root, RotatorComponent).degrees_per_second == (0.0, 45.0, 0.0)
 
     assert loaded.get_component(child, HierarchyComponent).parent == root
     assert loaded.get_component(child, PointLightComponent).color == (1.0, 0.5, 0.25)
@@ -172,7 +169,6 @@ def test_bad_file_leaves_scene_untouched(resources, serializer):
         (lambda d: d.update(version=99), "Unsupported scene version"),
         (lambda d: d["entities"][0]["components"].update(Bogus={}), "unknown component 'Bogus'"),
         (lambda d: d["entities"][0]["components"]["Transform"].update(position=[1, 2]), "list of 3 numbers"),
-        (lambda d: d["entities"][0]["components"]["Rotator"].update(degrees_per_second="fast"), "list of 3 numbers"),
         (lambda d: d["entities"][2]["components"]["Camera"].update(fov="wide"), "must be a number"),
         (lambda d: d["entities"][2]["components"]["Camera"].update(zoom=2), "unknown Camera field"),
         (lambda d: d["entities"][1]["components"]["Hierarchy"].update(parent=42), "parent 42 does not exist"),

@@ -23,7 +23,6 @@ from ecs.components import (
     RingsComponent,
     StarComponent,
     PointLightComponent,
-    RotatorComponent,
     SpotLightComponent,
     TransformComponent
 )
@@ -693,12 +692,6 @@ COMPONENT_CODECS: tuple[ComponentCodec, ...] = (
         "SpotLight",
         SpotLightComponent,
         create_default=lambda _: SpotLightComponent()
-    ),
-
-    _dataclass_codec(
-        "Rotator",
-        RotatorComponent,
-        create_default=lambda _: RotatorComponent()
     ),
 )
 

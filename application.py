@@ -24,7 +24,6 @@ from core.events import (
     EventDispatcher,
     MouseButtonPressedEvent,
     MouseButtonReleasedEvent,
-    WindowCloseEvent,
     WindowLostFocusEvent,
     WindowResizeEvent
 )
@@ -39,14 +38,11 @@ from core.timer import Timer
 from core.window import Window
 
 from ecs.components import (
-    AtmosphereComponent,
     BodyComponent,
     CameraComponent,
     ClockComponent,
     OrbitComponent,
-    PlanetComponent,
     StarComponent,
-    RingsComponent,
     CameraControllerComponent,
     DirectionalLightComponent,
     HierarchyComponent,
@@ -55,15 +51,18 @@ from ecs.components import (
 )
 from ecs.entity import Entity
 
+from game.flight import FlightContext, frame_body, go_to_orbit, go_to_surface, read_flight
+from game.hud import FlightHud
+from game.pause_menu import Destination, MenuActions, PauseMenu
+from game.quality import DEFAULT_QUALITY, apply_quality, current_quality
+from game.time_warp import TimeWarp
+
 from graphics.framebuffer import Framebuffer
 from graphics.gpu_timer import GpuTimer
 from graphics.material import Material
-from graphics.mesh_factory import MeshFactory
-from graphics.model_loader import load_gltf_material
 from graphics.render_command import RenderCommand
 from graphics.renderer import Renderer
 from graphics.shader import Shader
-from graphics.texture import Texture2D
 
 from math3d import quaternion
 from math3d.transform import Transform
@@ -90,17 +89,9 @@ from systems.camera_controller_system import (
 from systems.planet_system import PlanetSystem, planet_extent, terrain_settings_for
 from systems.orbit_system import OrbitSystem, body_states
 from systems.render_system import RenderSystem
-from systems.rotator_system import RotatorSystem
 from systems.transform_system import TransformSystem
 
 from scene.scene import Scene
-from scene.scene_serializer import (
-    SceneSerializer,
-    model_material_key
-)
-
-from editor.planet_panel import PlanetPanel, sun_orientation
-from editor.scene_editor import SceneEditor
 
 from ui.debug_panel import DebugContext, DebugPanel
 from ui.imgui_layer import ImGuiLayer
@@ -113,7 +104,7 @@ class Application:
     # Timing
     # =====================================================
     #
-    # Simulation (RotatorSystem, future physics) runs on a
+    # Simulation (vessel physics, to come) runs on a
     # fixed timestep so results do not depend on frame
     # rate. Input/camera run once per rendered frame.
     #
@@ -129,9 +120,6 @@ class Application:
 
     # Main-thread time per frame for job completions.
     JOB_BUDGET_SECONDS = 0.002
-
-    # Main-thread time per frame for the simulations' GPU
-    # work (each slice is one small dispatch).
 
     # =====================================================
     # Construction
@@ -175,7 +163,6 @@ class Application:
         self.renderer: Renderer | None = None
         self.render_system: RenderSystem | None = None
         self.transform_system: TransformSystem | None = None
-        self.rotator_system: RotatorSystem | None = None
         self.camera_controller_system: (
             CameraControllerSystem | None
         ) = None
@@ -192,8 +179,27 @@ class Application:
         # -------------------------------------------------
 
         self.imgui_layer: ImGuiLayer | None = None
+
+        self.hud = FlightHud()
+        self.pause_menu: PauseMenu | None = None
+
+        # Developer tools (F3): stats, render settings,
+        # profiler.
+        self.dev_panels = PanelRegistry()
         self.debug_panel: DebugPanel | None = None
-        self.planet_panel: PlanetPanel | None = None
+        self.dev_tools = False
+
+        # -------------------------------------------------
+        # Game
+        # -------------------------------------------------
+
+        self.time_warp = TimeWarp()
+
+        # Camera speed for the HUD (smoothed).
+        self._last_camera_position: np.ndarray | None = None
+        self._speed = 0.0
+
+        self._quit_requested = False
 
         # -------------------------------------------------
         # Resources
@@ -209,21 +215,20 @@ class Application:
 
         self.scene: Scene | None = None
 
-        # -------------------------------------------------
-        # Editor
-        # -------------------------------------------------
-
-        self.serializer: SceneSerializer | None = None
-        self.editor: SceneEditor | None = None
-
     # =====================================================
     # Initialization
     # =====================================================
 
     def initialize(
         self,
-        scene_path=None
+        body: str | None = None,
+        dev: bool = False
     ):
+        """
+        body: where to start (a profile id in assets/bodies/;
+            Earth by default).
+        dev: start with the developer tools open (F3).
+        """
 
         engine_assert(
             not self._initialized,
@@ -246,7 +251,7 @@ class Application:
         self.window = Window(
             1280,
             720,
-            "OpenGL Engine"
+            "CY300 Spaceflight"
         )
 
         self.window.set_event_callback(
@@ -302,7 +307,7 @@ class Application:
         # -------------------------------------------------
 
         self.scene = Scene(
-            "Test Scene"
+            "Flight"
         )
 
         # -------------------------------------------------
@@ -310,7 +315,6 @@ class Application:
         # -------------------------------------------------
 
         self.transform_system = TransformSystem()
-        self.rotator_system = RotatorSystem()
         self.orbit_system = OrbitSystem()
         self.camera_controller_system = CameraControllerSystem()
 
@@ -357,58 +361,27 @@ class Application:
             self.handles["planet_material"]
         )
 
-        self.serializer = SceneSerializer(
-            self.resources,
-            load_material=self._create_model_material
-        )
-
-        # Body profiles (assets/bodies/*.json) for File >
-        # New Planet.
+        # Body profiles (assets/bodies/*.json): every place
+        # to travel to.
         self.body_presets = self._load_body_presets()
 
-        self.editor = SceneEditor(
-            self.scene,
-            self.resources,
-            self.render_system,
-            self.window,
-            self.serializer,
-            populate_demo_scene=self._populate_demo_scene,
-            load_model=MeshFactory.load_model,
-            load_model_material=self._load_model_material_handle,
-            panels=PanelRegistry(),
-            body_presets={
-                group: [(profile.id, profile.name) for profile in members]
-                for group, members in preset_groups(self.body_presets).items()
-            },
-            populate_body_scene=self._populate_body_scene
-        )
-
-        # Tool windows, in View-menu order after the
-        # editor's Hierarchy / Inspector.
-        self.planet_panel = PlanetPanel(
-            self.editor,
-            self.planet_system,
-            apply_preset=self.apply_body_preset,
-            descriptions={
-                profile.id: profile.description
-                for profile in self.body_presets.values()
-            },
-            maps={
-                profile.id: profile.maps
-                for profile in self.body_presets.values()
-            }
-        )
+        self.pause_menu = PauseMenu({
+            group: [Destination(profile.id, profile.name, profile.description) for profile in members]
+            for group, members in preset_groups(self.body_presets).items()
+        })
 
         self.debug_panel = DebugPanel(
-            self.editor.panels
+            self.dev_panels
         )
 
-        self._load_initial_scene(
-            scene_path
-        )
+        self.dev_tools = dev
+
+        apply_quality(self.render_system.settings, DEFAULT_QUALITY)
+
+        self.travel_to(body or self.START_BODY)
 
         # Resolve world matrices before the first frame, so
-        # the editor has valid data even if update() is
+        # everything has valid data even if update() is
         # skipped.
         self.transform_system.update(
             self.scene
@@ -421,45 +394,38 @@ class Application:
         )
 
     # =====================================================
-    # Initial Scene
+    # Travel
     # =====================================================
 
-    DEFAULT_SCENE_PATH = Path("assets/scenes/planet.scene.json")
-
-    def _load_initial_scene(
+    def travel_to(
         self,
-        scene_path
+        body_id: str
     ):
         """
-        --scene PATH if given, else the default scene file if
-        it exists, else the built-in demo. A scene file that
-        fails to load falls back to the demo (the error is
-        logged and shown in the editor status bar).
+        Start over at a body: a fresh scene with it, its
+        system, the sun and the camera (on its surface, or
+        in space over a giant or a small body).
         """
 
-        path = (
-            Path(scene_path)
-            if scene_path is not None
-            else self.DEFAULT_SCENE_PATH
+        body_id = body_id.partition("@")[0]
+
+        engine_assert(
+            body_id in self.body_presets,
+            f"Unknown body '{body_id}' (assets/bodies/)."
         )
-
-        if path.is_file() and self.editor.load_initial(path):
-            return
-
-        if scene_path is not None and not path.is_file():
-
-            Logger.error(
-                "[Application] Scene file not found: %s",
-                path
-            )
 
         self.scene.clear()
 
-        self._populate_demo_scene(
-            self.scene
-        )
+        self.scene.name = self.body_presets[body_id].name
 
-        self.editor.new_scene_loaded()
+        self._populate_body_scene(self.scene, body_id)
+
+        self.time_warp.stop()
+
+        self._last_camera_position = None
+        self._speed = 0.0
+
+        Logger.info("[Application] Traveled to %s.", self.scene.name)
 
     # =====================================================
     # Resource Loading
@@ -487,153 +453,11 @@ class Application:
             )
         )
 
-        # -------------------------------------------------
-        # Textures
-        # -------------------------------------------------
-        #
-        # Color maps are sRGB; data maps are linear.
-
-        handles["uv_checker"] = resources.textures.load(
-            "uv_checker",
-            lambda: Texture2D(
-                "assets/textures/uv_checker.png",
-                srgb=True
-            )
-        )
-
-        handles["tiles_albedo"] = resources.textures.load(
-            "tiles_albedo",
-            lambda: Texture2D(
-                "assets/textures/tiles_albedo.png",
-                srgb=True
-            )
-        )
-
-        handles["tiles_normal"] = resources.textures.load(
-            "tiles_normal",
-            lambda: Texture2D(
-                "assets/textures/tiles_normal.png",
-                srgb=False
-            )
-        )
-
-        # Occlusion (R), roughness (G), metallic (B).
-        handles["tiles_orm"] = resources.textures.load(
-            "tiles_orm",
-            lambda: Texture2D(
-                "assets/textures/tiles_orm.png",
-                srgb=False
-            )
-        )
+        lit = handles["lit"]
 
         # -------------------------------------------------
         # Materials
         # -------------------------------------------------
-
-        # Metallic-roughness PBR (see assets/shaders/lit.frag.glsl).
-        # Former Blinn-Phong shininess s maps to roughness
-        # ~ sqrt(2 / (s + 2)): 32 -> 0.24, 128 -> 0.12.
-
-        lit = handles["lit"]
-
-        def cube_material():
-
-            material = Material(lit)
-
-            material.set_texture("uBaseColorMap", handles["uv_checker"])
-            material.set_float("uMetallic", 0.0)
-            material.set_float("uRoughness", 0.55)
-
-            return material
-
-        def floor_material():
-
-            material = Material(lit)
-
-            material.set_texture("uBaseColorMap", handles["tiles_albedo"])
-            material.set_texture("uNormalMap", handles["tiles_normal"])
-
-            # One texture carries occlusion, roughness and
-            # metallic; the factors let the map decide.
-            material.set_texture("uMetallicRoughnessMap", handles["tiles_orm"])
-            material.set_texture("uOcclusionMap", handles["tiles_orm"])
-            material.set_float("uMetallic", 1.0)
-            material.set_float("uRoughness", 1.0)
-
-            material.set_vec2("uUVScale", (3.0, 3.0))
-
-            return material
-
-        def pbr_material(color, metallic, roughness, emissive=(0.0, 0.0, 0.0)):
-
-            def create():
-
-                material = Material(lit)
-
-                material.set_vec3("uBaseColor", color)
-                material.set_float("uMetallic", metallic)
-                material.set_float("uRoughness", roughness)
-                material.set_vec3("uEmissive", emissive)
-
-                return material
-
-            return create
-
-        handles["cube_material"] = resources.materials.load(
-            "cube",
-            cube_material
-        )
-
-        handles["floor_material"] = resources.materials.load(
-            "floor",
-            floor_material
-        )
-
-        # Keys kept from the Blinn-Phong era so existing
-        # scene files still resolve.
-
-        handles["red_material"] = resources.materials.load(
-            "glossy_red",
-            pbr_material((0.8, 0.08, 0.06), metallic=0.0, roughness=0.25)
-        )
-
-        # Real gold: a metal whose base color is its
-        # reflectance.
-        handles["gold_material"] = resources.materials.load(
-            "glossy_gold",
-            pbr_material((1.0, 0.77, 0.34), metallic=1.0, roughness=0.22)
-        )
-
-        handles["teal_material"] = resources.materials.load(
-            "glossy_teal",
-            pbr_material((0.1, 0.6, 0.55), metallic=0.0, roughness=0.4)
-        )
-
-        # Emissive: glows (and blooms) without lighting
-        # anything else.
-        handles["glow_material"] = resources.materials.load(
-            "glow",
-            pbr_material((0.05, 0.05, 0.05), metallic=0.0, roughness=0.5, emissive=(0.6, 3.5, 4.0))
-        )
-
-        # -------------------------------------------------
-        # Meshes
-        # -------------------------------------------------
-
-        handles["cube"] = resources.meshes.load(
-            "cube",
-            MeshFactory.create_cube
-        )
-
-        handles["plane"] = resources.meshes.load(
-            "plane",
-            MeshFactory.create_plane
-        )
-
-        handles["sphere"] = resources.meshes.load(
-            "sphere",
-            MeshFactory.create_sphere
-        )
 
         # Planet terrain: albedo and roughness are computed
         # per pixel from per-vertex terrain inputs
@@ -666,8 +490,8 @@ class Application:
 
         except ProfileError as error:
 
-            # A broken profile must not stop the editor; the
-            # demo needs Earth though.
+            # A broken profile only loses that body; the start
+            # needs Earth though.
             Logger.error("[Application] Body profiles: %s", error)
 
             presets = {}
@@ -679,173 +503,11 @@ class Application:
         )
 
         engine_assert(
-            self.DEMO_BODY in presets,
-            f"assets/bodies/{self.DEMO_BODY}.json is missing or invalid."
+            self.START_BODY in presets,
+            f"assets/bodies/{self.START_BODY}.json is missing or invalid."
         )
 
         return presets
-
-    def apply_body_preset(
-        self,
-        entity: Entity,
-        profile_id: str
-    ):
-        """
-        Turn an existing planet into another body: its
-        planet, body and atmosphere components are
-        replaced by the profile's (the
-        transform stays). The camera backs off to show the
-        whole new planet. One undo step.
-        """
-
-        profile = self.body_presets[profile_id]
-
-        scene = self.scene
-
-        for component_type in (
-            PlanetComponent,
-            BodyComponent,
-            AtmosphereComponent,
-            RingsComponent,
-            OrbitComponent,
-        ):
-
-            if scene.has_component(entity, component_type):
-                scene.remove_component(entity, component_type)
-
-        parts = components_for(profile)
-
-        for component in parts.all():
-            scene.add_component(entity, component)
-
-        name = scene.try_get_component(entity, NameComponent)
-
-        if name is not None:
-            name.name = profile.name
-
-        # Its old moons (or planet) leave; the new body's
-        # system arrives.
-        for other, _ in list(scene.registry.view_with(OrbitComponent)):
-
-            if other != entity:
-                scene.destroy_entity(other)
-
-        self._add_system_members(profile_id)
-
-        self.orbit_system.anchor_to(scene, entity)
-
-        camera = next(
-            (
-                camera_entity
-                for camera_entity, camera in scene.registry.view_with(CameraComponent)
-                if camera.primary
-            ),
-            None
-        )
-
-        if camera is not None:
-
-            center = np.asarray(
-                scene.get_component(entity, TransformComponent).world_matrix,
-                dtype=np.float64
-            )[:3, 3]
-
-            self.editor.frame_planet(camera, center, planet_extent(parts.planet))
-
-        self.editor.record(f"Become {profile.name}")
-
-        self.editor.set_status(f"The planet is now {profile.name}.")
-
-    # =====================================================
-    # Model Materials
-    # =====================================================
-
-    # glTF texture slot -> (sampler, is color data)
-    _MODEL_TEXTURE_SLOTS = {
-        "base_color": ("uBaseColorMap", True),
-        "metallic_roughness": ("uMetallicRoughnessMap", False),
-        "normal": ("uNormalMap", False),
-        "occlusion": ("uOcclusionMap", False),
-        "emissive": ("uEmissiveMap", True),
-    }
-
-    def _create_model_material(
-        self,
-        key: str
-    ) -> Material:
-        """
-        Build the Material for "<model path>#material" from
-        the model file (glTF materials; other formats get a
-        neutral default).
-        """
-
-        model_path, _, _ = key.partition("#")
-
-        description = load_gltf_material(
-            model_path
-        )
-
-        material = Material(
-            self.handles["lit"]
-        )
-
-        if description is None:
-
-            material.set_float("uRoughness", 0.6)
-
-            return material
-
-        material.set_vec3("uBaseColor", description.base_color)
-        material.set_float("uMetallic", description.metallic)
-        material.set_float("uRoughness", description.roughness)
-        material.set_vec3("uEmissive", description.emissive)
-        material.set_float("uNormalStrength", description.normal_scale)
-        material.set_float("uOcclusionStrength", description.occlusion_strength)
-
-        for slot, source in description.textures.items():
-
-            sampler, srgb = self._MODEL_TEXTURE_SLOTS[slot]
-
-            texture_key = f"{model_path}#{source.label}:{'srgb' if srgb else 'linear'}"
-
-            def load(source=source, srgb=srgb, texture_key=texture_key):
-
-                if source.path is not None:
-                    return Texture2D(source.path, srgb=srgb)
-
-                return Texture2D.from_encoded(
-                    source.data,
-                    srgb=srgb,
-                    label=texture_key
-                )
-
-            material.set_texture(
-                sampler,
-                self.resources.textures.load(texture_key, load)
-            )
-
-        Logger.info(
-            "[Application] Imported material '%s' from %s.",
-            description.name,
-            model_path
-        )
-
-        return material
-
-    def _load_model_material_handle(
-        self,
-        model_path: str
-    ):
-        """Handle of a model's material (loading it once)."""
-
-        key = model_material_key(
-            model_path
-        )
-
-        return self.resources.materials.load(
-            key,
-            lambda: self._create_model_material(key)
-        )
 
     # =====================================================
     # Scene Creation
@@ -889,8 +551,8 @@ class Application:
 
         return entity
 
-    # The built-in demo and File > New Demo Scene.
-    DEMO_BODY = "earth"
+    # Where the game starts unless told otherwise.
+    START_BODY = "earth"
 
     # Bodies smaller than this (km) start with the camera in
     # space, the whole body in view.
@@ -964,14 +626,6 @@ class Application:
 
         return moment
 
-    def _populate_demo_scene(
-        self,
-        scene: Scene
-    ):
-        """Earth."""
-
-        self._populate_body_scene(scene, self.DEMO_BODY)
-
     def _populate_body_scene(
         self,
         scene: Scene,
@@ -979,13 +633,12 @@ class Application:
     ):
         """
         Fill `scene` with a planet built from a body profile
-        (assets/bodies/<body_id>.json; File > New Planet), a
-        sun, and a camera.
+        (assets/bodies/<body_id>.json), a sun, and a camera.
 
         Solid bodies: the planet is turned so a scenic spot
         (planet/spawn.py) is on top, and placed so that spot
-        sits at the world origin (the sky and editor grid
-        assume +Y is up there); the camera stands above it.
+        sits at the world origin (+Y up there); the camera
+        stands above it.
         Gas giants: the camera starts in orbit.
 
         Bodies are as measured, wherever their maps are
@@ -996,9 +649,6 @@ class Application:
             scene is self.scene,
             "The planet builder fills the application's scene."
         )
-
-        # (Old "<id>@real" names: every body is real now.)
-        body_id = body_id.partition("@")[0]
 
         profile = self.body_presets[body_id]
 
@@ -1130,7 +780,7 @@ class Application:
         # Sun and clock (OrbitSystem moves everything)
         # -------------------------------------------------
 
-        clock = ClockComponent(time=seconds_since_j2000(self.START_DATE))
+        clock = ClockComponent(time=seconds_since_j2000(self.START_DATE), rate=1.0)
 
         self._create_entity(
             "Sun",
@@ -1231,7 +881,7 @@ class Application:
 
         try:
 
-            while not self.window.should_close():
+            while not self.window.should_close() and not self._quit_requested:
 
                 self.cprofile_capture.begin_frame()
 
@@ -1311,9 +961,9 @@ class Application:
         self,
         visible: bool
     ):
+        """The HUD (F2); the developer tools have their own switch (F3)."""
 
-        self.debug_panel.visible = visible
-        self.editor.visible = visible
+        self.hud.visible = visible
 
     def update(self):
 
@@ -1327,48 +977,30 @@ class Application:
         dt = self.timer.delta_time
 
         # -------------------------------------------------
-        # Application Input
+        # Game Keys
         # -------------------------------------------------
 
-        # Esc no longer quits: in the editor it clears the
-        # selection, and a stray keypress must not throw
-        # away unsaved work. Close the window or use
-        # File > Exit.
+        self._handle_keys()
 
-        ui_wants_keyboard = (
-            self.imgui_layer.wants_keyboard
-            and not self._looking
+        paused = self.pause_menu.open
+
+        # The clock runs at the warp's rate; the menu stops
+        # it.
+        self.time_warp.paused = paused
+
+        self.time_warp.apply(
+            FlightContext.find(self.scene).clock()
         )
-
-        if self.editor.ui_hidden_requested:
-
-            self.editor.ui_hidden_requested = False
-
-            self.set_ui_visible(False)
-
-        if not ui_wants_keyboard:
-
-            if Input.is_key_pressed(Key.F1):
-
-                self.set_ui_visible(
-                    not self.debug_panel.visible
-                )
-
-            if Input.is_key_pressed(Key.F5):
-
-                self.resources.reload_changed_shaders(
-                    force=True
-                )
 
         profiler = self.profiler
 
         # -------------------------------------------------
-        # Shader Hot Reload
+        # Shader Hot Reload (developer tools)
         # -------------------------------------------------
 
         self._shader_poll_timer += dt
 
-        if self._shader_poll_timer >= self.SHADER_POLL_INTERVAL:
+        if self.dev_tools and self._shader_poll_timer >= self.SHADER_POLL_INTERVAL:
 
             self._shader_poll_timer = 0.0
 
@@ -1380,10 +1012,9 @@ class Application:
         # Fixed-Step Simulation
         # -------------------------------------------------
         #
-        # Only while the editor is in Play mode; in Edit
-        # mode the scene holds still.
+        # Held while paused.
 
-        if self.editor.playing:
+        if not paused:
             self._fixed_accumulator += dt
         else:
             self._fixed_accumulator = 0.0
@@ -1425,10 +1056,6 @@ class Application:
             )
 
         # -------------------------------------------------
-        # Camera
-        # -------------------------------------------------
-
-        # -------------------------------------------------
         # Orbits: the clock, the bodies and the sun
         # -------------------------------------------------
 
@@ -1448,17 +1075,20 @@ class Application:
                 self.scene
             )
 
-            # Editor-style flying: WASD / Space / Shift only
-            # while the right mouse button is held, so the
-            # same keys can switch gizmo modes the rest of
-            # the time.
+            # Free flight while the right mouse button is
+            # held (a stand-in until there are vessels to
+            # fly); nothing moves while paused.
+
+            flying = self._looking and not paused
 
             self.camera_controller_system.update(
                 self.scene,
                 dt,
-                look_enabled=self._looking,
-                move_enabled=self._looking
+                look_enabled=flying,
+                move_enabled=flying
             )
+
+            self._track_speed(dt)
 
         # -------------------------------------------------
         # World Transforms
@@ -1476,11 +1106,6 @@ class Application:
         # Planet Streaming
         # -------------------------------------------------
 
-        # Data views show the terrain without haze.
-        self.render_system.suppress_haze = (
-            self.planet_system.view_mode != 0
-        )
-
         with profiler.scope("Planet"):
 
             # Rocks, trees and grass (Render settings).
@@ -1495,11 +1120,123 @@ class Application:
         self,
         fixed_delta_time: float
     ):
+        """Fixed-step simulation (vessel physics will run here)."""
 
-        self.rotator_system.fixed_update(
-            self.scene,
-            fixed_delta_time
+    # -----------------------------------------------------
+    # Keys
+    # -----------------------------------------------------
+
+    def _handle_keys(self):
+
+        # Keys typed into a developer window are its own.
+        if self.imgui_layer.wants_keyboard and not self._looking:
+            return
+
+        menu = self.pause_menu
+
+        if Input.is_key_pressed(Key.ESCAPE):
+
+            if menu.open:
+                menu.back()
+            else:
+                menu.show()
+                self._set_looking(False)
+
+        if Input.is_key_pressed(Key.F2):
+            self.hud.visible = not self.hud.visible
+
+        if Input.is_key_pressed(Key.F3):
+            self.dev_tools = not self.dev_tools
+
+        if self.dev_tools and Input.is_key_pressed(Key.F5):
+
+            self.resources.reload_changed_shaders(
+                force=True
+            )
+
+        if menu.open:
+            return
+
+        if Input.is_key_pressed(Key.PERIOD):
+            self.time_warp.faster()
+
+        if Input.is_key_pressed(Key.COMMA):
+            self.time_warp.slower()
+
+        if Input.is_key_pressed(Key.SLASH):
+            self.time_warp.stop()
+
+    def _track_speed(
+        self,
+        delta_time: float
+    ):
+        """The camera's speed (smoothed; teleports settle within a second)."""
+
+        context = FlightContext.find(self.scene)
+
+        if context.camera is None or delta_time <= 0.0:
+            return
+
+        position = np.asarray(context.camera_transform().position, dtype=np.float64)
+
+        if self._last_camera_position is not None:
+
+            speed = float(np.linalg.norm(position - self._last_camera_position)) / delta_time
+
+            self._speed += (speed - self._speed) * min(1.0, delta_time * 6.0)
+
+        self._last_camera_position = position
+
+    # -----------------------------------------------------
+    # Menu Actions
+    # -----------------------------------------------------
+
+    def _menu_actions(
+        self,
+        context: FlightContext
+    ) -> MenuActions:
+
+        def travel(body_id):
+            self.pause_menu.close()
+            self.travel_to(body_id)
+
+        def camera_move(move):
+
+            def run():
+
+                if context.body is not None and context.camera is not None:
+
+                    move()
+
+                    self.pause_menu.close()
+
+                    # (A jump, not a speed.)
+                    self._last_camera_position = None
+
+            return run
+
+        def to_surface():
+
+            spawn = self.planet_system.spawn_point(context.body)
+
+            if spawn is not None:
+                go_to_surface(context, spawn, self.planet_system.ground)
+
+        return MenuActions(
+            resume=self.pause_menu.close,
+            travel=travel,
+            to_surface=camera_move(to_surface),
+            to_orbit=camera_move(lambda: go_to_orbit(context, 400_000.0)),
+            whole_body=camera_move(
+                lambda: frame_body(context, self.planet_system.extent(context.body) or context.planet.radius)
+            ),
+            set_quality=lambda name: apply_quality(self.render_system.settings, name),
+            quit=self.request_quit
         )
+
+    def request_quit(self):
+
+        self._quit_requested = True
 
     # =====================================================
     # Render
@@ -1529,40 +1266,20 @@ class Application:
             return
 
         # -------------------------------------------------
-        # Scene, into the editor's viewport
+        # Scene, over the whole window
         # -------------------------------------------------
-        #
-        # With the editor visible the 3D view is the docked
-        # layout's central area (last frame's rectangle; the
-        # UI is built after rendering); otherwise the whole
-        # window. Clear first so nothing stale shows around
-        # it.
 
         Framebuffer.bind_default(width, height)
 
-        RenderCommand.set_clear_color((0.06, 0.065, 0.075, 1.0))
-        RenderCommand.clear(depth=False)
-
-        view_x, view_y, view_width, view_height = self._viewport_pixels(
-            width,
-            height
-        )
-
         self.render_system.render(
             self.scene,
-            view_width,
-            view_height,
-            output_origin=(view_x, view_y),
-            extra_items=self.planet_system.draw_items,
-            selected=(
-                self.editor.selected
-                if self.editor.visible
-                else None
-            )
+            width,
+            height,
+            extra_items=self.planet_system.draw_items
         )
 
         # -------------------------------------------------
-        # Debug UI (on top of the final image)
+        # HUD, menu and developer tools (over the image)
         # -------------------------------------------------
 
         profiler = self.profiler
@@ -1573,62 +1290,71 @@ class Application:
 
                 self.imgui_layer.begin_frame()
 
-                self.editor.draw(
-                    looking=self._looking
-                )
-
-                self.planet_panel.draw(
-                    self.timer.delta_time,
-                    self.timer.fps
-                )
-
-                self.debug_panel.draw(
-                    DebugContext(
-                        resources=self.resources,
-                        settings=self.render_system.settings,
-                        stats=self.renderer.stats,
-                        timer=self.timer,
-                        reload_shaders=lambda: self.resources.reload_changed_shaders(
-                            force=True
-                        ),
-                        profiler=profiler,
-                        cprofile_capture=self.cprofile_capture,
-                        window=self.window,
-                        jobs=self.jobs,
-                        planet_stats=self.planet_system.stats
-                    )
-                )
+                self._draw_ui()
 
             with profiler.scope("Draw", gpu=True):
 
                 self.imgui_layer.end_frame()
 
-    def _viewport_pixels(
-        self,
-        width: int,
-        height: int
-    ) -> tuple[int, int, int, int]:
-        """
-        The editor viewport in framebuffer pixels
-        (x, y from the bottom-left, width, height).
-        """
+    def _draw_ui(self):
 
-        rect = self.editor.viewport_rect
+        context = FlightContext.find(self.scene)
 
-        io = imgui.get_io()
+        planets = self.planet_system.stats
 
-        scale_x = io.display_framebuffer_scale.x or 1.0
-        scale_y = io.display_framebuffer_scale.y or 1.0
+        self.hud.draw(
+            read_flight(context, self.planet_system.ground),
+            self._speed,
+            self.time_warp,
+            loading=bool(planets.chunks_building or planets.chunks_queued),
+            fps=self.timer.fps if self.dev_tools else None
+        )
 
-        x = int(round(rect.x * scale_x))
-        top = int(round(rect.y * scale_y))
+        self.pause_menu.draw(
+            self._menu_actions(context),
+            context.name() if context.body is not None else "",
+            current_quality(self.render_system.settings)
+        )
 
-        view_width = max(1, min(width - x, int(round(rect.width * scale_x))))
-        view_height = max(1, min(height - top, int(round(rect.height * scale_y))))
+        if not self.dev_tools:
+            return
 
-        y = max(0, height - top - view_height)
+        if imgui.begin_main_menu_bar():
 
-        return x, y, view_width, view_height
+            if imgui.begin_menu("Developer"):
+
+                self.dev_panels.draw_menu_items()
+
+                imgui.separator()
+
+                if imgui.menu_item("Reload shaders", "F5", False)[0]:
+                    self.resources.reload_changed_shaders(force=True)
+
+                if imgui.menu_item("Hide developer tools", "F3", False)[0]:
+                    self.dev_tools = False
+
+                imgui.end_menu()
+
+            imgui.end_main_menu_bar()
+
+        profiler = self.profiler
+
+        self.debug_panel.draw(
+            DebugContext(
+                resources=self.resources,
+                settings=self.render_system.settings,
+                stats=self.renderer.stats,
+                timer=self.timer,
+                reload_shaders=lambda: self.resources.reload_changed_shaders(
+                    force=True
+                ),
+                profiler=profiler,
+                cprofile_capture=self.cprofile_capture,
+                window=self.window,
+                jobs=self.jobs,
+                planet_stats=self.planet_system.stats
+            )
+        )
 
     # =====================================================
     # Screenshot
@@ -1716,11 +1442,6 @@ class Application:
         )
 
         dispatcher.dispatch(
-            WindowCloseEvent,
-            self.on_window_close
-        )
-
-        dispatcher.dispatch(
             WindowResizeEvent,
             self.on_window_resize
         )
@@ -1739,30 +1460,6 @@ class Application:
             MouseButtonReleasedEvent,
             self.on_mouse_button_released
         )
-
-    def on_window_close(
-        self,
-        event
-    ):
-
-        Logger.info(
-            "[Application] Window close requested."
-        )
-
-        # With unsaved changes, keep the window open and ask
-        # first; the editor closes it after Save / Discard.
-
-        if self.editor is not None and self.editor.dirty:
-
-            self.window.set_should_close(
-                False
-            )
-
-            self.editor.request_close(
-                lambda: self.window.set_should_close(True)
-            )
-
-        return True
 
     def on_window_resize(
         self,
@@ -1792,8 +1489,8 @@ class Application:
     #
     # Hold the right mouse button to capture the cursor and
     # look around. Releasing it frees the cursor for the
-    # debug UI. Clicks that land on the UI never start
-    # looking.
+    # menu and developer tools. Clicks that land on them
+    # never start looking.
 
     def on_mouse_button_pressed(
         self,
@@ -1803,6 +1500,7 @@ class Application:
         if (
             event.button == MouseButton.RIGHT
             and not self.imgui_layer.wants_mouse
+            and not self.pause_menu.open
         ):
 
             self._set_looking(
@@ -1870,9 +1568,7 @@ class Application:
             self.imgui_layer = None
 
         self.debug_panel = None
-
-        self.editor = None
-        self.serializer = None
+        self.pause_menu = None
 
         # =================================================
         # Scene
@@ -1903,7 +1599,6 @@ class Application:
 
         self.camera_controller_system = None
         self.transform_system = None
-        self.rotator_system = None
 
         if self.jobs is not None:
 

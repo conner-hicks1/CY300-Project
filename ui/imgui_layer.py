@@ -47,10 +47,8 @@ class ImGuiLayer:
 
         io = imgui.get_io()
 
-        # Docked layout persistence (gitignored). Named apart
-        # from the pre-docking floating layout so stale
-        # window positions are not reused.
-        io.set_ini_filename("editor_layout_docked.ini")
+        # Developer windows' positions (gitignored).
+        io.set_ini_filename("ui_layout.ini")
 
         io.config_flags |= imgui.ConfigFlags_.docking_enable.value
 

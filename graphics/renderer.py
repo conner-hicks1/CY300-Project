@@ -121,7 +121,6 @@ class Renderer:
         "uEmissive": (0.0, 0.0, 0.0),
         "uUVScale": (1.0, 1.0),
         "uTerrainShading": 0.0,
-        "uTerrainView": 0.0,
         "uSurfacePalette": 0.0,
         "uLiquid": 1.0,
         "uColorLow": (0.3, 0.3, 0.3),
