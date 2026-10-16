@@ -355,6 +355,108 @@ class MeshFactory:
             indices=indices
         )
 
+    @staticmethod
+    def frustum_data(
+        radius_top: float,
+        radius_bottom: float,
+        height: float,
+        segments: int = 32
+    ) -> MeshData:
+
+        # A cylinder whose ends may differ (a cone when one
+        # is 0): the bottom at y = 0, the top at y = height,
+        # around the Y axis. Rocket parts. The side's normals
+        # lean with its slope; flat caps where an end has a
+        # radius. Side UVs: u around, v up.
+
+        engine_assert(
+            segments >= 3 and height > 0.0,
+            "Frustum needs at least 3 segments and a height."
+        )
+
+        angles = np.linspace(0.0, 2.0 * np.pi, segments + 1)
+
+        cos, sin = np.cos(angles), np.sin(angles)
+
+        # Outward normal of a side sloping by (r_bottom -
+        # r_top) over the height.
+        slope = (radius_bottom - radius_top) / height
+
+        length = np.sqrt(1.0 + slope * slope)
+
+        side_normal = np.stack((cos / length, np.full_like(cos, slope / length), sin / length), axis=-1)
+
+        positions = []
+        normals = []
+        uvs = []
+        indices = []
+
+        # Side: bottom ring then top ring (seam duplicated).
+        for y, radius, v in ((0.0, radius_bottom, 0.0), (height, radius_top, 1.0)):
+
+            positions.append(np.stack((cos * radius, np.full_like(cos, y), sin * radius), axis=-1))
+            normals.append(side_normal)
+            uvs.append(np.stack((angles / (2.0 * np.pi), np.full_like(cos, v)), axis=-1))
+
+        columns = segments + 1
+
+        for j in range(segments):
+
+            a, b = j, j + 1
+            c, d = columns + j, columns + j + 1
+
+            # Counter-clockwise seen from outside.
+            indices.extend((a, c, b, b, c, d))
+
+        count = 2 * columns
+
+        # Caps: a center and a ring each.
+        for y, radius, facing in ((0.0, radius_bottom, -1.0), (height, radius_top, 1.0)):
+
+            if radius <= 0.0:
+                continue
+
+            center = count
+
+            ring = np.stack((cos * radius, np.full_like(cos, y), sin * radius), axis=-1)
+
+            positions.append(np.concatenate(([[0.0, y, 0.0]], ring)))
+            normals.append(np.tile([0.0, facing, 0.0], (columns + 1, 1)))
+            uvs.append(np.concatenate(([[0.5, 0.5]], np.stack((0.5 + 0.5 * cos, 0.5 + 0.5 * sin), axis=-1))))
+
+            for j in range(segments):
+
+                first, second = center + 1 + j, center + 2 + j
+
+                indices.extend((center, first, second) if facing < 0.0 else (center, second, first))
+
+            count += columns + 1
+
+        return MeshData.from_attributes(
+            positions=np.concatenate(positions),
+            normals=np.concatenate(normals),
+            uvs=np.concatenate(uvs),
+            indices=indices
+        )
+
+    @classmethod
+    def create_frustum(
+        cls,
+        radius_top: float,
+        radius_bottom: float,
+        height: float,
+        segments: int = 32
+    ) -> Mesh:
+
+        return Mesh.from_data(
+            cls.frustum_data(
+                radius_top,
+                radius_bottom,
+                height,
+                segments
+            )
+        )
+
     @classmethod
     def create_sphere(
         cls,

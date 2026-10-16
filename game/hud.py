@@ -18,6 +18,15 @@ PANEL_FLAGS = (
 )
 
 WARP_COLOR = (1.0, 0.82, 0.3, 1.0)
+
+SITUATION_COLORS = {
+    "Landed": (0.6, 0.85, 0.6, 1.0),
+    "Flying": (0.55, 0.75, 1.0, 1.0),
+    "Sub-orbital": (1.0, 0.82, 0.3, 1.0),
+    "Orbiting": (0.5, 1.0, 0.7, 1.0),
+    "Escaping": (1.0, 0.6, 1.0, 1.0),
+    "Destroyed": (1.0, 0.45, 0.35, 1.0),
+}
 LOADING_COLOR = (0.95, 0.8, 0.35, 1.0)
 
 
@@ -30,6 +39,9 @@ LOADING_COLOR = (0.95, 0.8, 0.35, 1.0)
 #   top center    the clock: date and time warp
 #   bottom left   where you are: body, altitude, speed, the
 #                 air outside, position, local time
+#   bottom center the vessel: situation, throttle, stage,
+#                 propellant, thrust to weight, speeds, the
+#                 orbit's apoapsis and periapsis
 #   bottom right  key hints
 #
 # F2 hides it (screenshots).
@@ -46,8 +58,10 @@ class FlightHud:
         speed: float,
         warp: TimeWarp,
         loading: bool = False,
-        fps: float | None = None
+        fps: float | None = None,
+        vessel=None
     ):
+        """vessel: the vessel's readout (systems/vessel_system.py VesselReadout), if flying one."""
 
         if not self.visible:
             return
@@ -61,7 +75,18 @@ class FlightHud:
 
         self._draw_flight(readout, speed, loading, fps, (x + 10.0, y + height - 10.0))
 
-        self._draw_hints((x + width - 10.0, y + height - 10.0))
+        self._draw_hints((x + width - 10.0, y + height - 10.0), vessel is not None)
+
+        if vessel is not None:
+
+            self._draw_vessel(vessel, (x + width * 0.5, y + height - 10.0))
+
+            if vessel.destroyed:
+                self._draw_banner(
+                    f"{vessel.name} hit the ground at {vessel.impact_speed:,.0f} m/s and was destroyed.",
+                    "Esc > Revert to launch",
+                    (x + width * 0.5, y + height * 0.3)
+                )
 
     # -----------------------------------------------------
     # Clock
@@ -87,6 +112,17 @@ class FlightHud:
             imgui.text_colored(WARP_COLOR, warp.label())
         else:
             imgui.text_disabled(warp.label())
+
+        if not warp.paused and warp.capped:
+
+            imgui.same_line()
+
+            imgui.text_disabled("(max)")
+
+            imgui.set_item_tooltip(
+                "Faster time warp waits until the vessel is coasting above the air:\n"
+                "under thrust, in the air or close to the ground physics runs at most 5x."
+            )
 
         imgui.end()
 
@@ -170,7 +206,8 @@ class FlightHud:
 
     @staticmethod
     def _draw_hints(
-        position
+        position,
+        piloting: bool
     ):
 
         imgui.set_next_window_pos(position, imgui.Cond_.always, (1.0, 1.0))
@@ -178,6 +215,99 @@ class FlightHud:
 
         imgui.begin("##hud hints", None, PANEL_FLAGS)
 
-        imgui.text_disabled("Esc  menu   |   , .  time warp   |   hold right mouse  look and fly")
+        if piloting:
+            imgui.text_disabled("Z / X  throttle   |   Space  stage   |   W A S D Q E  steer")
+            imgui.text_disabled("Esc  menu   |   , .  time warp   |   right mouse  look around")
+        else:
+            imgui.text_disabled("Esc  menu   |   , .  time warp   |   hold right mouse  look and fly")
+
+        imgui.end()
+
+    # -----------------------------------------------------
+    # Vessel
+    # -----------------------------------------------------
+
+    @staticmethod
+    def _draw_vessel(
+        vessel,
+        position
+    ):
+
+        imgui.set_next_window_pos(position, imgui.Cond_.always, (0.5, 1.0))
+        imgui.set_next_window_bg_alpha(0.55)
+
+        imgui.begin("##hud vessel", None, PANEL_FLAGS)
+
+        imgui.text(vessel.name)
+        imgui.same_line()
+        imgui.text_colored(SITUATION_COLORS.get(vessel.situation, (0.8, 0.8, 0.8, 1.0)), vessel.situation)
+
+        if imgui.begin_table("vessel", 2):
+
+            imgui.table_setup_column("left", imgui.TableColumnFlags_.width_fixed.value, 210.0)
+            imgui.table_setup_column("right", imgui.TableColumnFlags_.width_fixed.value, 230.0)
+
+            imgui.table_next_row()
+            imgui.table_next_column()
+
+            imgui.text("Throttle")
+            imgui.same_line(80.0)
+            imgui.progress_bar(vessel.throttle, (120.0, 0.0), f"{vessel.throttle * 100.0:.0f}%")
+
+            share = vessel.propellant / vessel.propellant_capacity if vessel.propellant_capacity > 0.0 else 0.0
+
+            imgui.text("Fuel")
+            imgui.same_line(80.0)
+            imgui.progress_bar(share, (120.0, 0.0), f"{vessel.propellant / 1000.0:,.1f} t")
+
+            if vessel.stages_left:
+                imgui.text(f"Stage     {vessel.next_stage}  ({vessel.stages_left} left: Space)")
+            else:
+                imgui.text_disabled("Stage     none left")
+
+            imgui.text(f"TWR       {vessel.twr:.2f}")
+            imgui.text(f"Delta-v   {vessel.delta_v:,.0f} m/s")
+            imgui.text(f"Mass      {vessel.mass / 1000.0:,.1f} t")
+
+            imgui.table_next_column()
+
+            imgui.text(f"Surface   {format.distance(vessel.surface_speed)}/s")
+            imgui.text(f"Orbital   {format.distance(vessel.orbital_speed)}/s")
+            imgui.text(f"Vertical  {vessel.vertical_speed:+,.0f} m/s")
+
+            imgui.text(
+                f"Apoapsis  {format.distance(vessel.apoapsis)}"
+                if vessel.apoapsis is not None
+                else "Apoapsis  escaping"
+            )
+
+            if vessel.periapsis < -1.0e5:
+                imgui.text_disabled("Periapsis below ground")
+            else:
+                imgui.text(f"Periapsis {format.distance(vessel.periapsis)}")
+
+            if vessel.sas:
+                imgui.text("SAS on (T)")
+            else:
+                imgui.text_colored(WARP_COLOR, "SAS off (T)")
+
+            imgui.end_table()
+
+        imgui.end()
+
+    @staticmethod
+    def _draw_banner(
+        message: str,
+        hint: str,
+        position
+    ):
+
+        imgui.set_next_window_pos(position, imgui.Cond_.always, (0.5, 0.5))
+        imgui.set_next_window_bg_alpha(0.75)
+
+        imgui.begin("##hud banner", None, PANEL_FLAGS)
+
+        imgui.text_colored((1.0, 0.45, 0.35, 1.0), message)
+        imgui.text_disabled(hint)
 
         imgui.end()

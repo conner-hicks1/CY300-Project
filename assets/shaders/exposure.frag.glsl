@@ -74,6 +74,12 @@ const float BLACK = 1e-11;
 // The sun's disc and its glare.
 const float SUN = 20.0;
 
+// A sample this bright is something sunlit (stars are
+// millions of times fainter): it counts as a highlight on
+// its own, so a slim sunlit vessel against black space,
+// diluted in its cell's average, still does not clip.
+const float LIT = 1e-3;
+
 // What counts as the light around: no dimmer than this
 // share of the brightest thing in view (a sunlit planet is
 // metered on itself, not on the starry black around it).
@@ -123,6 +129,11 @@ void main()
             }
 
             brightest = max(brightest, luminance);
+
+            if (peak > LIT)
+            {
+                brightest = max(brightest, peak);
+            }
 
             cellLuminance[y * CELLS + x] = luminance;
 

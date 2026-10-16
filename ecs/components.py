@@ -201,6 +201,30 @@ class SpotLightComponent:
 
 
 # =========================================================
+# Vessel
+# =========================================================
+#
+# A flying vessel (systems/vessel_system.py): its parts and
+# propellant (vessel/vessel.py Vessel), its motion about the
+# body it flies at (vessel/physics.py VesselState, relative
+# to that body's center in its non-rotating frame), and the
+# pilot's commands. The entity's transform is placed from
+# the state each frame; its parts are child entities.
+
+@dataclass(slots=True)
+class VesselComponent:
+    vessel: object
+    state: object
+    body: Entity
+    controls: object
+
+    # Child entities drawing the parts (top down), and the
+    # exhaust plume of each burning engine.
+    part_entities: list = field(default_factory=list)
+    plume_entities: list = field(default_factory=list)
+
+
+# =========================================================
 # Camera Controller
 # =========================================================
 

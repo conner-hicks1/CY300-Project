@@ -19,7 +19,7 @@ from ecs.entity import Entity
 from math3d import quaternion
 
 from planet import solar
-from planet.air import AirColumn
+from planet.air import AirColumn, air_column_of
 
 
 # =========================================================
@@ -50,8 +50,10 @@ class FlightContext:
     @classmethod
     def find(
         cls,
-        scene
+        scene,
+        focus=None
     ) -> "FlightContext":
+        """focus: where the player is (world m; the vessel), else the camera."""
 
         registry = scene.registry
 
@@ -64,11 +66,12 @@ class FlightContext:
 
         body = None
 
-        if camera is not None:
+        if focus is not None or camera is not None:
 
-            position = np.asarray(
-                scene.get_component(camera, TransformComponent).transform.position,
-                dtype=np.float64
+            position = (
+                np.asarray(focus, dtype=np.float64)
+                if focus is not None
+                else np.asarray(scene.get_component(camera, TransformComponent).transform.position, dtype=np.float64)
             )
 
             nearest = math.inf
@@ -197,31 +200,10 @@ class FlightContext:
     ) -> AirColumn | None:
         """The body's air column (planet/air.py), None without air."""
 
-        scene = self.scene
-
-        atmosphere = scene.try_get_component(self.body, AtmosphereComponent)
-        body = scene.try_get_component(self.body, BodyComponent)
-
-        if atmosphere is None or body is None or body.surface_pressure_bar <= 0.0:
-            return None
-
-        # Radiative skin temperature: equilibrium / 2^(1/4).
-        equilibrium = (
-            278.6
-            * max(body.star_luminosity, 0.0) ** 0.25
-            * max(1.0 - body.bond_albedo, 0.0) ** 0.25
-            / math.sqrt(max(body.orbit_distance_au, 1e-6))
-        )
-
-        return AirColumn.from_scale_height(
-            surface_pressure=body.surface_pressure_bar,
-            surface_temperature=body.mean_temperature + 273.15,
-            scale_height_km=float(atmosphere.rayleigh_scale_height) / 1000.0,
-            gravity=body.surface_gravity,
-            adiabatic_exponent=float(atmosphere.adiabatic_exponent),
-            lapse_rate=body.lapse_rate,
-            giant=self.planet.palette == "bands",
-            skin_temperature=equilibrium / 2.0 ** 0.25
+        return air_column_of(
+            self.scene.try_get_component(self.body, AtmosphereComponent),
+            self.scene.try_get_component(self.body, BodyComponent),
+            giant=self.planet.palette == "bands"
         )
 
 
@@ -258,18 +240,22 @@ class FlightReadout:
 
 def read_flight(
     context: FlightContext,
-    ground=None
+    ground=None,
+    position=None
 ) -> FlightReadout | None:
     """
-    The readout at the camera. ground(body entity, body-space
-    direction) -> (shape height m, relief m) or None
-    (PlanetSystem.ground).
+    The readout at `position` (world m; the vessel), else at
+    the camera. ground(body entity, body-space direction) ->
+    (shape height m, relief m) or None (PlanetSystem.ground).
     """
 
-    if context.body is None or context.camera is None:
+    if context.body is None or (context.camera is None and position is None):
         return None
 
-    offset = np.asarray(context.camera_transform().position, dtype=np.float64) - context.body_center()
+    if position is None:
+        position = context.camera_transform().position
+
+    offset = np.asarray(position, dtype=np.float64) - context.body_center()
 
     distance = float(np.linalg.norm(offset))
 

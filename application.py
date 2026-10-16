@@ -51,11 +51,13 @@ from ecs.components import (
 )
 from ecs.entity import Entity
 
+from game.chase_camera import ChaseCamera
 from game.flight import FlightContext, frame_body, go_to_orbit, go_to_surface, read_flight
 from game.hud import FlightHud
 from game.pause_menu import Destination, MenuActions, PauseMenu
 from game.quality import DEFAULT_QUALITY, apply_quality, current_quality
 from game.time_warp import TimeWarp
+from game.vessel_controls import read_pilot, release
 
 from graphics.framebuffer import Framebuffer
 from graphics.gpu_timer import GpuTimer
@@ -90,6 +92,9 @@ from systems.planet_system import PlanetSystem, planet_extent, terrain_settings_
 from systems.orbit_system import OrbitSystem, body_states
 from systems.render_system import RenderSystem
 from systems.transform_system import TransformSystem
+from systems.vessel_system import LaunchSite, OrbitStart, VesselSystem
+
+from vessel.parts import load_design, load_parts
 
 from scene.scene import Scene
 
@@ -104,16 +109,9 @@ class Application:
     # Timing
     # =====================================================
     #
-    # Simulation (vessel physics, to come) runs on a
-    # fixed timestep so results do not depend on frame
-    # rate. Input/camera run once per rendered frame.
-    #
-    # MAX_FIXED_STEPS_PER_FRAME stops a slow frame from
-    # triggering ever more catch-up steps ("spiral of
-    # death"); excess time is dropped.
-
-    FIXED_DELTA_TIME = 1.0 / 60.0
-    MAX_FIXED_STEPS_PER_FRAME = 5
+    # Vessel physics steps in simulated time, the clock's
+    # (VesselSystem: fixed 0.02 s steps, time warp
+    # included); everything else once per rendered frame.
 
     # How often to check shader files for edits.
     SHADER_POLL_INTERVAL = 0.5
@@ -142,7 +140,6 @@ class Application:
         self.window: Window | None = None
         self.timer: Timer | None = None
 
-        self._fixed_accumulator = 0.0
         self._shader_poll_timer = 0.0
 
         # True while RMB is held and the cursor is captured.
@@ -173,6 +170,7 @@ class Application:
 
         self.planet_system: PlanetSystem | None = None
         self.orbit_system: OrbitSystem | None = None
+        self.vessel_system: VesselSystem | None = None
 
         # -------------------------------------------------
         # UI
@@ -194,6 +192,15 @@ class Application:
         # -------------------------------------------------
 
         self.time_warp = TimeWarp()
+
+        # The vessel every journey starts with
+        # (assets/vessels/), and where it started.
+        self.vessel_design = None
+        self.body_id: str | None = None
+
+        # Following the vessel, or flying free (V).
+        self.chase_camera = ChaseCamera()
+        self.free_camera = False
 
         # Camera speed for the HUD (smoothed).
         self._last_camera_position: np.ndarray | None = None
@@ -376,6 +383,14 @@ class Application:
 
         self.dev_tools = dev
 
+        # Rocket parts and the starting vessel.
+        self.vessel_system = VesselSystem(
+            self.resources,
+            self.handles["lit"]
+        )
+
+        self.vessel_design = load_design("pathfinder", load_parts())
+
         apply_quality(self.render_system.settings, DEFAULT_QUALITY)
 
         self.travel_to(body or self.START_BODY)
@@ -421,6 +436,11 @@ class Application:
         self._populate_body_scene(self.scene, body_id)
 
         self.time_warp.stop()
+
+        self.body_id = body_id
+
+        self.chase_camera = ChaseCamera()
+        self.free_camera = False
 
         self._last_camera_position = None
         self._speed = 0.0
@@ -823,6 +843,33 @@ class Application:
 
         self.orbit_system.anchor_to(scene, planet_entity)
 
+        # -------------------------------------------------
+        # The vessel: on the ground where the camera looks,
+        # or in a low orbit over a giant or a small body
+        # -------------------------------------------------
+
+        if from_space:
+
+            start = OrbitStart(
+                direction=spawn_direction,
+                radius=max(planet.radius * 1.25, planet_extent(planet) * 1.3)
+            )
+
+        else:
+
+            start = LaunchSite(
+                direction=spawn_direction,
+                radius=ground
+            )
+
+        self.vessel_system.spawn(
+            scene,
+            self.vessel_design,
+            planet_entity,
+            start,
+            self.orbit_system
+        )
+
     # =====================================================
     # Main Loop
     # =====================================================
@@ -984,13 +1031,20 @@ class Application:
 
         paused = self.pause_menu.open
 
-        # The clock runs at the warp's rate; the menu stops
-        # it.
+        self._pilot(dt, paused)
+
+        # The clock runs at the warp's rate (no faster than
+        # the vessel allows); the menu stops it.
         self.time_warp.paused = paused
 
-        self.time_warp.apply(
-            FlightContext.find(self.scene).clock()
-        )
+        if self.time_warp.limit(
+            self.vessel_system.max_warp(self.scene, self.orbit_system, self.planet_system)
+        ):
+            Logger.info("[Application] Time warp held to %s.", self.time_warp.label())
+
+        clock = FlightContext.find(self.scene).clock()
+
+        self.time_warp.apply(clock)
 
         profiler = self.profiler
 
@@ -1007,40 +1061,6 @@ class Application:
             with profiler.scope("Shader poll"):
 
                 self.resources.reload_changed_shaders()
-
-        # -------------------------------------------------
-        # Fixed-Step Simulation
-        # -------------------------------------------------
-        #
-        # Held while paused.
-
-        if not paused:
-            self._fixed_accumulator += dt
-        else:
-            self._fixed_accumulator = 0.0
-
-        steps = 0
-
-        with profiler.scope("Fixed update"):
-
-            while (
-                self._fixed_accumulator >= self.FIXED_DELTA_TIME
-                and steps < self.MAX_FIXED_STEPS_PER_FRAME
-            ):
-
-                self.fixed_update(
-                    self.FIXED_DELTA_TIME
-                )
-
-                self._fixed_accumulator -= self.FIXED_DELTA_TIME
-
-                steps += 1
-
-        if steps == self.MAX_FIXED_STEPS_PER_FRAME:
-
-            # Drop time we could not catch up on.
-
-            self._fixed_accumulator = 0.0
 
         # -------------------------------------------------
         # Background Job Results
@@ -1061,32 +1081,57 @@ class Application:
 
         with profiler.scope("Orbits"):
 
+            before = clock.time if clock is not None else 0.0
+
             self.orbit_system.update(
                 self.scene,
                 dt,
                 self.render_system.camera_position(self.scene)
             )
 
+            simulated = (clock.time - before) if clock is not None else 0.0
+
+        # -------------------------------------------------
+        # The vessel, over the same simulated time
+        # -------------------------------------------------
+
+        with profiler.scope("Vessel"):
+
+            events = self.vessel_system.update(
+                self.scene,
+                simulated,
+                self.orbit_system,
+                self.planet_system
+            )
+
+            if "destroyed" in events or "landed" in events:
+                self.time_warp.stop()
+
         with profiler.scope("Camera"):
 
-            # Planet-mode cameras fly relative to the
-            # ground under them.
-            self.planet_system.update_camera_ground(
-                self.scene
-            )
+            if self.free_camera or self.vessel_system.find(self.scene) is None:
 
-            # Free flight while the right mouse button is
-            # held (a stand-in until there are vessels to
-            # fly); nothing moves while paused.
+                # Planet-mode cameras fly relative to the
+                # ground under them.
+                self.planet_system.update_camera_ground(
+                    self.scene
+                )
 
-            flying = self._looking and not paused
+                # Free flight while the right mouse button is
+                # held; nothing moves while paused.
 
-            self.camera_controller_system.update(
-                self.scene,
-                dt,
-                look_enabled=flying,
-                move_enabled=flying
-            )
+                flying = self._looking and not paused
+
+                self.camera_controller_system.update(
+                    self.scene,
+                    dt,
+                    look_enabled=flying,
+                    move_enabled=flying
+                )
+
+            else:
+
+                self._chase(paused)
 
             self._track_speed(dt)
 
@@ -1116,11 +1161,102 @@ class Application:
                 self.render_system.camera_position(self.scene)
             )
 
-    def fixed_update(
+    # -----------------------------------------------------
+    # The Vessel
+    # -----------------------------------------------------
+
+    def _pilot(
         self,
-        fixed_delta_time: float
+        dt: float,
+        paused: bool
     ):
-        """Fixed-step simulation (vessel physics will run here)."""
+        """The pilot's keys (not while paused, typing, or flying the free camera)."""
+
+        found = self.vessel_system.find(self.scene)
+
+        if found is None:
+            return
+
+        _, component = found
+
+        busy = (
+            paused
+            or (self.imgui_layer.wants_keyboard and not self._looking)
+            or (self.free_camera and self._looking)
+            or component.state.destroyed
+        )
+
+        if busy:
+
+            release(component.controls)
+
+            return
+
+        if read_pilot(component.vessel, component.controls, dt):
+
+            stage = component.vessel.stage()
+
+            if stage is not None:
+                Logger.info("[Application] Stage %d.", stage)
+
+    def _chase(
+        self,
+        paused: bool
+    ):
+        """The camera round the vessel (right mouse: swing round it; scroll: closer / farther)."""
+
+        found = self.vessel_system.find(self.scene)
+
+        context = FlightContext.find(self.scene)
+
+        if found is None or context.camera is None:
+            return
+
+        entity, component = found
+
+        if self._looking and not paused:
+
+            scroll = 0.0 if self.imgui_layer.wants_mouse else Input.scroll_delta()[1]
+
+            self.chase_camera.orbit(Input.mouse_delta(), scroll)
+
+        elif not self.imgui_layer.wants_mouse and not paused:
+
+            self.chase_camera.orbit((0.0, 0.0), Input.scroll_delta()[1])
+
+        up = self.vessel_system.world_up(self.scene, self.orbit_system)
+
+        if up is None:
+            return
+
+        transform = self.scene.get_component(entity, TransformComponent).transform
+
+        axis_world = quaternion.rotate_vector(transform.orientation, np.array([0.0, 1.0, 0.0]))
+
+        target = np.asarray(transform.position, dtype=np.float64) + axis_world * component.vessel.center_of_mass
+
+        body = self.scene.get_component(component.body, TransformComponent)
+
+        spin_axis = np.asarray(body.world_matrix, dtype=np.float64)[:3, 1]
+
+        # Close to the ground: keep the camera out of it.
+        height = float(np.dot(target - np.asarray(transform.position, dtype=np.float64), up))
+
+        floor = 2.0 - height if component.state.landed else None
+
+        self.chase_camera.place(
+            context.camera_transform(),
+            target,
+            up,
+            spin_axis,
+            floor
+        )
+
+    def revert(self):
+        """Back to the launch: the same body, from the start."""
+
+        if self.body_id is not None:
+            self.travel_to(self.body_id)
 
     # -----------------------------------------------------
     # Keys
@@ -1166,6 +1302,9 @@ class Application:
         if Input.is_key_pressed(Key.SLASH):
             self.time_warp.stop()
 
+        if Input.is_key_pressed(Key.V) and self.vessel_system.find(self.scene) is not None:
+            self.free_camera = not self.free_camera
+
     def _track_speed(
         self,
         delta_time: float
@@ -1206,6 +1345,9 @@ class Application:
 
                 if context.body is not None and context.camera is not None:
 
+                    # (Moving the camera means flying it.)
+                    self.free_camera = True
+
                     move()
 
                     self.pause_menu.close()
@@ -1222,8 +1364,18 @@ class Application:
             if spawn is not None:
                 go_to_surface(context, spawn, self.planet_system.ground)
 
+        def revert():
+            self.pause_menu.close()
+            self.revert()
+
+        def toggle_camera():
+            self.free_camera = not self.free_camera
+            self.pause_menu.close()
+
         return MenuActions(
             resume=self.pause_menu.close,
+            revert=revert,
+            toggle_camera=toggle_camera,
             travel=travel,
             to_surface=camera_move(to_surface),
             to_orbit=camera_move(lambda: go_to_orbit(context, 400_000.0)),
@@ -1298,22 +1450,36 @@ class Application:
 
     def _draw_ui(self):
 
-        context = FlightContext.find(self.scene)
+        found = self.vessel_system.find(self.scene)
+
+        # Where the player is: the vessel, else the camera.
+        focus = (
+            np.asarray(self.scene.get_component(found[0], TransformComponent).transform.position, dtype=np.float64)
+            if found is not None
+            else None
+        )
+
+        context = FlightContext.find(self.scene, focus)
 
         planets = self.planet_system.stats
 
+        vessel = self.vessel_system.readout(self.scene, self.orbit_system, self.planet_system)
+
         self.hud.draw(
-            read_flight(context, self.planet_system.ground),
-            self._speed,
+            read_flight(context, self.planet_system.ground, focus),
+            vessel.surface_speed if vessel is not None and not self.free_camera else self._speed,
             self.time_warp,
             loading=bool(planets.chunks_building or planets.chunks_queued),
-            fps=self.timer.fps if self.dev_tools else None
+            fps=self.timer.fps if self.dev_tools else None,
+            vessel=vessel
         )
 
         self.pause_menu.draw(
             self._menu_actions(context),
             context.name() if context.body is not None else "",
-            current_quality(self.render_system.settings)
+            current_quality(self.render_system.settings),
+            free_camera=self.free_camera,
+            vessel=found is not None
         )
 
         if not self.dev_tools:
@@ -1599,6 +1765,7 @@ class Application:
 
         self.camera_controller_system = None
         self.transform_system = None
+        self.vessel_system = None
 
         if self.jobs is not None:
 

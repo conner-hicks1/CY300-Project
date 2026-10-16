@@ -1,0 +1,77 @@
+{
+  "format": 1,
+  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together).",
+  "parts": [
+    {
+      "id": "capsule",
+      "name": "Crew capsule",
+      "kind": "command",
+      "mass": 2500,
+      "shape": {"radius_top": 0.4, "radius_bottom": 1.25, "height": 2.4},
+      "color": [0.18, 0.18, 0.2],
+      "metallic": 0.5,
+      "roughness": 0.45,
+      "reaction_wheel_torque": 30000,
+      "crash_speed": 10
+    },
+    {
+      "id": "tank_2m5_short",
+      "name": "Propellant tank, 2.5 m x 4 m",
+      "kind": "tank",
+      "mass": 1300,
+      "propellant": 20000,
+      "shape": {"radius_top": 1.25, "radius_bottom": 1.25, "height": 4.0},
+      "color": [0.86, 0.86, 0.84],
+      "metallic": 0.0,
+      "roughness": 0.5,
+      "crash_speed": 8
+    },
+    {
+      "id": "tank_2m5_long",
+      "name": "Propellant tank, 2.5 m x 8 m",
+      "kind": "tank",
+      "mass": 2400,
+      "propellant": 40000,
+      "shape": {"radius_top": 1.25, "radius_bottom": 1.25, "height": 8.0},
+      "color": [0.86, 0.86, 0.84],
+      "metallic": 0.0,
+      "roughness": 0.5,
+      "crash_speed": 8
+    },
+    {
+      "id": "decoupler_2m5",
+      "name": "Stage separator, 2.5 m",
+      "kind": "decoupler",
+      "mass": 150,
+      "shape": {"radius_top": 1.25, "radius_bottom": 1.25, "height": 0.4},
+      "color": [0.12, 0.12, 0.12],
+      "metallic": 0.3,
+      "roughness": 0.6,
+      "crash_speed": 8
+    },
+    {
+      "id": "engine_booster",
+      "name": "Kerosene booster engine",
+      "kind": "engine",
+      "mass": 1500,
+      "shape": {"radius_top": 1.25, "radius_bottom": 1.0, "height": 2.0},
+      "color": [0.3, 0.3, 0.32],
+      "metallic": 1.0,
+      "roughness": 0.35,
+      "engine": {"thrust_vacuum": 1560000, "isp_vacuum": 315, "isp_sea_level": 285, "gimbal": 5.0},
+      "crash_speed": 12
+    },
+    {
+      "id": "engine_vacuum",
+      "name": "Kerosene vacuum engine",
+      "kind": "engine",
+      "mass": 900,
+      "shape": {"radius_top": 1.25, "radius_bottom": 0.9, "height": 2.5},
+      "color": [0.3, 0.3, 0.32],
+      "metallic": 1.0,
+      "roughness": 0.35,
+      "engine": {"thrust_vacuum": 250000, "isp_vacuum": 348, "isp_sea_level": 220, "gimbal": 4.0},
+      "crash_speed": 12
+    }
+  ]
+}

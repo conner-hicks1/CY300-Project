@@ -93,6 +93,9 @@ class OrbitSystem:
         # Set by anchor_to: keep that anchor for this update.
         self._pinned = False
 
+        # entity -> spin (rad/s, inertial), see spin().
+        self._spins: dict[Entity, np.ndarray] = {}
+
     # =====================================================
     # Queries
     # =====================================================
@@ -126,6 +129,67 @@ class OrbitSystem:
 
         return self._anchor_center - self.inertial_to_world @ np.asarray(anchor_position, dtype=np.float64)
 
+    def world_point(
+        self,
+        position
+    ) -> np.ndarray | None:
+        """
+        Where an inertial point (m from the star, as in
+        `states`) is in the world, live. None without orbits.
+        """
+
+        if self.anchor is None or self.inertial_to_world is None or self.anchor not in self.states:
+            return None
+
+        anchor_position, _ = self.states[self.anchor]
+
+        return self._anchor_center + self.inertial_to_world @ (
+            np.asarray(position, dtype=np.float64) - anchor_position
+        )
+
+    def spin(
+        self,
+        scene: Scene,
+        entity: Entity
+    ) -> np.ndarray:
+        """
+        A body's angular velocity (rad/s, inertial): from its
+        frame a minute apart (cached; spin does not change).
+        """
+
+        cached = self._spins.get(entity)
+
+        if cached is not None:
+            return cached
+
+        bodies = [
+            (other, transform, orbit)
+            for other, transform, orbit in scene.registry.view_with(TransformComponent, OrbitComponent)
+            if not scene.registry.has(other, HierarchyComponent)
+        ]
+
+        if not any(other == entity for other, _, _ in bodies):
+            return np.zeros(3)
+
+        interval = 60.0
+
+        before = body_states(scene, bodies, self.time)[entity][1]
+        after = body_states(scene, bodies, self.time + interval)[entity][1]
+
+        turn = after @ before.T
+
+        angle = math.acos(float(np.clip((np.trace(turn) - 1.0) * 0.5, -1.0, 1.0)))
+
+        axis = np.array([turn[2, 1] - turn[1, 2], turn[0, 2] - turn[2, 0], turn[1, 0] - turn[0, 1]])
+
+        length = float(np.linalg.norm(axis))
+
+        spin = axis / length * angle / interval if length > 1e-15 else np.zeros(3)
+
+        self._spins[entity] = spin
+
+        return spin
+
     def anchor_to(
         self,
         scene: Scene,
@@ -140,6 +204,9 @@ class OrbitSystem:
         transform = scene.get_component(entity, TransformComponent).transform
 
         self.anchor = entity
+
+        # A new planetary system (entities may be reused).
+        self._spins.clear()
 
         self._anchor_center = np.asarray(transform.position, dtype=np.float64).copy()
         self._anchor_rotation = quaternion.to_matrix3(transform.orientation)

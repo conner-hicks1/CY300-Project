@@ -193,3 +193,36 @@ class AirColumn:
                 high = middle
 
         return 0.5 * (low + high)
+
+
+def air_column_of(
+    atmosphere,
+    body,
+    giant: bool = False
+) -> AirColumn | None:
+    """
+    The air column of a body from its components
+    (AtmosphereComponent, BodyComponent); None without air.
+    """
+
+    if atmosphere is None or body is None or body.surface_pressure_bar <= 0.0:
+        return None
+
+    # Radiative skin temperature: equilibrium / 2^(1/4).
+    equilibrium = (
+        278.6
+        * max(body.star_luminosity, 0.0) ** 0.25
+        * max(1.0 - body.bond_albedo, 0.0) ** 0.25
+        / math.sqrt(max(body.orbit_distance_au, 1e-6))
+    )
+
+    return AirColumn.from_scale_height(
+        surface_pressure=body.surface_pressure_bar,
+        surface_temperature=body.mean_temperature + 273.15,
+        scale_height_km=float(atmosphere.rayleigh_scale_height) / 1000.0,
+        gravity=body.surface_gravity,
+        adiabatic_exponent=float(atmosphere.adiabatic_exponent),
+        lapse_rate=body.lapse_rate,
+        giant=giant,
+        skin_temperature=equilibrium / 2.0 ** 0.25
+    )

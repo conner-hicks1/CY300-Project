@@ -5,8 +5,9 @@ OpenGL 4.5 as a CY300 course project. Its engine renders with physically
 based materials, cascaded shadows and image-based lighting, and streams the
 bodies of the solar system as they were measured (real elevation and color
 maps) under physically based atmospheres, on real orbits with a real clock.
-Vessels (building them, flying them) come next; today you fly a free camera
-anywhere in the solar system.
+You fly a two-stage rocket off any body: real-scale parts, gravity, thrust,
+drag in the real air, staging, and orbits followed exactly under time
+warp. Building your own vessels comes next.
 
 ![The procedural planet, seen from the surface](docs/images/scene.png)
 
@@ -382,6 +383,37 @@ anywhere in the solar system.
 - OBJ and glTF / GLB model loading, including glTF materials and embedded textures
 - Shader `#include`s and hot reload (edit a `.glsl` file while the engine runs)
 
+**Vessels and flight**
+
+- Parts (`assets/parts/parts.json`) and vessels built from them
+  (`assets/vessels/`), at real scale in SI units: a crew capsule with
+  reaction wheels, kerosene / oxygen tanks, a booster engine (1.56 MN, Isp
+  285 s at sea level and 315 s in vacuum) and a vacuum engine, a stage
+  separator. Pathfinder, the starting rocket: 111 t, 27 m, two stages,
+  ~9.6 km/s of delta-v, enough for low Earth orbit (the tests fly it there)
+- Flight physics (`vessel/physics.py`) in the body's non-rotating frame:
+  gravity, thrust whose push falls with the outside pressure (Isp), drag
+  through the air (density from the body's air column, the air turning with
+  the body), propellant burned per engine from its own section's tanks;
+  steering by reaction wheels and the engines' gimbals, against the stack's
+  moments of inertia, with stability assist holding the attitude
+- The ground: launch from a pad turning with the body, land below the
+  bottom part's crash speed, or be destroyed above it
+- Coasting above the air, the orbit is followed exactly (universal-variable
+  Kepler propagation): time warp to 1,000,000x. Under thrust, in the air or
+  near the ground physics steps every 0.02 s and warp stops at 5x; a
+  falling arc goes on rails in pieces short enough not to pass through the
+  ground
+- Staging (**Space**): the first stage lights the booster; the next fires
+  the separator, drops everything below it and lights the upper engine
+- Chase camera round the vessel (right mouse, scroll); **V** switches to the
+  free camera
+- Vessel HUD: situation (landed, flying, sub-orbital, orbiting, escaping),
+  throttle, propellant, stage, thrust to weight, delta-v left, surface /
+  orbital / vertical speed, apoapsis and periapsis; Revert to launch in the
+  pause menu
+- Giants and small bodies start in orbit; everywhere else on the ground
+
 **Game shell**
 
 - Flight HUD over the view: the date and time warp at the top; at the
@@ -390,8 +422,9 @@ anywhere in the solar system.
   temperature outside, latitude / longitude and local time
 - Time warp in steps from real time to 1,000,000x (**,** and **.**; **/**
   back to real time)
-- Pause menu (**Esc**, stops the clock): Travel to any body, Camera
-  (surface, low orbit, the whole body in view), Graphics quality (Low /
+- Pause menu (**Esc**, stops the clock): Revert to launch, Travel to any
+  body, Camera (follow the vessel or fly free; surface, low orbit, the whole
+  body in view), Graphics quality (Low /
   Medium / High: atmosphere samples, rocks / trees / grass, shadow reach and
   mountain shadows, bloom), Controls, Quit
 - Developer tools (**F3**, or `--dev`): stats, every render setting, a frame
@@ -402,12 +435,12 @@ anywhere in the solar system.
 - Entity-component-system with parent / child transforms (quaternion rotations)
 - Background job system: worker threads, results handed back to the main thread
   under a per-frame time budget
-- Fixed-timestep simulation (where vessel physics will run), uniform buffers
-  for per-frame data, OpenGL debug output routed to the log
+- Fixed-step vessel physics in simulated time (time warp included), uniform
+  buffers for per-frame data, OpenGL debug output routed to the log
 - A disk cache (`data/cache/`) of terrain chunks, keyed by their inputs and
   the generators' source code: chunks stream in ~70% faster on a second
   visit; oldest entries pruned past 2 GB
-- 518 unit tests
+- 540 unit tests
 
 ## Getting Started
 
@@ -454,7 +487,15 @@ planet streams in over the first few seconds.
 
 | Input | Action |
 | --- | --- |
-| Hold right mouse button | Look around; **W A S D** move, **Space** up, **Shift** down. On a planet, W A S D move along the ground (around the planet when in orbit) and Space / Shift move straight away from / toward it; speed grows with altitude |
+| **Shift** / **Ctrl** | Throttle up / down |
+| **Z** / **X** | Full throttle / cut |
+| **Space** | Next stage (the first lights the engines) |
+| **W** / **S** | Pitch the nose forward / back (forward is east at launch: the way to orbit) |
+| **A** / **D** | Yaw left / right |
+| **Q** / **E** | Roll |
+| **T** | Stability assist on / off |
+| Right mouse + move, scroll | Swing the camera round the vessel; closer / farther |
+| **V** | Free camera: hold right mouse, **W A S D** move, **Space** up, **Shift** down (along the ground, around the planet from orbit; speed grows with altitude) |
 | **.** / **,** | Time warp faster / slower |
 | **/** | Back to real time |
 | **Esc** | Pause menu (travel, camera, graphics, controls, quit) |
@@ -469,15 +510,16 @@ planet streams in over the first few seconds.
 | `main.py`, `application.py` | Entry point, main loop, building a body's scene |
 | `core/` | Window, input, events, timer, logging, profiler, job system, disk cache |
 | `ecs/` | Entity registry and components |
-| `systems/` | Transform, camera controller, orbits and clock, planet streaming and render systems |
+| `vessel/` | Parts and vessel designs, staging and propellant, flight physics, Kepler orbits |
+| `systems/` | Transform, camera controller, orbits and clock, vessels, planet streaming and render systems |
 | `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping, impact craters, dunes, surface climate, terrain, chunk building, level of detail, body shapes, orbits and spin, solar time, real maps |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, clouds, rings, eclipses, bloom |
-| `game/` | Flight HUD and readout, pause menu, time warp, graphics quality presets |
+| `game/` | Flight HUD and readout, piloting keys, chase camera, pause menu, time warp, graphics quality presets |
 | `scene/` | Scene container and (de)serialization (for save games) |
 | `resources/` | Handle-based resource managers |
 | `math3d/` | Transforms, camera, matrix helpers |
 | `ui/` | ImGui integration, developer tool windows (render / stats / profiler) |
-| `assets/` | Shaders, textures, scenes, body profiles (`bodies/`) |
+| `assets/` | Shaders, textures, body profiles (`bodies/`), parts (`parts/`) and vessels (`vessels/`) |
 | `tools/` | Asset generator, micro-benchmarks, real map and star catalog downloaders |
 | `data/` | Downloaded maps and caches (not in the repository) |
 | `tests/` | pytest suite (`tests/fixtures/` holds the OBJ / glTF test models) |

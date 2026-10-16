@@ -13,11 +13,12 @@ from game.quality import QUALITY_NAMES
 # Esc opens it (and pauses the clock); Esc or Resume closes
 # it. Pages:
 #
+#   Revert    back to the launch, the vessel as new
 #   Travel    go to any body of the solar system: a fresh
-#             start on its surface (or in space over a giant
+#             start on its surface (or in orbit over a giant
 #             or a small body)
-#   Camera    jump to the surface, low orbit, or the whole
-#             body in view
+#   Camera    follow the vessel or fly free; jump to the
+#             surface, low orbit, or the whole body in view
 #   Graphics  quality preset
 #   Controls  the keys
 #
@@ -28,6 +29,8 @@ from game.quality import QUALITY_NAMES
 class MenuActions:
 
     resume: Callable[[], None]
+    revert: Callable[[], None]
+    toggle_camera: Callable[[], None]
     travel: Callable[[str], None]
     to_surface: Callable[[], None]
     to_orbit: Callable[[], None]
@@ -45,10 +48,16 @@ class Destination:
 
 
 CONTROLS: tuple[tuple[str, str], ...] = (
-    ("Hold right mouse", "Look around"),
-    ("W A S D", "Fly (while looking); along the ground, around the body from orbit"),
-    ("Space / Shift", "Up / down"),
-    (". / ,", "Time warp faster / slower"),
+    ("Shift / Ctrl", "Throttle up / down"),
+    ("Z / X", "Full throttle / cut"),
+    ("Space", "Next stage (the first lights the engines)"),
+    ("W / S", "Pitch: nose forward / back (forward is east at launch)"),
+    ("A / D", "Yaw: nose left / right"),
+    ("Q / E", "Roll"),
+    ("T", "Stability assist (hold attitude) on / off"),
+    ("Right mouse + move", "Swing the camera round the vessel; scroll: closer / farther"),
+    ("V", "Free camera (hold right mouse: W A S D Space Shift fly it)"),
+    (". / ,", "Time warp faster / slower (5x at most under thrust or in the air)"),
     ("/", "Back to real time"),
     ("Esc", "This menu (pauses)"),
     ("F2", "Hide the HUD"),
@@ -118,7 +127,9 @@ class PauseMenu:
         self,
         actions: MenuActions,
         body: str,
-        quality: str | None
+        quality: str | None,
+        free_camera: bool = False,
+        vessel: bool = False
     ):
 
         if not self.open:
@@ -145,11 +156,11 @@ class PauseMenu:
         imgui.begin(f"{titles[self.page]}###pause menu", None, MENU_FLAGS)
 
         if self.page == self.MAIN:
-            self._draw_main(actions, body)
+            self._draw_main(actions, body, vessel)
         elif self.page == self.TRAVEL:
             self._draw_travel(actions, body)
         elif self.page == self.CAMERA:
-            self._draw_camera(actions, body)
+            self._draw_camera(actions, body, free_camera, vessel)
         elif self.page == self.GRAPHICS:
             self._draw_graphics(actions, quality)
         else:
@@ -167,13 +178,17 @@ class PauseMenu:
     def _draw_main(
         self,
         actions: MenuActions,
-        body: str
+        body: str,
+        vessel: bool
     ):
 
         imgui.text_disabled(f"Near {body}")
 
         if imgui.button("Resume", (BUTTON_WIDTH, 0)):
             actions.resume()
+
+        if vessel and imgui.button("Revert to launch", (BUTTON_WIDTH, 0)):
+            actions.revert()
 
         for label, page in (
             ("Travel...", self.TRAVEL),
@@ -222,8 +237,19 @@ class PauseMenu:
     @staticmethod
     def _draw_camera(
         actions: MenuActions,
-        body: str
+        body: str,
+        free_camera: bool,
+        vessel: bool
     ):
+
+        if vessel:
+
+            if imgui.button("Follow the vessel" if free_camera else "Free camera", (BUTTON_WIDTH, 0)):
+                actions.toggle_camera()
+
+            imgui.set_item_tooltip("V switches too.")
+
+            imgui.separator_text("Free camera to")
 
         if imgui.button("Surface", (BUTTON_WIDTH, 0)):
             actions.to_surface()

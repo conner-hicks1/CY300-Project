@@ -242,3 +242,82 @@ def test_camera_moves():
 
     # Looking at the center.
     np.testing.assert_allclose(transform.forward, -np.asarray(transform.position) / distance, atol=1e-9)
+
+
+# =========================================================
+# Warp Limits, Chase Camera
+# =========================================================
+
+def test_warp_is_held_to_the_limit():
+
+    warp = TimeWarp()
+
+    for _ in range(4):
+        warp.faster()
+
+    assert warp.limit(5.0)
+    assert warp.rate == 5.0 and warp.capped
+
+    # Asking for more stays at the limit...
+    warp.faster()
+
+    assert warp.rate == 5.0
+
+    # ...until it lifts.
+    assert not warp.limit(float("inf"))
+
+    warp.faster()
+
+    assert warp.rate == 10.0 and not warp.capped
+
+
+def test_chase_camera_circles_and_looks_at_the_target():
+
+    from game.chase_camera import ChaseCamera
+
+    camera = ChaseCamera(distance=50.0)
+    camera.pitch = 0.0
+
+    transform = Transform()
+
+    target = np.array([10.0, 20.0, 30.0])
+    up = np.array([0.0, 1.0, 0.0])
+
+    # Spin axis +Z: the ground under +Y moves toward -X,
+    # east. The camera stands west, looking east.
+    camera.place(transform, target, up, np.array([0.0, 0.0, 1.0]))
+
+    np.testing.assert_allclose(transform.position, target + [50.0, 0.0, 0.0], atol=1e-9)
+    np.testing.assert_allclose(transform.forward, [-1.0, 0.0, 0.0], atol=1e-9)
+
+    # Scrolling in, never past the minimum.
+    camera.orbit((0.0, 0.0), 100.0)
+
+    assert camera.distance == ChaseCamera.MIN_DISTANCE
+
+    # A floor lifts it.
+    camera.pitch = -60.0
+
+    camera.place(transform, target, up, np.array([0.0, 0.0, 1.0]), floor=-1.0)
+
+    assert transform.position[1] - target[1] == pytest.approx(-1.0)
+
+
+def test_frustum_faces_point_out():
+
+    from graphics.mesh_factory import MeshFactory
+
+    data = MeshFactory.frustum_data(0.5, 1.25, 2.0, segments=12)
+
+    positions = np.asarray(data.positions, dtype=np.float64).reshape(-1, 3)
+    normals = np.asarray(data.normals, dtype=np.float64).reshape(-1, 3)
+    indices = np.asarray(data.indices).reshape(-1, 3)
+
+    assert positions[:, 1].min() == 0.0 and positions[:, 1].max() == 2.0
+
+    for a, b, c in indices:
+
+        face = np.cross(positions[b] - positions[a], positions[c] - positions[a])
+
+        # Counter-clockwise seen from where the normals face.
+        assert np.dot(face, normals[a] + normals[b] + normals[c]) > 0.0

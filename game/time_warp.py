@@ -40,6 +40,10 @@ class TimeWarp:
 
         self.paused = False
 
+        # Fastest allowed now (the vessel's limit: physics
+        # in the air or under thrust); inf: none.
+        self.max_rate = float("inf")
+
     @property
     def rate(
         self
@@ -58,6 +62,37 @@ class TimeWarp:
     def faster(self):
 
         self.index = min(self.index + 1, len(self.rates) - 1)
+
+        self.limit(self.max_rate)
+
+    def limit(
+        self,
+        max_rate: float
+    ) -> bool:
+        """
+        Hold the warp to at most `max_rate` (real time always
+        allowed). True when it had to slow down.
+        """
+
+        self.max_rate = max_rate
+
+        lowered = False
+
+        while self.index > 0 and self.rates[self.index] > max_rate:
+
+            self.index -= 1
+
+            lowered = True
+
+        return lowered
+
+    @property
+    def capped(
+        self
+    ) -> bool:
+        """The next step up is not allowed now."""
+
+        return self.index + 1 < len(self.rates) and self.rates[self.index + 1] > self.max_rate
 
     def slower(self):
 
