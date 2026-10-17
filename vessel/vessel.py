@@ -310,6 +310,14 @@ class Vessel:
         return pitch, roll
 
     @property
+    def cost(
+        self
+    ) -> float:
+        """$ millions, every copy counted (programme/career.py)."""
+
+        return sum(state.part.cost * state.count for state in self.parts)
+
+    @property
     def propellant(
         self
     ) -> float:

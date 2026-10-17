@@ -56,6 +56,7 @@ KIND_TITLES = (
     ("parachute", "Parachutes"),
     ("science", "Science"),
     ("antenna", "Antennas"),
+    ("utility", "Utility"),
     ("structure", "Structure"),
 )
 
@@ -122,6 +123,12 @@ def part_summary(
         if experiment.needs_air:
             lines.append("Needs air to sample")
 
+    if part.cost:
+        lines.append(f"Cost ${part.cost:,.1f}M")
+
+    if part.isru is not None:
+        lines.append(f"Makes propellant landed: {part.isru.rate_ice:,.0f} kg/day from ice, {part.isru.rate_air:,.0f} from Mars's air")
+
     if part.crew:
         lines.append(f"Crew {part.crew}: flies without a link home")
 
@@ -146,6 +153,10 @@ class PartEditor:
         self.parts = parts
 
         self.open = False
+
+        # The programme's funds (the cost shows against them),
+        # or None.
+        self.funds: float | None = None
 
         self.draft = DesignDraft()
 
@@ -476,6 +487,15 @@ class PartEditor:
         total = sum(stage.delta_v_vacuum for stage in stats)
 
         imgui.text(f"Delta-v {total:,.0f} m/s in vacuum")
+
+        if self.funds is not None:
+
+            cost = vessel.cost
+
+            imgui.text_colored(
+                (1.0, 0.88, 0.45, 1.0) if cost <= self.funds else (1.0, 0.45, 0.35, 1.0),
+                f"Cost ${cost:,.1f}M   (funds ${self.funds:,.1f}M)"
+            )
 
         imgui.text_disabled(f"TWR and surface delta-v: on {body.name}")
 

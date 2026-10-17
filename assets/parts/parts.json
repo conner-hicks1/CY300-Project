@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together). Kinds: command (needed to fly), tank, engine, decoupler (drops what is below it), parachute, structure (adapters, nose cones). max_temperature: K a part's skin stands (default 1400); a heat shield under a capsule stands ~3300 for coming in from orbit or the Moon. experiment: what science a part does (id, name, value, situations: landed / flying / space_low / space_high; needs_air; maps: maps the ground from orbit). crew: people aboard (crewed vessels fly without a link home). antenna_range: m from home the part's antenna still links (built into command parts: ~the Moon).",
+  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together). Kinds: command (needed to fly), tank, engine, decoupler (drops what is below it), parachute, structure (adapters, nose cones). max_temperature: K a part's skin stands (default 1400); a heat shield under a capsule stands ~3300 for coming in from orbit or the Moon. experiment: what science a part does (id, name, value, situations: landed / flying / space_low / space_high; needs_air; maps: maps the ground from orbit). crew: people aboard (crewed vessels fly without a link home). antenna_range: m from home the part's antenna still links (built into command parts: ~the Moon). cost: $ millions. isru: a propellant plant: kg a day it makes landed on ice (rate_ice) or in a usable air (rate_air).",
   "parts": [
     {
       "id": "capsule",
@@ -33,7 +33,8 @@
         ]
       },
       "crew": 3,
-      "antenna_range": 1000000000.0
+      "antenna_range": 1000000000.0,
+      "cost": 40.0
     },
     {
       "id": "heat_shield_2m5",
@@ -53,7 +54,8 @@
       "metallic": 0.0,
       "roughness": 0.85,
       "crash_speed": 10,
-      "max_temperature": 3300
+      "max_temperature": 3300,
+      "cost": 4.0
     },
     {
       "id": "heat_shield_1m25",
@@ -73,7 +75,8 @@
       "metallic": 0.0,
       "roughness": 0.85,
       "crash_speed": 10,
-      "max_temperature": 3300
+      "max_temperature": 3300,
+      "cost": 1.5
     },
     {
       "id": "survey_camera",
@@ -101,7 +104,8 @@
           "space_high"
         ],
         "maps": true
-      }
+      },
+      "cost": 10.0
     },
     {
       "id": "sample_kit",
@@ -127,7 +131,8 @@
         "situations": [
           "landed"
         ]
-      }
+      },
+      "cost": 6.0
     },
     {
       "id": "air_sampler",
@@ -155,7 +160,8 @@
           "flying"
         ],
         "needs_air": true
-      }
+      },
+      "cost": 4.0
     },
     {
       "id": "antenna_medium",
@@ -174,7 +180,8 @@
       ],
       "metallic": 0.7,
       "roughness": 0.3,
-      "antenna_range": 100000000000.0
+      "antenna_range": 100000000000.0,
+      "cost": 3.0
     },
     {
       "id": "antenna_dish",
@@ -193,7 +200,31 @@
       ],
       "metallic": 0.6,
       "roughness": 0.35,
-      "antenna_range": 2000000000000.0
+      "antenna_range": 2000000000000.0,
+      "cost": 12.0
+    },
+    {
+      "id": "isru_plant",
+      "name": "Propellant plant",
+      "kind": "utility",
+      "mass": 1500,
+      "cost": 30.0,
+      "shape": {
+        "radius_top": 0.6,
+        "radius_bottom": 0.6,
+        "height": 1.4
+      },
+      "color": [
+        0.55,
+        0.6,
+        0.62
+      ],
+      "metallic": 0.6,
+      "roughness": 0.4,
+      "isru": {
+        "rate_ice": 600,
+        "rate_air": 250
+      }
     },
     {
       "id": "parachute_main",
@@ -218,7 +249,8 @@
         "max_speed": 250,
         "min_pressure": 0.004
       },
-      "crash_speed": 10
+      "crash_speed": 10,
+      "cost": 2.0
     },
     {
       "id": "tank_2m5_short",
@@ -238,7 +270,8 @@
       ],
       "metallic": 0.0,
       "roughness": 0.5,
-      "crash_speed": 8
+      "crash_speed": 8,
+      "cost": 1.5
     },
     {
       "id": "tank_2m5_medium",
@@ -258,7 +291,8 @@
       ],
       "metallic": 0.0,
       "roughness": 0.5,
-      "crash_speed": 8
+      "crash_speed": 8,
+      "cost": 2.0
     },
     {
       "id": "tank_2m5_long",
@@ -278,7 +312,8 @@
       ],
       "metallic": 0.0,
       "roughness": 0.5,
-      "crash_speed": 8
+      "crash_speed": 8,
+      "cost": 3.0
     },
     {
       "id": "decoupler_2m5",
@@ -297,7 +332,8 @@
       ],
       "metallic": 0.3,
       "roughness": 0.6,
-      "crash_speed": 8
+      "crash_speed": 8,
+      "cost": 1.0
     },
     {
       "id": "engine_booster",
@@ -322,7 +358,8 @@
         "isp_sea_level": 285,
         "gimbal": 5.0
       },
-      "crash_speed": 12
+      "crash_speed": 12,
+      "cost": 25.0
     },
     {
       "id": "engine_vacuum",
@@ -347,7 +384,8 @@
         "isp_sea_level": 220,
         "gimbal": 4.0
       },
-      "crash_speed": 12
+      "crash_speed": 12,
+      "cost": 12.0
     },
     {
       "id": "probe_core",
@@ -379,7 +417,8 @@
           "space_high"
         ]
       },
-      "antenna_range": 1000000000.0
+      "antenna_range": 1000000000.0,
+      "cost": 6.0
     },
     {
       "id": "nose_cone_1m25",
@@ -398,7 +437,8 @@
       ],
       "metallic": 0.0,
       "roughness": 0.5,
-      "crash_speed": 8
+      "crash_speed": 8,
+      "cost": 0.3
     },
     {
       "id": "tank_1m25_short",
@@ -418,7 +458,8 @@
       ],
       "metallic": 0.0,
       "roughness": 0.5,
-      "crash_speed": 8
+      "crash_speed": 8,
+      "cost": 0.5
     },
     {
       "id": "tank_1m25_long",
@@ -438,7 +479,8 @@
       ],
       "metallic": 0.0,
       "roughness": 0.5,
-      "crash_speed": 8
+      "crash_speed": 8,
+      "cost": 0.8
     },
     {
       "id": "decoupler_1m25",
@@ -457,7 +499,8 @@
       ],
       "metallic": 0.3,
       "roughness": 0.6,
-      "crash_speed": 8
+      "crash_speed": 8,
+      "cost": 0.4
     },
     {
       "id": "engine_small",
@@ -482,7 +525,8 @@
         "isp_sea_level": 290,
         "gimbal": 4.0
       },
-      "crash_speed": 12
+      "crash_speed": 12,
+      "cost": 4.0
     },
     {
       "id": "adapter_2m5_1m25",
@@ -501,7 +545,8 @@
       ],
       "metallic": 0.0,
       "roughness": 0.5,
-      "crash_speed": 8
+      "crash_speed": 8,
+      "cost": 0.6
     },
     {
       "id": "adapter_1m25_2m5",
@@ -520,7 +565,8 @@
       ],
       "metallic": 0.0,
       "roughness": 0.5,
-      "crash_speed": 8
+      "crash_speed": 8,
+      "cost": 0.6
     },
     {
       "id": "decoupler_radial",
@@ -539,7 +585,8 @@
       ],
       "metallic": 0.3,
       "roughness": 0.6,
-      "crash_speed": 8
+      "crash_speed": 8,
+      "cost": 0.5
     },
     {
       "id": "tank_1m25_xl",
@@ -559,7 +606,8 @@
       ],
       "metallic": 0.0,
       "roughness": 0.5,
-      "crash_speed": 8
+      "crash_speed": 8,
+      "cost": 1.2
     },
     {
       "id": "engine_medium",
@@ -584,7 +632,8 @@
         "isp_sea_level": 280,
         "gimbal": 3.0
       },
-      "crash_speed": 12
+      "crash_speed": 12,
+      "cost": 8.0
     }
   ]
 }

@@ -599,15 +599,45 @@ build your own rocket in the part editor, on the pad.
   Moon out of contact, braked at 3.5 km and touched down at 2 m/s on its
   own
 
+**The space programme**
+
+- A career on the real calendar (`programme/career.py`, the Programme
+  panel: **P**): funds in $ millions, reputation and science. Every part
+  has a cost (Pathfinder $96M, Mariner $115M); a vessel is paid for at its
+  first stage (short of funds, nothing fires), and landing it back on the
+  body it launched from recovers 80% of what came back. The budget comes
+  in by the calendar month ($25M, more with reputation): waiting months for
+  a window at time warp brings money in, not just time
+- Missions (`assets/programme/missions.json`, 16 of them), each paying
+  funds and reputation, some waiting on others, some with a real deadline:
+  reach orbit; reach, orbit, map and land on the Moon, land at its south
+  pole, a crew to the Moon and home before 2031; Venus; Mars by the 2028
+  window (2029-12-31), land on Mars, in Jezero, samples back before 2036;
+  Jupiter; science banked; propellant made on another world. A deadline
+  missed costs reputation; so does a crew lost
+- Launch windows: the panel lists the next cheap departures from home's
+  orbit to Venus, Mars and Jupiter (the Lambert window search on the
+  planets' real orbits), with the flight time and the speed beyond
+  escape: Mars's next on 28 November 2028
+- Making propellant away from home (`programme/resources.py`): a
+  propellant plant (a Utility part, 1.5 t, $30M) landed on water ice (the
+  Moon's and Mercury's shadowed polar craters, richest at the lunar south
+  pole; Mars's caps; Ceres; the icy moons) makes 600 kg a day, or 250 in
+  Mars's carbon dioxide air (Venus's and Titan's less), filling the tanks
+  as the days pass (time warp included). Refuel on the Moon or Mars and
+  come home: a sample return
+- The part editor shows the design's cost against the funds. Progress is
+  saved in `data/programme/career.json`
+
 **Part editor**
 
 - Build on the launch pad (pause menu > Build vessel): the rocket stands
   there and changes as you edit; right mouse turns the view
 - Parts on the left by kind (command, tanks, engines, separators,
-  parachutes, science, antennas, structure: 26, at 1.25 m and 2.5 m, with
-  adapters, a nose cone, heat shields, science instruments, antennas, a
-  radial separator and a 1.25 m booster engine; tooltips with mass,
-  propellant, thrust and Isp); a click adds one below the selected part, or
+  parachutes, science, antennas, utility, structure: 27, at 1.25 m and
+  2.5 m, with adapters, a nose cone, heat shields, science instruments,
+  antennas, a propellant plant, a radial separator and a 1.25 m booster
+  engine; tooltips with cost, mass, propellant, thrust and Isp); a click adds one below the selected part, or
   into the selected radial group
 - The stack on the right: select a part (it lights up) to move it, remove
   it or change its stage; automatic staging (from the bottom up, each
@@ -656,7 +686,7 @@ build your own rocket in the part editor, on the pad.
 - A disk cache (`data/cache/`) of terrain chunks, keyed by their inputs and
   the generators' source code: chunks stream in ~70% faster on a second
   visit; oldest entries pruned past 2 GB
-- 639 unit tests
+- 650 unit tests
 
 ## Getting Started
 
@@ -716,6 +746,7 @@ planet streams in over the first few seconds.
 | **R** | Run the experiments aboard |
 | **K** | Science panel |
 | **C** | Flight computer |
+| **P** | Space programme |
 | **V** | Free camera: hold right mouse, **W A S D** move, **Space** up, **Shift** down (along the ground, around the planet from orbit; speed grows with altitude) |
 | **.** / **,** | Time warp faster / slower |
 | **/** | Back to real time |
@@ -732,8 +763,9 @@ planet streams in over the first few seconds.
 | `core/` | Window, input, events, timer, logging, profiler, job system, disk cache |
 | `ecs/` | Entity registry and components |
 | `vessel/` | Parts and vessel designs (and drafts being edited, saved designs), staging, propellant and parachutes, flight physics, heating, Kepler orbits, patched conics, transfers, maneuver nodes, flight computer sequences |
-| `systems/` | Transform, camera controller, orbits and clock, vessels, science, communications, planet streaming and render systems |
+| `systems/` | Transform, camera controller, orbits and clock, vessels, science, communications, the space programme, planet streaming and render systems |
 | `science/` | Science sites, regions from the real maps, the orbital survey (mapping masks), the science record |
+| `programme/` | The career (funds, budget, missions on the calendar), resources for making propellant |
 | `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping, impact craters, dunes, surface climate, terrain, chunk building, level of detail, body shapes, orbits and spin, solar time, real maps |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, clouds, rings, eclipses, bloom |
 | `game/` | Flight HUD and readout, attitude ball, map view, maneuver and science panels, part editor, piloting keys, chase camera, pause menu, time warp, graphics quality presets |
@@ -741,7 +773,7 @@ planet streams in over the first few seconds.
 | `resources/` | Handle-based resource managers |
 | `math3d/` | Transforms, camera, matrix helpers |
 | `ui/` | ImGui integration, developer tool windows (render / stats / profiler) |
-| `assets/` | Shaders, textures, body profiles (`bodies/`), parts (`parts/`), vessels (`vessels/`), science sites (`science/`) and flight computer programs (`programs/`) |
+| `assets/` | Shaders, textures, body profiles (`bodies/`), parts (`parts/`), vessels (`vessels/`), science sites (`science/`), flight computer programs (`programs/`) and the campaign (`programme/`) |
 | `tools/` | Asset generator, micro-benchmarks, real map and star catalog downloaders |
 | `data/` | Downloaded maps and caches (not in the repository) |
 | `tests/` | pytest suite (`tests/fixtures/` holds the OBJ / glTF test models) |

@@ -16,7 +16,7 @@ from pathlib import Path
 PARTS_PATH = Path("assets/parts/parts.json")
 VESSELS_DIRECTORY = Path("assets/vessels")
 
-KINDS = ("command", "tank", "engine", "decoupler", "parachute", "science", "antenna", "structure")
+KINDS = ("command", "tank", "engine", "decoupler", "parachute", "science", "antenna", "utility", "structure")
 
 # Where an experiment works (science/record.py).
 SITUATIONS = ("landed", "flying", "space_low", "space_high")
@@ -57,6 +57,14 @@ class ExperimentSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class IsruSpec:
+    """A propellant plant (programme/resources.py): kg a day from ice, from the air."""
+
+    rate_ice: float
+    rate_air: float
+
+
+@dataclass(frozen=True, slots=True)
 class PartDefinition:
 
     id: str
@@ -78,6 +86,8 @@ class PartDefinition:
     experiment: ExperimentSpec | None = None
     crew: int = 0                   # people aboard (crewed vessels fly without a link)
     antenna_range: float = 0.0      # m it reaches home from (systems/comms_system.py)
+    cost: float = 0.0               # $ millions (programme/career.py)
+    isru: IsruSpec | None = None
 
     @property
     def radius(
@@ -219,6 +229,20 @@ def parse_part(
             maps=bool(raw.get("maps", False))
         )
 
+    isru = None
+
+    if data.get("isru") is not None:
+
+        raw = data["isru"]
+
+        if not isinstance(raw, dict):
+            raise PartError(f"{where}: 'isru' must be an object")
+
+        isru = IsruSpec(
+            rate_ice=_number(raw, "rate_ice", where, default=0.0),
+            rate_air=_number(raw, "rate_air", where, default=0.0)
+        )
+
     color = data.get("color", [0.7, 0.7, 0.7])
 
     if not (isinstance(color, list) and len(color) == 3 and all(isinstance(c, (int, float)) for c in color)):
@@ -243,7 +267,9 @@ def parse_part(
         max_temperature=_number(data, "max_temperature", where, default=1400.0, minimum=300.0),
         experiment=experiment,
         crew=int(_number(data, "crew", where, default=0.0)),
-        antenna_range=_number(data, "antenna_range", where, default=0.0)
+        antenna_range=_number(data, "antenna_range", where, default=0.0),
+        cost=_number(data, "cost", where, default=0.0),
+        isru=isru
     )
 
 

@@ -59,6 +59,7 @@ from game.hud import FlightHud
 from game.computer_context import GameFlightContext, hold_sink_rate
 from game.computer_panel import ComputerInfo, ComputerPanel
 from game.maneuver_panel import ManeuverPanel, NodeInfo
+from game.programme_panel import ProgrammeInfo, ProgrammePanel, deadline_text, reward_text
 from game.science_panel import ScienceInfo, SciencePanel
 from game.map_view import MapView, ScreenProjection
 from game.part_editor import EditorActions, LaunchBody, PartEditor
@@ -87,7 +88,7 @@ from planet.bodies import (
     sun_intensity,
     solar_system,
 )
-from planet.orbits import DAY, seconds_since_j2000
+from planet.orbits import DAY, date_of, seconds_since_j2000
 from planet.spawn import find_spawn
 from planet.terrain import Terrain
 
@@ -101,8 +102,11 @@ from systems.orbit_system import OrbitSystem, body_states
 from systems.render_system import RenderSystem
 from systems.transform_system import TransformSystem
 from systems.comms_system import CommsSystem, Link
+from systems.programme_system import ProgrammeSystem
 from systems.science_system import ScienceSystem
 from systems.vessel_system import LaunchSite, OrbitStart, Suggestion, VesselSystem
+
+from programme.career import CAREER_PATH, RECOVERY, Career, load_campaign, today_of
 
 from science.record import PROGRESS_PATH, ScienceRecord
 from science.survey import direction_of as survey_direction
@@ -454,6 +458,13 @@ class Application:
         self.comms_system = CommsSystem()
         self.link = Link(False)
         self.computer_panel = ComputerPanel()
+
+        # The space programme: funds, missions (saved); its
+        # panel (P).
+        campaign = load_campaign()
+
+        self.programme_system = ProgrammeSystem(campaign, Career.load(campaign, CAREER_PATH), CAREER_PATH)
+        self.programme_panel = ProgrammePanel()
 
         # A probe's controls as the pilot has sent them (the
         # vessel gets them a light time later): (vessel id,
@@ -1211,6 +1222,13 @@ class Application:
 
             self._update_science(events, simulated)
 
+            self.programme_system.update(self, events, simulated)
+
+            for news in self.programme_system.news:
+                self.hud.notify(news)
+
+            self.programme_system.news.clear()
+
         self.hud.tick(dt)
 
         with profiler.scope("Camera"):
@@ -1369,6 +1387,17 @@ class Application:
         component
     ):
         """Fire the next stage (the pilot, the computer), with a notice of what it did."""
+
+        # The first: the launch is paid for (or not, short of
+        # funds: then nothing fires).
+        if not self.programme_system.pay_launch(component):
+
+            for news in self.programme_system.news:
+                self.hud.notify(news)
+
+            self.programme_system.news.clear()
+
+            return
 
         vessel = component.vessel
 
@@ -1556,6 +1585,76 @@ class Application:
             gained += self.science_system.transmit(component, 0)
 
         self.hud.notify(f"Transmitted: +{gained:,.1f} science")
+
+    @property
+    def current_site(self) -> str | None:
+        """The science site the vessel is in (its id), or None."""
+
+        return self._site
+
+    def _draw_programme(self):
+
+        if not self.programme_panel.open:
+            return
+
+        programme = self.programme_system
+
+        career = programme.career
+
+        today = today_of(date_of(self.orbit_system.time))
+
+        info = ProgrammeInfo(
+            funds=career.funds,
+            budget=career.budget(programme.campaign),
+            reputation=career.reputation,
+            science=self.science_system.record.points,
+            today=today.strftime("%d %B %Y")
+        )
+
+        found = self.vessel_system.find(self.scene)
+
+        if found is not None:
+
+            vessel = found[1].vessel
+
+            info.vessel = (vessel.name, vessel.cost, vessel.cost * RECOVERY, programme.paid)
+
+            if any(state.part.isru is not None for state in vessel.parts):
+
+                if programme.making > 0.0:
+                    source = programme.resources[0].name if programme.resources else ""
+                elif programme.resources:
+                    source = f"{programme.resources[0].name} here: land to make propellant"
+                else:
+                    source = "nothing to make it from here"
+
+                info.plant = (programme.making, source, career.made)
+
+        for mission in programme.campaign.missions:
+
+            state = career.state(mission, today)
+
+            info.missions.append((
+                mission.title,
+                mission.about,
+                state,
+                deadline_text(mission.deadline, today) if state != "waiting" else f"opens {mission.opens.isoformat()}",
+                reward_text(mission.reward)
+            ))
+
+        now = self.orbit_system.time
+
+        for window in programme.windows(self):
+
+            info.windows.append((
+                window.target,
+                date_of(window.departure).strftime("%d %b %Y"),
+                (window.departure - now) / 86_400.0,
+                window.flight / 86_400.0,
+                window.excess
+            ))
+
+        self.programme_panel.draw(info)
 
     def _link_line(
         self,
@@ -2749,6 +2848,9 @@ class Application:
         if Input.is_key_pressed(Key.C) and self.vessel_system.find(self.scene) is not None:
             self.computer_panel.toggle()
 
+        if Input.is_key_pressed(Key.P):
+            self.programme_panel.toggle()
+
     def _track_speed(
         self,
         delta_time: float
@@ -2901,6 +3003,8 @@ class Application:
 
         if self.part_editor.open:
 
+            self.part_editor.funds = self.programme_system.career.funds
+
             self.part_editor.draw(
                 EditorActions(
                     launch=self._launch_design,
@@ -2949,6 +3053,8 @@ class Application:
         self._draw_science()
 
         self._draw_computer()
+
+        self._draw_programme()
 
         self.pause_menu.draw(
             self._menu_actions(context),
@@ -3203,6 +3309,11 @@ class Application:
 
         if science is not None:
             science.save()
+
+        programme = getattr(self, "programme_system", None)
+
+        if programme is not None:
+            programme.save()
 
         # =================================================
         # UI
