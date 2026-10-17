@@ -285,6 +285,7 @@ class FlightHud:
             imgui.text_disabled("Z / X  throttle   |   Space  stage   |   W A S D Q E  steer")
             imgui.text_disabled("T  SAS   |   F  SAS mode   |   M  map   |   V  free camera")
             imgui.text_disabled("R  run experiments   |   K  science   |   C  flight computer   |   P  programme")
+            imgui.text_disabled("L  vessels   |   [ ]  fly the previous / next vessel")
             imgui.text_disabled("Esc  menu   |   , .  time warp   |   right mouse  look around")
         else:
             imgui.text_disabled("Esc  menu   |   , .  time warp   |   hold right mouse  look and fly")

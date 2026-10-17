@@ -67,12 +67,6 @@ class ProgrammeSystem:
         self.career = career
         self.path = path
 
-        # The current vessel's flight: which vessel, paid for,
-        # the bodies landed on since it left home, its crew.
-        self._vessel = None
-        self.paid = False
-        self.landed_on: set[str] = set()
-
         self._last_check = 0.0
         self._last_save = time.monotonic()
         self._unsaved = False
@@ -94,29 +88,13 @@ class ProgrammeSystem:
     # Flights
     # =====================================================
 
-    def _follow(
-        self,
-        component
-    ):
-        """A new vessel (launch, revert, editor): its own flight."""
-
-        if self._vessel is component.vessel:
-            return
-
-        self._vessel = component.vessel
-        self.paid = False
-        self.landed_on = set()
-        self._full = False
-
     def pay_launch(
         self,
         component
     ) -> bool:
         """Before the first stage: pay for the vessel. False when the funds are short."""
 
-        self._follow(component)
-
-        if self.paid:
+        if component.paid:
             return True
 
         cost = component.vessel.cost
@@ -129,7 +107,7 @@ class ProgrammeSystem:
 
         self.career.launch(cost)
 
-        self.paid = True
+        component.paid = True
 
         self.news.append(f"Launch: -${cost:,.1f}M")
 
@@ -168,8 +146,6 @@ class ProgrammeSystem:
 
             _, component = found
 
-            self._follow(component)
-
             flight = self._flight(app, component)
 
             if "destroyed" in events and crew(component.vessel) > 0:
@@ -177,7 +153,7 @@ class ProgrammeSystem:
                 self._changed()
 
             if flight is not None and flight.situation == "Landed" and flight.body != flight.home:
-                self.landed_on.add(flight.body)
+                component.landed_on.add(flight.body)
 
             self._isru(app, component, flight, simulated)
 
@@ -191,14 +167,14 @@ class ProgrammeSystem:
 
             self._check(app, today, flight)
 
-        if landed_home and found is not None and self.paid:
+        if landed_home and found is not None and found[1].paid:
 
             refund = career.recover(found[1].vessel.cost)
 
             self.news.append(f"Recovered: +${refund:,.1f}M")
 
-            self.paid = False
-            self.landed_on = set()
+            found[1].paid = False
+            found[1].landed_on = set()
 
             self._changed()
 
@@ -229,7 +205,7 @@ class ProgrammeSystem:
             crewed=crew(component.vessel) > 0,
             site=app.current_site or "",
             home=science.body_id(app.scene, home) if home is not None else "",
-            landed_on=frozenset(self.landed_on)
+            landed_on=frozenset(component.landed_on)
         )
 
     def _check(
@@ -407,6 +383,47 @@ class ProgrammeSystem:
 
         self._unsaved = False
         self._last_save = time.monotonic()
+
+
+def drain_tanks(
+    vessel,
+    amount: float
+) -> float:
+    """Take up to `amount` kg of propellant from the tanks, evenly by what each holds; returns what came out."""
+
+    tanks = [state for state in vessel.parts if state.propellant > 1e-9]
+
+    held = sum(state.propellant * state.count for state in tanks)
+
+    if held <= 0.0 or amount <= 0.0:
+        return 0.0
+
+    share = min(amount / held, 1.0)
+
+    for state in tanks:
+        state.propellant -= state.propellant * share
+
+    return held * share
+
+
+def move_propellant(
+    giver,
+    taker,
+    amount: float
+) -> float:
+    """From one vessel's tanks to another's (a depot): what fits, of what there is, up to `amount` kg."""
+
+    room = taker.propellant_capacity - taker.propellant
+
+    taken = drain_tanks(giver, min(amount, room))
+
+    put = fill_tanks(taker, taken)
+
+    # (Anything that did not fit goes back.)
+    if taken - put > 1e-6:
+        fill_tanks(giver, taken - put)
+
+    return put
 
 
 def fill_tanks(

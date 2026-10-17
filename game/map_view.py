@@ -40,6 +40,7 @@ MOON_COLOR = (0.75, 0.75, 0.8, 0.45)
 MARKER_COLOR = (1.0, 0.9, 0.45, 1.0)
 VESSEL_COLOR = (1.0, 1.0, 1.0, 1.0)
 SITE_COLOR = (1.0, 0.85, 0.45, 1.0)
+OTHER_COLOR = (0.9, 0.65, 1.0, 1.0)
 
 
 @dataclass(slots=True)
@@ -229,13 +230,16 @@ class MapView:
         planned=None,
         node_world: np.ndarray | None = None,
         node_label: str = "",
-        sites: list | None = None
+        sites: list | None = None,
+        others: list | None = None
     ):
         """
         planned: the path after the maneuver node's burn
         (a Prediction, or None), node_world: where the node
         is. sites: (world point, name) of the science sites
-        on the body.
+        on the body. others: the other vessels round it,
+        (world point, name, orbit's world points or None,
+        targeted).
 
         to_world: inertial directions/offsets -> world (3x3).
         body_world: key -> world center now; body_radius:
@@ -288,6 +292,22 @@ class MapView:
 
                 draw.add_quad_filled((x, y - 4.0), (x + 4.0, y), (x, y + 4.0), (x - 4.0, y), color)
                 draw.add_text((x + 6.0, y - 7.0), _color(SITE_COLOR, 0.75), name)
+
+        for point, name, orbit, targeted in others or ():
+
+            if orbit is not None and len(orbit) > 1:
+                self._polyline(draw, projection, orbit, (OTHER_COLOR[0], OTHER_COLOR[1], OTHER_COLOR[2], 0.8 if targeted else 0.35), body_world, body_radius, 1.5 if targeted else 1.0)
+
+            pixel, front = projection.project(point[None, :])
+
+            if front[0]:
+
+                x, y = pixel[0]
+
+                color = _color(OTHER_COLOR)
+
+                draw.add_triangle((x, y - 6.0), (x - 5.0, y + 4.0), (x + 5.0, y + 4.0), color, 1.5)
+                draw.add_text((x + 7.0, y - 7.0), color, name + ("  (target)" if targeted else ""))
 
         if prediction is None:
             return

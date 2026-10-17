@@ -241,6 +241,12 @@ class VesselComponent:
     computer: object = None
     hover: float | None = None
 
+    # The programme (systems/programme_system.py): paid for
+    # (launched), and the bodies landed on since it left
+    # home.
+    paid: bool = False
+    landed_on: set = field(default_factory=set)
+
 
 # A spent stage, falling on its own (no pilot) until it hits
 # the ground or is left far behind. body: as VesselComponent

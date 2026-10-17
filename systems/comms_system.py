@@ -119,12 +119,14 @@ class CommsSystem:
         if found is None:
             return Link(False, reason="No vessel")
 
-        if self._cached is not None and self._cached[0] == orbit_system.time:
+        key = (orbit_system.time, found[0])
+
+        if self._cached is not None and self._cached[0] == key:
             return self._cached[1]
 
         link = self._find(scene, vessel_system, orbit_system, planet_system, found[1])
 
-        self._cached = (orbit_system.time, link)
+        self._cached = (key, link)
 
         return link
 
@@ -183,23 +185,123 @@ class CommsSystem:
         if reach <= 0.0:
             return Link(False, reason="No antenna", range=0.0, crewed=crewed)
 
+        home_frame = (home, center, frame, radius)
+
+        best, why, nearest = self._reach_home(vessel_system, orbit_system, bodies, home_frame, component, where, reach)
+
+        if best is not None:
+            return Link(True, best[0], best[1], best[1] / SPEED_OF_LIGHT, reach, crewed=crewed)
+
+        # Through another vessel in flight that hears home: a
+        # relay (one hop).
+        relayed = None
+
+        for other_entity, other in vessel_system.vessels(scene):
+
+            if other is component or other.state.destroyed:
+                continue
+
+            other_reach = antenna_range(other.vessel)
+
+            other_reference = vessel_system.reference_state(orbit_system, other.body)
+
+            if other_reach <= 0.0 or other_reference is None:
+                continue
+
+            other_where = np.asarray(other_reference[0], dtype=np.float64) + other.state.position
+
+            hop = float(np.linalg.norm(other_where - where))
+
+            if hop > min(reach, other_reach):
+                continue
+
+            if self._blocked(vessel_system, orbit_system, bodies, where, other_where):
+                continue
+
+            onward, _, _ = self._reach_home(vessel_system, orbit_system, bodies, home_frame, other, other_where, other_reach)
+
+            if onward is None:
+                continue
+
+            total = hop + onward[1]
+
+            if relayed is None or total < relayed[1]:
+                relayed = (f"{onward[0]} via {other.vessel.name}", total)
+
+        if relayed is not None:
+            return Link(True, relayed[0], relayed[1], relayed[1] / SPEED_OF_LIGHT, reach, crewed=crewed)
+
+        if nearest > reach:
+            why = "Out of range"
+
+        return Link(False, reason=why, distance=nearest, delay=nearest / SPEED_OF_LIGHT, range=reach, crewed=crewed)
+
+    @staticmethod
+    def _blocked(
+        vessel_system,
+        orbit_system,
+        bodies: dict,
+        start: np.ndarray,
+        end: np.ndarray
+    ) -> bool:
+        """Any body between two points in space (just inside its surface: landed ends do not count)."""
+
+        for key, body in bodies.items():
+
+            position = vessel_system.reference_state(orbit_system, key)
+
+            if position is not None and blocked_by(start, end, np.asarray(position[0], dtype=np.float64), body.radius * 0.999):
+                return True
+
+        return False
+
+    @staticmethod
+    def _reach_home(
+        vessel_system,
+        orbit_system,
+        bodies: dict,
+        home_frame: tuple,
+        component,
+        where: np.ndarray,
+        reach: float
+    ) -> tuple[tuple | None, str, float]:
+        """
+        The best ground station a vessel at `where` (about the
+        star) reaches directly: ((station, m) or None, why
+        not, the nearest station's distance).
+        """
+
+        home, center, frame, radius = home_frame
+
+        state = component.state
+
+        own = bodies.get(component.body)
+
+        # At (or just above) its own body's surface, its
+        # horizon decides; higher, the body is a sphere in the
+        # way like any other.
+        on_surface = (
+            own is not None
+            and component.body is not None
+            and component.body != home
+            and float(np.linalg.norm(state.position)) < own.radius * 1.02
+        )
+
         # The bodies that could be in the way: every one but
-        # home (its horizon decides) and the vessel's own
-        # (likewise, from the vessel).
+        # home (its horizon decides) and, at its surface, the
+        # vessel's own.
         others = []
 
         for key, body in bodies.items():
 
             # (Round the Sun it can still be in the way.)
-            if key == home or (key == component.body and key is not None):
+            if key == home or (key == component.body and key is not None and on_surface):
                 continue
 
             position = vessel_system.reference_state(orbit_system, key)
 
             if position is not None:
                 others.append((body.name, np.asarray(position[0], dtype=np.float64), body.radius))
-
-        own = bodies.get(component.body)
 
         best = None
         why = "Below every station's horizon"
@@ -223,8 +325,8 @@ class CommsSystem:
             if float(line @ up) < -0.0175 * distance:
                 continue
 
-            # From the vessel: its own body's horizon.
-            if own is not None and component.body is not None and component.body != home:
+            # From the vessel at the surface: its own body's horizon.
+            if on_surface:
 
                 vessel_up = state.position / float(np.linalg.norm(state.position))
 
@@ -245,11 +347,4 @@ class CommsSystem:
             if best is None or distance < best[1]:
                 best = (name, distance)
 
-        if best is None:
-
-            if nearest > reach:
-                why = "Out of range"
-
-            return Link(False, reason=why, distance=nearest, delay=nearest / SPEED_OF_LIGHT, range=reach, crewed=crewed)
-
-        return Link(True, best[0], best[1], best[1] / SPEED_OF_LIGHT, reach, crewed=crewed)
+        return best, why, nearest

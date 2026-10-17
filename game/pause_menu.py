@@ -65,6 +65,8 @@ CONTROLS: tuple[tuple[str, str], ...] = (
     ("K", "Science panel: what can be learned here, results aboard, mapping"),
     ("C", "Flight computer: write a sequence and send it (a probe flies it on its own)"),
     ("P", "Space programme: funds, missions and their deadlines, launch windows"),
+    ("L", "Vessels in flight: fly one, target one, end a mission, move propellant alongside"),
+    ("[ / ]", "Fly the previous / next vessel"),
     (". / ,", "Time warp faster / slower (5x at most under thrust or in the air)"),
     ("/", "Back to real time"),
     ("Esc", "This menu (pauses)"),

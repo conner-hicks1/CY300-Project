@@ -9,6 +9,7 @@ OpenGL.ERROR_CHECKING = False
 
 import math
 import os
+import time
 
 from datetime import datetime, timezone
 from pathlib import Path
@@ -49,7 +50,8 @@ from ecs.components import (
     HierarchyComponent,
     NameComponent,
     PlanetComponent,
-    TransformComponent
+    TransformComponent,
+    VesselComponent
 )
 from ecs.entity import Entity
 
@@ -60,6 +62,7 @@ from game.computer_context import GameFlightContext, hold_sink_rate
 from game.computer_panel import ComputerInfo, ComputerPanel
 from game.maneuver_panel import ManeuverPanel, NodeInfo
 from game.programme_panel import ProgrammeInfo, ProgrammePanel, deadline_text, reward_text
+from game.vessels_panel import VesselRow, VesselsInfo, VesselsPanel
 from game.science_panel import ScienceInfo, SciencePanel
 from game.map_view import MapView, ScreenProjection
 from game.part_editor import EditorActions, LaunchBody, PartEditor
@@ -102,10 +105,12 @@ from systems.orbit_system import OrbitSystem, body_states
 from systems.render_system import RenderSystem
 from systems.transform_system import TransformSystem
 from systems.comms_system import CommsSystem, Link
-from systems.programme_system import ProgrammeSystem
+from systems.comms_system import crew as crew_of
+from systems.programme_system import ProgrammeSystem, move_propellant
 from systems.science_system import ScienceSystem
 from systems.vessel_system import LaunchSite, OrbitStart, Suggestion, VesselSystem
 
+from programme import fleet
 from programme.career import CAREER_PATH, RECOVERY, Career, load_campaign, today_of
 
 from science.record import PROGRESS_PATH, ScienceRecord
@@ -256,6 +261,10 @@ class Application:
 
         # The science site the vessel was last in (its id).
         self._site: str | None = None
+
+        # Other vessels' orbits on the map: entity -> (minute,
+        # points).
+        self._other_orbits: dict = {}
 
         # Camera speed for the HUD (smoothed).
         self._last_camera_position: np.ndarray | None = None
@@ -466,6 +475,18 @@ class Application:
         self.programme_system = ProgrammeSystem(campaign, Career.load(campaign, CAREER_PATH), CAREER_PATH)
         self.programme_panel = ProgrammePanel()
 
+        # Vessels left in flight (programme/fleet.py): saved,
+        # brought into every scene; the list (L).
+        self.fleet_path = fleet.FLEET_PATH
+        self._fleet_records = fleet.load(self.fleet_path)
+        self._fleet_restored = False
+        self._fleet_saved = 0.0
+        self.vessels_panel = VesselsPanel()
+
+        # The vessel flown before the part editor opened (to
+        # go back to on Cancel).
+        self._flying_before_edit = None
+
         # A probe's controls as the pilot has sent them (the
         # vessel gets them a light time later): (vessel id,
         # throttle holder, Controls, last sent snapshot).
@@ -501,12 +522,16 @@ class Application:
 
     def travel_to(
         self,
-        body_id: str
+        body_id: str,
+        keep_flown: bool = True
     ):
         """
         Start over at a body: a fresh scene with it, its
         system, the sun and the camera (on its surface, or
-        in space over a giant or a small body).
+        in space over a giant or a small body). The vessels in
+        flight come along (the one flown now too, unless
+        keep_flown is False: a revert); a new one stands on
+        the pad.
         """
 
         body_id = body_id.partition("@")[0]
@@ -515,6 +540,9 @@ class Application:
             body_id in self.body_presets,
             f"Unknown body '{body_id}' (assets/bodies/)."
         )
+
+        if self._fleet_restored:
+            self._fleet_records = fleet.snapshot(self.scene, self.vessel_system, self.science_system, self.orbit_system.time, keep_flown)
 
         self.scene.clear()
 
@@ -536,12 +564,89 @@ class Application:
         self._warp_until = None
         self._site = None
         self._sent = None
+        self._other_orbits = {}
         self.hud.notices.clear()
 
         self._last_camera_position = None
         self._speed = 0.0
 
+        # The fleet, brought up to now (at the start, flying
+        # the one flown when it was saved).
+        for notice in fleet.restore(
+            self._fleet_records,
+            self.scene,
+            self.vessel_system,
+            self.orbit_system,
+            self.parts,
+            self.orbit_system.time,
+            activate=not self._fleet_restored
+        ):
+            self.hud.notify(notice)
+
+        self._fleet_restored = True
+
         Logger.info("[Application] Traveled to %s.", self.scene.name)
+
+    def save_fleet(self):
+
+        if not self._fleet_restored:
+            return
+
+        try:
+            fleet.save(
+                fleet.snapshot(self.scene, self.vessel_system, self.science_system, self.orbit_system.time),
+                self.fleet_path
+            )
+        except OSError as error:
+            Logger.error("[Application] Could not save the fleet: %s", error)
+
+    def switch_vessel(
+        self,
+        entity
+    ) -> bool:
+        """Fly another vessel (the camera follows it)."""
+
+        why = self.vessel_system.switch(self.scene, entity, self.orbit_system, self.planet_system)
+
+        if why:
+
+            self.hud.notify(why)
+
+            return False
+
+        found = self.vessel_system.find(self.scene)
+
+        # (Not a target of itself.)
+        if found is not None and self.map_view.target == ("vessel", found[0]):
+            self.map_view.target = None
+
+        self.chase_camera = ChaseCamera()
+        self._sent = None
+        self._site = None
+        self._window = None
+        self._arrival = None
+        self._warp_until = None
+
+        if found is not None:
+            self.hud.notify(f"Flying {found[1].vessel.name}")
+
+        return True
+
+    def _cycle_vessel(
+        self,
+        step: int
+    ):
+
+        vessels = [entity for entity, component in self.vessel_system.vessels(self.scene) if not component.state.destroyed]
+
+        if len(vessels) < 2:
+            return
+
+        found = self.vessel_system.find(self.scene)
+
+        index = vessels.index(found[0]) if found is not None and found[0] in vessels else 0
+
+        self.switch_vessel(vessels[(index + step) % len(vessels)])
 
     # =====================================================
     # Resource Loading
@@ -1226,6 +1331,23 @@ class Application:
 
             self.programme_system.update(self, events, simulated)
 
+            for event in events:
+
+                kind, _, name = event.partition(":")
+
+                if kind == "lost":
+                    self.hud.notify(f"{name} came down and was lost")
+                elif kind == "landed" and name:
+                    self.hud.notify(f"{name} landed under its parachute")
+
+            now = time.monotonic()
+
+            if now - self._fleet_saved > 30.0:
+
+                self._fleet_saved = now
+
+                self.save_fleet()
+
             for news in self.programme_system.news:
                 self.hud.notify(news)
 
@@ -1588,6 +1710,85 @@ class Application:
 
         self.hud.notify(f"Transmitted: +{gained:,.1f} science")
 
+    def _draw_vessels(self):
+
+        if not self.vessels_panel.open:
+            return
+
+        vessels = self.vessel_system
+
+        found = vessels.find(self.scene)
+
+        info = VesselsInfo()
+
+        here = vessels.position_of(found[1], self.orbit_system) if found is not None else None
+
+        for entity, component in vessels.vessels(self.scene):
+
+            if component.state.destroyed:
+                continue
+
+            where = vessels.position_of(component, self.orbit_system)
+
+            active = found is not None and entity == found[0]
+
+            info.rows.append(VesselRow(
+                entity=entity,
+                name=component.vessel.name,
+                body=vessels.body_name(self.scene, component.body),
+                situation=vessels.brief_situation(self.scene, component, self.orbit_system),
+                distance=None if active or here is None or where is None else float(np.linalg.norm(where - here)),
+                active=active,
+                targeted=self.map_view.target == ("vessel", entity),
+                crewed=crew_of(component.vessel) > 0,
+                propellant=component.vessel.propellant,
+                capacity=component.vessel.propellant_capacity
+            ))
+
+        if found is not None:
+
+            info.propellant = found[1].vessel.propellant
+            info.capacity = found[1].vessel.propellant_capacity
+
+            info.nearby = vessels.alongside(self.scene, found[1], self.orbit_system)
+
+        for action in self.vessels_panel.draw(info):
+
+            if action[0] == "fly":
+
+                self.switch_vessel(action[1])
+
+            elif action[0] == "target":
+
+                self.map_view.target = ("vessel", action[1]) if action[1] is not None else None
+
+            elif action[0] == "end":
+
+                if found is not None and action[1] == found[0]:
+
+                    self.hud.notify("Fly another vessel first")
+
+                    continue
+
+                self.vessel_system.remove(self.scene, action[1])
+
+                self.hud.notify("Mission ended")
+
+            elif action[0] == "transfer" and found is not None:
+
+                other = self.scene.try_get_component(action[1], VesselComponent)
+
+                if other is None:
+                    continue
+
+                amount = action[2]
+
+                giver, taker = (other, found[1]) if amount > 0 else (found[1], other)
+
+                moved = move_propellant(giver.vessel, taker.vessel, abs(amount))
+
+                self.hud.notify(f"Moved {moved / 1000.0:,.1f} t of propellant to {taker.vessel.name}")
+
     @property
     def current_site(self) -> str | None:
         """The science site the vessel is in (its id), or None."""
@@ -1619,7 +1820,7 @@ class Application:
 
             vessel = found[1].vessel
 
-            info.vessel = (vessel.name, vessel.cost, vessel.cost * RECOVERY, programme.paid)
+            info.vessel = (vessel.name, vessel.cost, vessel.cost * RECOVERY, found[1].paid)
 
             if any(state.part.isru is not None for state in vessel.parts):
 
@@ -1987,6 +2188,43 @@ class Application:
             if where is not None and reference in body_world:
                 node_world = body_world[reference] + self.orbit_system.inertial_to_world @ where[0]
 
+        # The other vessels round the body (orbits redrawn every
+        # simulated minute).
+        others = []
+
+        if reference in body_world:
+
+            minute = int(self.orbit_system.time // 60.0)
+
+            for other_entity, other in self.vessel_system.vessels(self.scene):
+
+                if other_entity == entity or other.body != reference or other.state.destroyed:
+                    continue
+
+                point = body_world[reference] + self.orbit_system.inertial_to_world @ other.state.position
+
+                orbit = None
+
+                if not other.state.landed and reference in bodies:
+
+                    cached = self._other_orbits.get(other_entity)
+
+                    if cached is None or cached[0] != minute:
+
+                        shape = kepler.orbit_shape(other.state.position, other.state.velocity, bodies[reference].mu)
+
+                        span = shape.period if shape.period is not None and (shape.apoapsis or 0.0) < bodies[reference].soi else 86_400.0
+
+                        points, _ = kepler.propagate_many(other.state.position, other.state.velocity, bodies[reference].mu, np.linspace(0.0, span, 129))
+
+                        cached = (minute, points[np.isfinite(points).all(axis=1)])
+
+                        self._other_orbits[other_entity] = cached
+
+                    orbit = body_world[reference] + cached[1] @ self.orbit_system.inertial_to_world.T
+
+                others.append((point, other.vessel.name, orbit, self.map_view.target == ("vessel", other_entity)))
+
         # The science sites on the body, where they are now.
         sites = []
 
@@ -2018,7 +2256,8 @@ class Application:
             planned=planned,
             node_world=node_world,
             node_label=f"Node {self.maneuver_dv:,.0f} m/s" if self.maneuver_dv is not None else "",
-            sites=sites
+            sites=sites,
+            others=others
         )
 
         targets = sorted(
@@ -2030,6 +2269,13 @@ class Application:
             # Planets first, then moons (by name).
             key=lambda item: (bodies[item[0]].parent is not None, item[1])
         )
+
+        # Other vessels too (a rendezvous).
+        targets += [
+            (("vessel", other_entity), f"{other.vessel.name} (vessel)")
+            for other_entity, other in self.vessel_system.vessels(self.scene)
+            if other_entity != entity and not other.state.destroyed
+        ]
 
         # (Planning a burn, the encounter it makes shows.)
         lines, burn, suggested = self._navigation(component, bodies, planned or prediction)
@@ -2082,6 +2328,66 @@ class Application:
                 self.time_warp.index = len(self.time_warp.rates) - 1
 
         self._correction = self._course_correction(component)
+
+    def _rendezvous(
+        self,
+        component,
+        bodies: dict,
+        prediction,
+        target_entity
+    ) -> list:
+        """Navigation lines toward another vessel: how close the paths come, how fast past each other."""
+
+        other = self.scene.try_get_component(target_entity, VesselComponent)
+
+        if other is None or other.state.destroyed:
+
+            self.map_view.target = None
+
+            return [("That vessel is gone.", self.NOTE)]
+
+        name = other.vessel.name
+
+        if other.body != component.body:
+            return [(f"{name} is round {self.vessel_system.body_name(self.scene, other.body)}: get there first.", self.NOTE)]
+
+        distance = float(np.linalg.norm(other.state.position - component.state.position))
+        speed = float(np.linalg.norm(other.state.velocity - component.state.velocity))
+
+        lines = [(f"{name}: {readable.distance(distance)} away, {speed:,.1f} m/s apart", None)]
+
+        near = self.vessel_system.alongside(self.scene, component, self.orbit_system)
+
+        if near is not None and near[0] == target_entity:
+
+            lines.append(("Alongside: move propellant in Vessels (L)", self.GOOD))
+
+            return lines
+
+        reference = bodies.get(component.body)
+
+        if prediction is None or not prediction.patches or reference is None or other.state.landed or component.state.landed:
+
+            lines.append(("Both in flight round the same body for an approach.", self.NOTE))
+
+            return lines
+
+        patch = prediction.patches[0]
+
+        where, moving = kepler.propagate_many(other.state.position, other.state.velocity, reference.mu, patch.times)
+
+        gap, when = closest_approach(patch.points, patch.times, where)
+
+        index = int(np.argmin(np.abs(patch.times - when)))
+
+        _, own = kepler.propagate(component.state.position, component.state.velocity, reference.mu, float(when))
+
+        relative = float(np.linalg.norm(moving[index] - own)) if np.isfinite(moving[index]).all() else float("nan")
+
+        lines.append((f"Closest approach: {readable.distance(gap)} in {readable.countdown(when)}", self.GOOD if gap < 5_000.0 else None))
+        lines.append((f"Passing at {relative:,.0f} m/s: brake to it there (a node at the time)", self.NOTE))
+
+        return lines
 
     def _course_correction(
         self,
@@ -2520,6 +2826,9 @@ class Application:
 
         target = self.map_view.target
 
+        if isinstance(target, tuple) and target and target[0] == "vessel":
+            return self._rendezvous(component, bodies, prediction, target[1]), None, []
+
         if target is None or target not in bodies:
             return [("Choose a target: how to get there shows here.", self.NOTE)], None, []
 
@@ -2708,6 +3017,10 @@ class Application:
         self._design_before_edit = self.vessel_design
         self._edited_height = 0.0
 
+        found = self.vessel_system.find(self.scene)
+
+        self._flying_before_edit = found[0] if found is not None and found[1].paid else None
+
         self.free_camera = False
         self.map_view.open = False
         self.time_warp.stop()
@@ -2772,11 +3085,18 @@ class Application:
 
             self.vessel_system.rebuild(self.scene, self.vessel_design, self.orbit_system)
 
+        # Back to the vessel in flight it was opened from.
+        if self._flying_before_edit is not None:
+
+            self.vessel_system.switch(self.scene, self._flying_before_edit, self.orbit_system, self.planet_system)
+
+            self._flying_before_edit = None
+
     def revert(self):
-        """Back to the launch: the same body, from the start."""
+        """Back to the launch: the same body, from the start (the other vessels in flight stay where they are)."""
 
         if self.body_id is not None:
-            self.travel_to(self.body_id)
+            self.travel_to(self.body_id, keep_flown=False)
 
     # -----------------------------------------------------
     # Keys
@@ -2852,6 +3172,15 @@ class Application:
 
         if Input.is_key_pressed(Key.P):
             self.programme_panel.toggle()
+
+        if Input.is_key_pressed(Key.L):
+            self.vessels_panel.toggle()
+
+        if Input.is_key_pressed(Key.LEFT_BRACKET):
+            self._cycle_vessel(-1)
+
+        if Input.is_key_pressed(Key.RIGHT_BRACKET):
+            self._cycle_vessel(1)
 
     def _track_speed(
         self,
@@ -3057,6 +3386,8 @@ class Application:
         self._draw_computer()
 
         self._draw_programme()
+
+        self._draw_vessels()
 
         self.pause_menu.draw(
             self._menu_actions(context),
@@ -3316,6 +3647,9 @@ class Application:
 
         if programme is not None:
             programme.save()
+
+        if getattr(self, "_fleet_restored", False) and self.scene is not None:
+            self.save_fleet()
 
         # =================================================
         # UI

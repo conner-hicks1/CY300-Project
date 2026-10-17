@@ -263,6 +263,10 @@ class VesselSystem:
         # for the part editor to rebuild it there.
         self._launch: tuple | None = None
 
+        # The vessel flown now (others fly on rails), or None:
+        # the first there is.
+        self.active: Entity | None = None
+
     # =====================================================
     # Spawning
     # =====================================================
@@ -340,25 +344,11 @@ class VesselSystem:
 
             self._height = start.radius
 
-        entity = scene.create_entity()
+        entity = self.add_vessel(scene, vessel, state, body, orbit_system)
 
-        scene.add_component(entity, NameComponent(vessel.name))
-        scene.add_component(entity, TransformComponent(transform=Transform()))
-
-        component = VesselComponent(
-            vessel=vessel,
-            state=state,
-            body=body,
-            controls=Controls()
-        )
-
-        scene.add_component(entity, component)
-
-        self._build_parts(scene, entity, component)
+        self.active = entity
 
         self._ground = None
-
-        self.place(scene, orbit_system)
 
         Logger.info(
             "[Vessels] %s: %.1f t, %.0f m/s of delta-v.",
@@ -368,6 +358,53 @@ class VesselSystem:
         )
 
         return entity
+
+    def add_vessel(
+        self,
+        scene: Scene,
+        vessel: Vessel,
+        state: VesselState,
+        body: Hashable,
+        orbit_system,
+        **fields
+    ) -> Entity:
+        """A vessel in flight, as it is (not flown: switch to fly it). fields: more VesselComponent fields."""
+
+        entity = scene.create_entity()
+
+        scene.add_component(entity, NameComponent(vessel.name))
+        scene.add_component(entity, TransformComponent(transform=Transform()))
+
+        component = VesselComponent(
+            vessel=vessel,
+            state=state,
+            body=body,
+            controls=Controls(),
+            **fields
+        )
+
+        scene.add_component(entity, component)
+
+        self._build_parts(scene, entity, component)
+
+        self.place(scene, orbit_system)
+
+        return entity
+
+    def remove(
+        self,
+        scene: Scene,
+        entity: Entity
+    ):
+        """Take a vessel out of the game (terminated, or recovered)."""
+
+        if scene.try_get_component(entity, VesselComponent) is None:
+            return
+
+        self._destroy_tree(scene, entity)
+
+        if self.active == entity:
+            self.active = None
 
     def rebuild(
         self,
@@ -383,8 +420,12 @@ class VesselSystem:
 
         found = self.find(scene)
 
-        if found is not None:
+        # The one on the pad goes; one in flight (launched)
+        # stays where it is, on rails.
+        if found is not None and not found[1].paid:
             self._destroy_tree(scene, found[0])
+
+        self.active = None
 
         for entity, _ in list(scene.registry.view_with(DebrisComponent)):
             self._destroy_tree(scene, entity)
@@ -464,12 +505,164 @@ class VesselSystem:
 
         return 0.02 * max(self._height, 0.0)
 
-    @staticmethod
     def find(
+        self,
         scene: Scene
     ) -> tuple[Entity, VesselComponent] | None:
+        """The active vessel (the one flown and followed)."""
 
-        return next(iter(scene.registry.view_with(VesselComponent)), None)
+        if self.active is not None:
+
+            component = scene.try_get_component(self.active, VesselComponent)
+
+            if component is not None:
+                return self.active, component
+
+        first = next(iter(scene.registry.view_with(VesselComponent)), None)
+
+        self.active = first[0] if first is not None else None
+
+        return first
+
+    @staticmethod
+    def vessels(
+        scene: Scene
+    ) -> list[tuple[Entity, VesselComponent]]:
+        """Every vessel in flight (the active one too)."""
+
+        return list(scene.registry.view_with(VesselComponent))
+
+    def position_of(
+        self,
+        component: VesselComponent,
+        orbit_system
+    ) -> np.ndarray | None:
+        """A vessel's position about the star (m), or None."""
+
+        reference = self.reference_state(orbit_system, component.body)
+
+        if reference is None:
+            return None
+
+        return np.asarray(reference[0], dtype=np.float64) + component.state.position
+
+    def brief_situation(
+        self,
+        scene: Scene,
+        component: VesselComponent,
+        orbit_system
+    ) -> str:
+        """Landed / orbiting / sub-orbital / escaping, for a list (vessels not flown have no readout)."""
+
+        state = component.state
+
+        if state.destroyed:
+            return "Lost"
+
+        if state.landed:
+            return "Landed"
+
+        bodies = self.soi_bodies(scene)
+
+        body = bodies.get(component.body)
+
+        if body is None:
+            return "In flight"
+
+        shape = kepler.orbit_shape(state.position, state.velocity, body.mu)
+
+        if shape.apoapsis is None or shape.apoapsis > body.soi:
+            return "Escaping"
+
+        if shape.periapsis < self._body_physics(scene, component.body, orbit_system).radius:
+            return "Sub-orbital"
+
+        return "Orbiting"
+
+    # Close enough (m) and still enough (m/s) to each other to
+    # move propellant across.
+    ALONGSIDE_DISTANCE = 200.0
+    ALONGSIDE_SPEED = 2.0
+
+    def alongside(
+        self,
+        scene: Scene,
+        component: VesselComponent,
+        orbit_system
+    ) -> tuple | None:
+        """The nearest vessel alongside this one: (entity, name, distance m, relative speed m/s), or None."""
+
+        best = None
+
+        for entity, other in self.vessels(scene):
+
+            if other is component or other.state.destroyed or other.body != component.body:
+                continue
+
+            distance = float(np.linalg.norm(other.state.position - component.state.position))
+
+            speed = float(np.linalg.norm(other.state.velocity - component.state.velocity))
+
+            if distance <= self.ALONGSIDE_DISTANCE and speed <= self.ALONGSIDE_SPEED and (best is None or distance < best[2]):
+                best = (entity, other.vessel.name, distance, speed)
+
+        return best
+
+    def switch(
+        self,
+        scene: Scene,
+        entity: Entity,
+        orbit_system,
+        planet_system
+    ) -> str:
+        """
+        Fly another vessel. Returns "" or why not: the one
+        flown now must be coasting above the air or landed
+        (no thrust), as the others fly on rails.
+        """
+
+        target = scene.try_get_component(entity, VesselComponent)
+
+        if target is None or target.state.destroyed:
+            return "No such vessel"
+
+        found = self.find(scene)
+
+        if found is not None and found[0] != entity:
+
+            _, component = found
+
+            state = component.state
+
+            if not state.destroyed:
+
+                environment = self.environment(scene, component.body, orbit_system, planet_system)
+
+                thrusting = component.vessel.throttle > 0.0 and bool(component.vessel.burning_engines())
+
+                radius = float(np.linalg.norm(state.position))
+
+                if thrusting:
+                    return "Not under thrust: cut the throttle first"
+
+                if not state.landed and radius < environment.air_top:
+                    return "Not while flying through the air"
+
+            component.vessel.throttle = 0.0
+            component.hover = None
+
+        self.active = entity
+
+        # Another vessel: its own ground, predictions.
+        self._ground = None
+        self._fallback_ground = None
+        self._height = float(np.linalg.norm(target.state.position))
+        self._prediction = None
+        self._planned = None
+        self._braking = None
+        self._burn_time = None
+
+        return ""
 
     @staticmethod
     def _mu(
@@ -773,7 +966,8 @@ class VesselSystem:
         self,
         scene: Scene,
         component: VesselComponent,
-        orbit_system
+        orbit_system,
+        active: bool = True
     ) -> str | None:
         """Into another body's sphere of influence, if the vessel has crossed one. Returns its name."""
 
@@ -825,10 +1019,11 @@ class VesselSystem:
         component.body = target
 
         # A new body: its ground, unknown yet; far from it.
-        self._ground = None
-        self._fallback_ground = None
-        self._height = float(np.linalg.norm(state.position))
-        self._prediction = None
+        if active:
+            self._ground = None
+            self._fallback_ground = None
+            self._height = float(np.linalg.norm(state.position))
+            self._prediction = None
 
         name = self.body_name(scene, target)
 
@@ -853,7 +1048,7 @@ class VesselSystem:
         if component.state.destroyed:
             return None
 
-        key = (orbit_system.time, component.body)
+        key = (orbit_system.time, component.body, id(component))
 
         if self._prediction is not None and self._prediction[0] == key:
             return self._prediction[1]
@@ -1025,7 +1220,7 @@ class VesselSystem:
 
         remaining = self.node_remaining(component)
 
-        key = (orbit_system.time, component.body, node.time, tuple(np.round(remaining, 3)))
+        key = (orbit_system.time, component.body, id(component), node.time, tuple(np.round(remaining, 3)))
 
         if self._planned is not None and self._planned[0] == key:
             return self._planned[1]
@@ -1231,12 +1426,14 @@ class VesselSystem:
 
         cached = self._braking
 
-        if cached is not None and cached[0] == orbit_system.time:
+        key = (orbit_system.time, self.active)
+
+        if cached is not None and cached[0] == key:
             return cached[1]
 
         found = self._find_braking(scene, orbit_system, planet_system)
 
-        self._braking = (orbit_system.time, found)
+        self._braking = (key, found)
 
         return found
 
@@ -1605,12 +1802,93 @@ class VesselSystem:
 
         self._update_debris(scene, component, environment, dt, planet_system, orbit_system)
 
+        for other, background in self.vessels(scene):
+
+            if other != entity:
+
+                events.extend(self._background(scene, other, background, dt, orbit_system))
+
+                # Lost on rails: gone.
+                if background.state.destroyed:
+                    self.remove(scene, other)
+
         self._update_plumes(scene, entity, component, orbit_system, planet_system)
         self._update_canopies(scene, entity, component)
 
         self.place(scene, orbit_system)
 
         return events
+
+    def _background(
+        self,
+        scene: Scene,
+        entity: Entity,
+        component: VesselComponent,
+        dt: float,
+        orbit_system
+    ) -> list[str]:
+        """
+        A vessel not flown, on rails: landed, it turns with
+        its body; else it follows its conic (into other
+        spheres), until it comes down: with a parachute in
+        air, it lands; else it is lost. Events "lost:<name>",
+        "landed:<name>".
+        """
+
+        state = component.state
+
+        if state.destroyed or dt <= 0.0 or self.reference_state(orbit_system, component.body) is None:
+            return []
+
+        physics = self._body_physics(scene, component.body, orbit_system)
+
+        radius = float(np.linalg.norm(state.position))
+
+        if state.landed:
+
+            environment = Environment(physics.mu, physics.spin, lambda r, d: (0.0, 0.0), lambda d: radius)
+
+            step(component.vessel, state, environment, component.controls, dt)
+
+            return []
+
+        ground = physics.radius if physics.solid else 0.5 * physics.radius
+
+        impact = maneuver.time_to_ground(state.position, state.velocity, physics.mu, ground) if physics.solid or component.body is SUN else None
+
+        if impact is not None and impact <= dt:
+
+            there, _ = kepler.propagate(state.position, state.velocity, physics.mu, impact)
+
+            up = there / float(np.linalg.norm(there))
+
+            chute = any(part.armed or part.deployed > 0.0 for part in component.vessel.parachutes)
+
+            if chute and physics.column is not None and component.body is not SUN:
+
+                environment = Environment(physics.mu, physics.spin, lambda r, d: (0.0, 0.0), lambda d: ground)
+
+                state.position = up * ground
+
+                land(state, environment)
+
+                Logger.info("[Vessels] %s came down under its parachute.", component.vessel.name)
+
+                return [f"landed:{component.vessel.name}"]
+
+            state.destroyed = True
+
+            self._clear_parts(scene, component)
+
+            Logger.info("[Vessels] %s (not flown) hit %s.", component.vessel.name, self.body_name(scene, component.body))
+
+            return [f"lost:{component.vessel.name}"]
+
+        coast(state, Environment(physics.mu, physics.spin, lambda r, d: (0.0, 0.0), lambda d: ground), dt)
+
+        self._hand_over(scene, component, orbit_system, active=False)
+
+        return []
 
     def _fly(
         self,
@@ -1938,11 +2216,9 @@ class VesselSystem:
 
         vessel.dropped.clear()
 
-        dropped_entities = [
-            child
-            for part in dropped
-            for child in component.part_entities.pop(id(part), [])
-        ]
+        dropped_map = {id(part): component.part_entities.pop(id(part), []) for part in dropped}
+
+        dropped_entities = [child for copies in dropped_map.values() for child in copies]
 
         # (Only the core's height moves the origin: dropped
         # side boosters leave the stack as it was.)
@@ -1961,7 +2237,43 @@ class VesselSystem:
 
         state.position = state.position + up * lift
 
-        if not state.destroyed and not state.landed:
+        separated = any(part.part.kind == "command" for part in dropped)
+
+        if separated and not state.destroyed and not state.landed:
+
+            # It can fly itself: a new vessel (a relay, a probe).
+            others = sum(1 for _ in scene.registry.view_with(VesselComponent))
+
+            section = Vessel(f"{vessel.name} {others + 1}", dropped)
+
+            section._restack()
+
+            child_entity = scene.create_entity()
+
+            scene.add_component(child_entity, NameComponent(section.name))
+            scene.add_component(child_entity, TransformComponent(transform=Transform()))
+
+            child = VesselComponent(
+                vessel=section,
+                state=debris_state,
+                body=component.body,
+                controls=Controls(),
+                paid=True
+            )
+
+            scene.add_component(child_entity, child)
+
+            child.part_entities = dropped_map
+
+            for child_part in dropped_entities:
+                scene.get_component(child_part, HierarchyComponent).parent = child_entity
+
+            # (Its parts' places in the new stack.)
+            self._restack_parts(scene, child)
+
+            Logger.info("[Vessels] %s separated: a vessel of its own.", section.name)
+
+        elif not state.destroyed and not state.landed:
 
             debris = scene.create_entity()
 

@@ -500,7 +500,7 @@ build your own rocket in the part editor, on the pad.
   delta-v left, surface / orbital / vertical speed, apoapsis and periapsis,
   SAS mode, parachute, the maneuver node's countdown, when to brake to
   land, the hottest part's temperature; notices as things happen (staging, a new sphere of
-  influence, the parachute opening, landing); Revert to launch in the pause
+  influence, the parachute opening, landing); Revert the flown vessel to launch in the pause
   menu
 - Giants and small bodies start in orbit; everywhere else on the ground
 
@@ -630,6 +630,31 @@ build your own rocket in the part editor, on the pad.
   saved in `data/programme/career.json`, the calendar with it: a revert or a
   trip elsewhere starts from the latest date reached, never earlier
 
+**Many vessels**
+
+- Any number of vessels in flight at once (`programme/fleet.py`): one is
+  flown; the others go on on rails, in orbit along their conics (into other
+  spheres of influence), landed turning with their body; one coming down
+  lands if it has a parachute in air, else it is lost. Building a new rocket
+  leaves the one in flight where it is; Revert puts only the flown one back
+  on the pad
+- Fly another with **[** and **]**, or from the Vessels list (**L**: where
+  each is, how far, its propellant; fly, target, end a mission). The one
+  flown must be coasting above the air or landed to switch away from
+- A stage that drops a command part (a probe core under a separator) makes
+  it a vessel of its own: deploy relays, landers, probes
+- Other vessels round the same body show on the map with their orbits; one
+  can be the navigation target: how far, how fast apart, and the closest
+  approach of the two paths and how fast they pass there (a rendezvous)
+- Relays: out of a station's sight or reach, a vessel links home through
+  another in flight that reaches both (one hop), the light time the two
+  legs: a lander on the Moon's far side talks through an orbiter above
+- Depots: within 200 m and 2 m/s of another vessel, propellant moves
+  between their tanks (Vessels list)
+- Saved in `data/programme/fleet.json` with the time: across reverts, trips
+  to other bodies and sessions, each brought up to now on rails when it
+  comes back (and the one flown when saved is flown again on starting)
+
 **Part editor**
 
 - Build on the launch pad (pause menu > Build vessel): the rocket stands
@@ -687,7 +712,7 @@ build your own rocket in the part editor, on the pad.
 - A disk cache (`data/cache/`) of terrain chunks, keyed by their inputs and
   the generators' source code: chunks stream in ~70% faster on a second
   visit; oldest entries pruned past 2 GB
-- 650 unit tests
+- 654 unit tests
 
 ## Getting Started
 
@@ -748,6 +773,8 @@ planet streams in over the first few seconds.
 | **K** | Science panel |
 | **C** | Flight computer |
 | **P** | Space programme |
+| **L** | Vessels in flight |
+| **[** / **]** | Fly the previous / next vessel |
 | **V** | Free camera: hold right mouse, **W A S D** move, **Space** up, **Shift** down (along the ground, around the planet from orbit; speed grows with altitude) |
 | **.** / **,** | Time warp faster / slower |
 | **/** | Back to real time |
@@ -763,10 +790,10 @@ planet streams in over the first few seconds.
 | `main.py`, `application.py` | Entry point, main loop, building a body's scene |
 | `core/` | Window, input, events, timer, logging, profiler, job system, disk cache |
 | `ecs/` | Entity registry and components |
-| `vessel/` | Parts and vessel designs (and drafts being edited, saved designs), staging, propellant and parachutes, flight physics, heating, Kepler orbits, patched conics, transfers, maneuver nodes, flight computer sequences |
+| `vessel/` | Parts and vessel designs (and drafts being edited, saved designs), staging, propellant and parachutes, flight physics, heating, Kepler orbits, patched conics, transfers, maneuver nodes, flight computer sequences, vessels in flight as JSON |
 | `systems/` | Transform, camera controller, orbits and clock, vessels, science, communications, the space programme, planet streaming and render systems |
 | `science/` | Science sites, regions from the real maps, the orbital survey (mapping masks), the science record |
-| `programme/` | The career (funds, budget, missions on the calendar), resources for making propellant |
+| `programme/` | The career (funds, budget, missions on the calendar), resources for making propellant, the fleet of vessels in flight |
 | `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping, impact craters, dunes, surface climate, terrain, chunk building, level of detail, body shapes, orbits and spin, solar time, real maps |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, clouds, rings, eclipses, bloom |
 | `game/` | Flight HUD and readout, attitude ball, map view, maneuver and science panels, part editor, piloting keys, chase camera, pause menu, time warp, graphics quality presets |
