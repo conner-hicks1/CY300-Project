@@ -229,6 +229,10 @@ class VesselComponent:
     # None.
     node: object = None
 
+    # Experiment results aboard (science/record.py
+    # ScienceResult), until recovered or transmitted.
+    science: list = field(default_factory=list)
+
 
 # A spent stage, falling on its own (no pilot) until it hits
 # the ground or is left far behind. body: as VesselComponent

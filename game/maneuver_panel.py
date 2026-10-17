@@ -83,7 +83,7 @@ class ManeuverPanel:
         viewport = imgui.get_main_viewport()
 
         imgui.set_next_window_pos(
-            (viewport.work_pos.x + viewport.work_size.x - 10.0, viewport.work_pos.y + 80.0),
+            (viewport.work_pos.x + viewport.work_size.x - 10.0, viewport.work_pos.y + 100.0),
             imgui.Cond_.always,
             (1.0, 0.0)
         )

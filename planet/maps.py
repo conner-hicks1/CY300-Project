@@ -983,18 +983,31 @@ class ElevationMap:
 
         return math.pi * 0.5 * radius / self.size
 
+    def uses_detail(
+        self,
+        spacing: float,
+        radius: float
+    ) -> bool:
+        """Whether samples this fine (m) take any of the sharper dataset."""
+
+        return self.dataset.detail != "" and spacing > 0.0 and radius > 0.0 and spacing < self.resolution(radius)
+
     def sample(
         self,
         directions: np.ndarray,
         spacing: float = 0.0,
-        radius: float = 0.0
+        radius: float = 0.0,
+        allowed=None
     ) -> np.ndarray:
         """
         Heights (m). spacing: the samples' spacing (m) on a
         body of `radius`: finer than this map resolves, the
         sharper dataset takes over (blended in over a factor
         of two, so a level of detail changes nothing
-        abruptly). 0 = this map alone.
+        abruptly). 0 = this map alone. allowed: given, a
+        function of the directions giving how much (0..1) of
+        the sharper data each may take (science/survey.py:
+        only where mapped).
         """
 
         heights = self._sample_cube(directions)
@@ -1010,6 +1023,13 @@ class ElevationMap:
 
         if weight <= 0.0:
             return heights
+
+        if allowed is not None:
+
+            weight = weight * allowed(directions)
+
+            if not np.any(weight > 0.0):
+                return heights
 
         return heights * (1.0 - weight) + detail.sample(directions) * weight
 

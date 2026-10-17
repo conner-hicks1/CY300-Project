@@ -49,9 +49,13 @@ def build_cached_chunk(
 
     terrain_key = terrain.cache_key
 
+    # (Where the sharp heights are held back by the survey,
+    # which cells under it are mapped: science/survey.py.)
+    survey = terrain.detail_signature(key, resolution)
+
     return cached(
         "chunks",
-        None if terrain_key is None else cache_key("chunk", terrain_key, key, resolution),
+        None if terrain_key is None else cache_key("chunk", terrain_key, key, resolution, survey),
         lambda: build_chunk(key, terrain, resolution)
     )
 

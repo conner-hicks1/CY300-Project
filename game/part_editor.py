@@ -41,12 +41,20 @@ from vessel.vessel import Vessel
 # pad, Cancel puts back the one before. Selections are the
 # draft's paths (vessel/design.py).
 
+SITUATION_WORDS = {
+    "landed": "landed",
+    "flying": "flying",
+    "space_low": "in low space",
+    "space_high": "in high space",
+}
+
 KIND_TITLES = (
     ("command", "Command"),
     ("tank", "Propellant tanks"),
     ("engine", "Engines"),
     ("decoupler", "Stage separators"),
     ("parachute", "Parachutes"),
+    ("science", "Science"),
     ("structure", "Structure"),
 )
 
@@ -98,6 +106,23 @@ def part_summary(
 
     if part.reaction_wheel_torque:
         lines.append(f"Reaction wheels {part.reaction_wheel_torque / 1000:,.0f} kN m")
+
+    if part.experiment is not None:
+
+        experiment = part.experiment
+
+        where = ", ".join(SITUATION_WORDS[item] for item in experiment.situations)
+
+        lines.append(f"Science: {experiment.name} ({experiment.value:.0f}), {where}")
+
+        if experiment.maps:
+            lines.append("Maps the sunlit ground below from orbit")
+
+        if experiment.needs_air:
+            lines.append("Needs air to sample")
+
+    if part.max_temperature != 1400.0:
+        lines.append(f"Stands {part.max_temperature:,.0f} K")
 
     lines.append(f"Survives {part.crash_speed:.0f} m/s")
 

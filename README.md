@@ -500,13 +500,52 @@ build your own rocket in the part editor, on the pad.
   menu
 - Giants and small bodies start in orbit; everywhere else on the ground
 
+**Science and mapping**
+
+- Real places worth going to (`assets/science/sites.json`, 35 of them):
+  Gale crater's ancient lake bed, Jezero's delta, Olympus Mons, Valles
+  Marineris, the north polar cap; the Moon's shadowed south pole, Tranquility
+  Base, Tycho; Caloris, Maxwell Montes, Occator's salt, Loki, Conamara Chaos,
+  Huygens's landing site, Kraken Mare, Enceladus's tiger stripes, Sputnik
+  Planitia... each with why it matters, drawn on the map; the HUD names one
+  as you land at it or fly low over it
+- Everywhere else, regions come from the real maps (`science/regions.py`):
+  lowlands, plains and highlands by the measured height against the body's
+  own range (Mars's northern lowlands and Hellas fall out of MOLA by
+  themselves), seas below Earth's and Titan's sea level, and the polar
+  regions
+- Experiments (`systems/science_system.py`): the capsule's crew report, a
+  probe's telemetry, and Science parts: a survey camera (in space), a
+  surface sample kit (landed) and an air sampler (where there is air).
+  **R** runs what works here; each result is about one subject (the
+  experiment, the body, the situation: landed / flying / in space near /
+  high over, and the region or site below), worth the experiment's value x
+  the body's (Earth 0.4, the Moon 3, Mars 6, Pluto 15) x the site's. Results
+  ride on the vessel (lost with it) until recovered, landing back on the body
+  you launched from, for 75% of what is left of the subject, or transmitted
+  now for half that: doing the same again is worth less each time
+- Mapping (`science/survey.py`): a survey camera in orbit maps the sunlit
+  ground in its swath (40 deg across, below one body radius up), time warp
+  included, on a 1 deg grid; a polar orbit sweeps the whole body as it
+  turns. Each percent mapped earns points, and mapped ground unlocks the
+  body's sharper elevation data (`tools/fetch_maps.py --sharp`): terrain
+  blends the sharp heights in only over mapped cells (smoothly between
+  them), and chunks over newly mapped ground are rebuilt. The body you
+  launch from is mapped already
+- The Science panel (**K**): what can be learned here and what each
+  experiment would give, the results aboard (recover or transmit), how much
+  of the body is mapped and whether the camera is mapping now
+- The Explorer (built in) is Pathfinder Heavy with the instruments on its
+  capsule; progress is saved in `data/science/progress.json`
+
 **Part editor**
 
 - Build on the launch pad (pause menu > Build vessel): the rocket stands
   there and changes as you edit; right mouse turns the view
 - Parts on the left by kind (command, tanks, engines, separators,
-  parachutes, structure: 21 at 1.25 m and 2.5 m, with adapters, a nose
-  cone, heat shields, a radial separator and a 1.25 m booster engine; tooltips with mass,
+  parachutes, science, structure: 24, at 1.25 m and 2.5 m, with adapters, a
+  nose cone, heat shields, science instruments, a radial separator and a
+  1.25 m booster engine; tooltips with mass,
   propellant, thrust and Isp); a click adds one below the selected part, or
   into the selected radial group
 - The stack on the right: select a part (it lights up) to move it, remove
@@ -556,7 +595,7 @@ build your own rocket in the part editor, on the pad.
 - A disk cache (`data/cache/`) of terrain chunks, keyed by their inputs and
   the generators' source code: chunks stream in ~70% faster on a second
   visit; oldest entries pruned past 2 GB
-- 600 unit tests
+- 615 unit tests
 
 ## Getting Started
 
@@ -613,6 +652,8 @@ planet streams in over the first few seconds.
 | **F** | Stability assist mode: hold attitude, prograde, retrograde, maneuver (along the planned burn) |
 | **M** | Map view (right mouse turns it, scroll zooms; choose a target in its navigation panel, plan burns in its maneuver panel) |
 | Right mouse + move, scroll | Swing the camera round the vessel; closer / farther |
+| **R** | Run the experiments aboard |
+| **K** | Science panel |
 | **V** | Free camera: hold right mouse, **W A S D** move, **Space** up, **Shift** down (along the ground, around the planet from orbit; speed grows with altitude) |
 | **.** / **,** | Time warp faster / slower |
 | **/** | Back to real time |
@@ -629,15 +670,16 @@ planet streams in over the first few seconds.
 | `core/` | Window, input, events, timer, logging, profiler, job system, disk cache |
 | `ecs/` | Entity registry and components |
 | `vessel/` | Parts and vessel designs (and drafts being edited, saved designs), staging, propellant and parachutes, flight physics, Kepler orbits, patched conics |
-| `systems/` | Transform, camera controller, orbits and clock, vessels, planet streaming and render systems |
+| `systems/` | Transform, camera controller, orbits and clock, vessels, science, planet streaming and render systems |
+| `science/` | Science sites, regions from the real maps, the orbital survey (mapping masks), the science record |
 | `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping, impact craters, dunes, surface climate, terrain, chunk building, level of detail, body shapes, orbits and spin, solar time, real maps |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, clouds, rings, eclipses, bloom |
-| `game/` | Flight HUD and readout, attitude ball, map view, part editor, piloting keys, chase camera, pause menu, time warp, graphics quality presets |
+| `game/` | Flight HUD and readout, attitude ball, map view, maneuver and science panels, part editor, piloting keys, chase camera, pause menu, time warp, graphics quality presets |
 | `scene/` | Scene container and (de)serialization (for save games) |
 | `resources/` | Handle-based resource managers |
 | `math3d/` | Transforms, camera, matrix helpers |
 | `ui/` | ImGui integration, developer tool windows (render / stats / profiler) |
-| `assets/` | Shaders, textures, body profiles (`bodies/`), parts (`parts/`) and vessels (`vessels/`) |
+| `assets/` | Shaders, textures, body profiles (`bodies/`), parts (`parts/`), vessels (`vessels/`) and science sites (`science/`) |
 | `tools/` | Asset generator, micro-benchmarks, real map and star catalog downloaders |
 | `data/` | Downloaded maps and caches (not in the repository) |
 | `tests/` | pytest suite (`tests/fixtures/` holds the OBJ / glTF test models) |
@@ -670,7 +712,7 @@ python tools/fetch_maps.py
 ```
 
 The four-times-sharper Mars, Moon and Earth maps for flying close (~1.5 GB,
-memory-mapped):
+memory-mapped; away from home they show where you have mapped from orbit):
 
 ```bash
 python tools/fetch_maps.py --sharp

@@ -53,7 +53,7 @@ class PlanetStats:
 
 class _Chunk:
 
-    __slots__ = ("mesh", "offset", "local_matrix", "job", "last_used")
+    __slots__ = ("mesh", "offset", "local_matrix", "job", "last_used", "survey")
 
     def __init__(self):
 
@@ -67,6 +67,10 @@ class _Chunk:
         self.job: Job | None = None
 
         self.last_used = 0
+
+        # The survey cells its sharp heights were built for
+        # (Terrain.detail_signature; None: it takes none).
+        self.survey: bytes | None = None
 
 
 class _Planet:
@@ -842,6 +846,8 @@ class PlanetSystem:
         terrain = planet.terrain
         resolution = planet.resolution
 
+        chunk.survey = terrain.detail_signature(key, resolution)
+
         def on_complete(data: ChunkData):
 
             chunk.job = None
@@ -961,6 +967,50 @@ class PlanetSystem:
             cancelled += 1
 
         return cancelled
+
+    def refresh_survey(
+        self,
+        body: str
+    ) -> int:
+        """
+        A body's survey mask changed (science/survey.py):
+        rebuild its chunks built for other mapped cells (only
+        fine ones near the ground take the sharp heights).
+        Returns how many were dropped.
+        """
+
+        dropped = 0
+
+        for planet in self._planets.values():
+
+            terrain = planet.terrain
+
+            if terrain.elevation_map is None or terrain.elevation_map.dataset.body != body:
+                continue
+
+            planet.ground_cache.clear()
+
+            stale = [
+                key
+                for key, chunk in planet.chunks.items()
+                if chunk.job is None
+                and chunk.survey is not None
+                and terrain.detail_signature(key, planet.resolution) != chunk.survey
+            ]
+
+            for key in stale:
+
+                chunk = planet.chunks.pop(key)
+
+                if chunk.mesh is not None:
+                    chunk.mesh.delete()
+
+                dropped += 1
+
+            if stale:
+                planet.dirty = True
+
+        return dropped
 
     def _release_all(
         self,

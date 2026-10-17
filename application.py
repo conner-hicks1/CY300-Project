@@ -47,6 +47,7 @@ from ecs.components import (
     DirectionalLightComponent,
     HierarchyComponent,
     NameComponent,
+    PlanetComponent,
     TransformComponent
 )
 from ecs.entity import Entity
@@ -55,6 +56,7 @@ from game.chase_camera import ChaseCamera
 from game.flight import FlightContext, frame_body, go_to_orbit, go_to_surface, read_flight
 from game.hud import FlightHud
 from game.maneuver_panel import ManeuverPanel, NodeInfo
+from game.science_panel import ScienceInfo, SciencePanel
 from game.map_view import MapView, ScreenProjection
 from game.part_editor import EditorActions, LaunchBody, PartEditor
 from game.pause_menu import Destination, MenuActions, PauseMenu
@@ -95,7 +97,12 @@ from systems.planet_system import PlanetSystem, planet_extent, terrain_settings_
 from systems.orbit_system import OrbitSystem, body_states
 from systems.render_system import RenderSystem
 from systems.transform_system import TransformSystem
+from systems.science_system import ScienceSystem
 from systems.vessel_system import LaunchSite, OrbitStart, Suggestion, VesselSystem
+
+from science.record import PROGRESS_PATH, ScienceRecord
+from science.survey import direction_of as survey_direction
+from science.sites import load_sites
 
 from vessel import kepler
 from vessel import maneuver
@@ -236,6 +243,9 @@ class Application:
         # until this clock time (or None).
         self.maneuver_panel = ManeuverPanel()
         self._warp_until: float | None = None
+
+        # The science site the vessel was last in (its id).
+        self._site: str | None = None
 
         # Camera speed for the HUD (smoothed).
         self._last_camera_position: np.ndarray | None = None
@@ -428,6 +438,11 @@ class Application:
 
         self.vessel_design = load_design("pathfinder", self.parts)
 
+        # Science: the sites, the player's record (saved), the
+        # panel (K).
+        self.science_system = ScienceSystem(load_sites(), ScienceRecord.load(PROGRESS_PATH), PROGRESS_PATH)
+        self.science_panel = SciencePanel()
+
         self.part_editor = PartEditor(self.parts)
 
         # The design to put back if the editor is cancelled,
@@ -491,6 +506,7 @@ class Application:
         self._window = None
         self._arrival = None
         self._warp_until = None
+        self._site = None
         self.hud.notices.clear()
 
         self._last_camera_position = None
@@ -888,6 +904,10 @@ class Application:
         # sky.
         self._add_system_members(body_id)
 
+        # Their survey masks (mapped ground: science/survey.py);
+        # the body launched from is home, mapped already.
+        self.science_system.register_bodies(scene, body_id)
+
         # Mid-morning where the camera stands; the system
         # placed around this body.
         clock.time = self._time_of_day(planet_entity, spawn_direction, clock.time, 10.5)
@@ -1163,6 +1183,10 @@ class Application:
                 self.time_warp.stop()
 
             self._notify(events)
+
+        with profiler.scope("Science"):
+
+            self._update_science(events, simulated)
 
         self.hud.tick(dt)
 
@@ -1529,6 +1553,24 @@ class Application:
             if where is not None and reference in body_world:
                 node_world = body_world[reference] + self.orbit_system.inertial_to_world @ where[0]
 
+        # The science sites on the body, where they are now.
+        sites = []
+
+        body_id = self.science_system.body_id(self.scene, reference)
+
+        if reference is not None and reference in self.orbit_system.states and reference in body_world:
+
+            _, frame = self.orbit_system.states[reference]
+
+            for site in self.science_system.catalog.of(body_id):
+
+                local = survey_direction(site.latitude, site.longitude)
+
+                sites.append((
+                    body_world[reference] + self.orbit_system.inertial_to_world @ (frame @ local) * body_radius[reference],
+                    site.name
+                ))
+
         self.map_view.draw(
             projection,
             self.orbit_system.inertial_to_world,
@@ -1541,7 +1583,8 @@ class Application:
             body_radius.get(reference, 0.0),
             planned=planned,
             node_world=node_world,
-            node_label=f"Node {self.maneuver_dv:,.0f} m/s" if self.maneuver_dv is not None else ""
+            node_label=f"Node {self.maneuver_dv:,.0f} m/s" if self.maneuver_dv is not None else "",
+            sites=sites
         )
 
         targets = sorted(
@@ -1687,6 +1730,143 @@ class Application:
             return None
 
         return min(candidates, key=lambda vector: float(np.linalg.norm(vector)))
+
+    # -----------------------------------------------------
+    # Science
+    # -----------------------------------------------------
+
+    def _science_place(self):
+
+        return self.science_system.place(self.scene, self.vessel_system, self.orbit_system, self.planet_system)
+
+    def _has_air(self) -> bool:
+        """Air outside the vessel now."""
+
+        found = self.vessel_system.find(self.scene)
+
+        if found is None or self.vessel_system.reference_state(self.orbit_system, found[1].body) is None:
+            return False
+
+        environment = self.vessel_system.environment(self.scene, found[1].body, self.orbit_system, self.planet_system)
+
+        state = found[1].state
+
+        radius = float(np.linalg.norm(state.position))
+
+        return environment.air(radius, state.position / radius)[0] > 0.0
+
+    def _run_science(self):
+        """R: run the experiments aboard."""
+
+        found = self.vessel_system.find(self.scene)
+
+        place = self._science_place()
+
+        if found is None or place is None:
+            return
+
+        for notice in self.science_system.run(found[1], place, self._has_air()):
+            self.hud.notify(notice)
+
+    def _update_science(
+        self,
+        events: list[str],
+        simulated: float
+    ):
+        """Each frame: the camera maps; landing home recovers what is aboard; sites passed are named."""
+
+        found = self.vessel_system.find(self.scene)
+
+        if found is None:
+            return
+
+        _, component = found
+
+        for notice in self.science_system.map_ground(self.scene, self.vessel_system, self.orbit_system, simulated):
+            self.hud.notify(notice)
+
+        if "landed" in events and component.body == self.vessel_system.launch_body and component.science:
+
+            gained = self.science_system.recover(component)
+
+            self.hud.notify(f"Science recovered: +{gained:,.1f}")
+
+        # Arriving at a named site (landed or low over it).
+        place = self._science_place() if events or self.timer.frame_count % 15 == 0 else None
+
+        if place is not None:
+
+            site = place.site.id if place.site is not None else None
+
+            # (Not at high warp: an orbit passes a site every
+            # few frames.)
+            if site != self._site and site is not None and self.time_warp.rate <= 10.0:
+
+                verb = "Landed at" if place.situation == "landed" else "Over"
+
+                self.hud.notify(f"{verb} {place.site.name}")
+
+            self._site = site
+
+        self.science_system.upkeep(self.planet_system)
+
+    def _draw_science(self):
+
+        found = self.vessel_system.find(self.scene)
+
+        if not self.science_panel.open or found is None:
+            return
+
+        _, component = found
+
+        science = self.science_system
+
+        place = self._science_place()
+
+        info = ScienceInfo(points=science.record.points)
+
+        launch = self.vessel_system.launch_body
+
+        info.home = self.vessel_system.body_name(self.scene, launch) if launch is not None else "home"
+
+        if place is not None:
+
+            info.here = place.description
+
+            if place.site is not None:
+                info.about = place.site.about
+
+            if place.nearest is not None and place.site is None:
+                info.nearest = (place.nearest[0].name, place.nearest[1])
+
+            info.experiments = science.status(component, place, self._has_air())
+
+            mask = science.record.surveys.get(place.body_id)
+
+            planet = self.scene.try_get_component(place.body, PlanetComponent) if place.body is not None else None
+
+            if mask is not None and planet is not None and planet.palette != "bands":
+
+                info.mapped = mask.coverage()
+                info.body = place.body_name
+                info.mapping = science.mapping_status(self.scene, self.vessel_system, self.orbit_system)
+
+        info.results = [
+            (result.title, science.record.worth(result), science.record.worth(result, transmitted=True))
+            for result in component.science
+        ]
+
+        for action in self.science_panel.draw(info):
+
+            if action[0] == "run":
+
+                self._run_science()
+
+            elif action[0] == "transmit":
+
+                gained = science.transmit(component, action[1])
+
+                self.hud.notify(f"Transmitted: +{gained:,.1f} science")
 
     # -----------------------------------------------------
     # Maneuver Nodes
@@ -2211,6 +2391,12 @@ class Application:
         if Input.is_key_pressed(Key.M) and self.vessel_system.find(self.scene) is not None:
             self.map_view.toggle()
 
+        if Input.is_key_pressed(Key.K) and self.vessel_system.find(self.scene) is not None:
+            self.science_panel.toggle()
+
+        if Input.is_key_pressed(Key.R) and self.vessel_system.find(self.scene) is not None:
+            self._run_science()
+
     def _track_speed(
         self,
         delta_time: float
@@ -2406,6 +2592,8 @@ class Application:
         )
 
         self._draw_map()
+
+        self._draw_science()
 
         self.pause_menu.draw(
             self._menu_actions(context),
@@ -2655,6 +2843,11 @@ class Application:
         Logger.info(
             "[Application] Shutting down."
         )
+
+        science = getattr(self, "science_system", None)
+
+        if science is not None:
+            science.save()
 
         # =================================================
         # UI

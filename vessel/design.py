@@ -511,7 +511,7 @@ class DesignDraft:
                 if engines and not tanks:
                     found.append(f"Radial {engines[0].part.name}: no tank in its group to burn from.")
 
-                if group.decoupler is None:
+                if group.decoupler is None and (engines or tanks):
                     found.append(f"A radial group on {entry.part.name} has no separator: it stays on all the way.")
 
         if self.entries and self.entries[0].part.kind == "decoupler":

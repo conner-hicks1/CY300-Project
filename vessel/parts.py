@@ -16,7 +16,10 @@ from pathlib import Path
 PARTS_PATH = Path("assets/parts/parts.json")
 VESSELS_DIRECTORY = Path("assets/vessels")
 
-KINDS = ("command", "tank", "engine", "decoupler", "parachute", "structure")
+KINDS = ("command", "tank", "engine", "decoupler", "parachute", "science", "structure")
+
+# Where an experiment works (science/record.py).
+SITUATIONS = ("landed", "flying", "space_low", "space_high")
 
 
 class PartError(ValueError):
@@ -42,6 +45,18 @@ class ParachuteSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class ExperimentSpec:
+    """Science a part can do (science/record.py, systems/science_system.py)."""
+
+    id: str
+    name: str
+    situations: tuple[str, ...]
+    value: float                    # science of one subject, before the body and region
+    needs_air: bool = False         # samples the air (only where there is some)
+    maps: bool = False              # maps the ground below from orbit (science/survey.py)
+
+
+@dataclass(frozen=True, slots=True)
 class PartDefinition:
 
     id: str
@@ -60,6 +75,7 @@ class PartDefinition:
     reaction_wheel_torque: float = 0.0
     crash_speed: float = 8.0        # m/s it survives hitting the ground at
     max_temperature: float = 1400.0  # K its skin stands (vessel/heating.py)
+    experiment: ExperimentSpec | None = None
 
     @property
     def radius(
@@ -178,6 +194,29 @@ def parse_part(
             min_pressure=_number(raw, "min_pressure", where, default=0.0)
         )
 
+    experiment = None
+
+    raw = data.get("experiment")
+
+    if raw is not None:
+
+        if not isinstance(raw, dict) or not isinstance(raw.get("id"), str):
+            raise PartError(f"{where}: an experiment needs an 'id'")
+
+        situations = raw.get("situations", list(SITUATIONS))
+
+        if not isinstance(situations, list) or not situations or any(item not in SITUATIONS for item in situations):
+            raise PartError(f"{where}: experiment situations must be some of {', '.join(SITUATIONS)}")
+
+        experiment = ExperimentSpec(
+            id=raw["id"],
+            name=str(raw.get("name", raw["id"])),
+            situations=tuple(situations),
+            value=_number(raw, "value", where, default=10.0),
+            needs_air=bool(raw.get("needs_air", False)),
+            maps=bool(raw.get("maps", False))
+        )
+
     color = data.get("color", [0.7, 0.7, 0.7])
 
     if not (isinstance(color, list) and len(color) == 3 and all(isinstance(c, (int, float)) for c in color)):
@@ -199,7 +238,8 @@ def parse_part(
         parachute=parachute,
         reaction_wheel_torque=_number(data, "reaction_wheel_torque", where, default=0.0),
         crash_speed=_number(data, "crash_speed", where, default=8.0, minimum=0.1),
-        max_temperature=_number(data, "max_temperature", where, default=1400.0, minimum=300.0)
+        max_temperature=_number(data, "max_temperature", where, default=1400.0, minimum=300.0),
+        experiment=experiment
     )
 
 

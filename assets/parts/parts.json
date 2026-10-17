@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together). Kinds: command (needed to fly), tank, engine, decoupler (drops what is below it), parachute, structure (adapters, nose cones). max_temperature: K a part's skin stands (default 1400); a heat shield under a capsule stands ~3300 for coming in from orbit or the Moon.",
+  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together). Kinds: command (needed to fly), tank, engine, decoupler (drops what is below it), parachute, structure (adapters, nose cones). max_temperature: K a part's skin stands (default 1400); a heat shield under a capsule stands ~3300 for coming in from orbit or the Moon. experiment: what science a part does (id, name, value, situations: landed / flying / space_low / space_high; needs_air; maps: maps the ground from orbit).",
   "parts": [
     {
       "id": "capsule",
@@ -20,7 +20,18 @@
       "metallic": 0.5,
       "roughness": 0.45,
       "reaction_wheel_torque": 30000,
-      "crash_speed": 10
+      "crash_speed": 10,
+      "experiment": {
+        "id": "crew_report",
+        "name": "Crew report",
+        "value": 5,
+        "situations": [
+          "landed",
+          "flying",
+          "space_low",
+          "space_high"
+        ]
+      }
     },
     {
       "id": "heat_shield_2m5",
@@ -61,6 +72,88 @@
       "roughness": 0.85,
       "crash_speed": 10,
       "max_temperature": 3300
+    },
+    {
+      "id": "survey_camera",
+      "name": "Survey camera",
+      "kind": "science",
+      "mass": 80,
+      "shape": {
+        "radius_top": 0.22,
+        "radius_bottom": 0.3,
+        "height": 0.6
+      },
+      "color": [
+        0.85,
+        0.82,
+        0.7
+      ],
+      "metallic": 0.6,
+      "roughness": 0.35,
+      "experiment": {
+        "id": "imaging",
+        "name": "Surface imaging",
+        "value": 20,
+        "situations": [
+          "space_low",
+          "space_high"
+        ],
+        "maps": true
+      }
+    },
+    {
+      "id": "sample_kit",
+      "name": "Surface sample kit",
+      "kind": "science",
+      "mass": 60,
+      "shape": {
+        "radius_top": 0.3,
+        "radius_bottom": 0.3,
+        "height": 0.5
+      },
+      "color": [
+        0.75,
+        0.6,
+        0.3
+      ],
+      "metallic": 0.3,
+      "roughness": 0.5,
+      "experiment": {
+        "id": "samples",
+        "name": "Surface samples",
+        "value": 30,
+        "situations": [
+          "landed"
+        ]
+      }
+    },
+    {
+      "id": "air_sampler",
+      "name": "Air sampler",
+      "kind": "science",
+      "mass": 40,
+      "shape": {
+        "radius_top": 0.15,
+        "radius_bottom": 0.3,
+        "height": 0.45
+      },
+      "color": [
+        0.6,
+        0.7,
+        0.8
+      ],
+      "metallic": 0.5,
+      "roughness": 0.4,
+      "experiment": {
+        "id": "air",
+        "name": "Air samples",
+        "value": 15,
+        "situations": [
+          "landed",
+          "flying"
+        ],
+        "needs_air": true
+      }
     },
     {
       "id": "parachute_main",
@@ -234,7 +327,18 @@
       "metallic": 0.6,
       "roughness": 0.4,
       "reaction_wheel_torque": 3000,
-      "crash_speed": 10
+      "crash_speed": 10,
+      "experiment": {
+        "id": "telemetry",
+        "name": "Probe telemetry",
+        "value": 3,
+        "situations": [
+          "landed",
+          "flying",
+          "space_low",
+          "space_high"
+        ]
+      }
     },
     {
       "id": "nose_cone_1m25",

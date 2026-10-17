@@ -25,6 +25,8 @@ from math3d import quaternion
 #   * the moons' orbits, faint, with their names
 #   * a maneuver node, and the path after its burn (green),
 #     its own Ap / Pe and encounters
+#   * the body's science sites (science/sites.py), on the
+#     side facing the camera
 #
 # Lines are drawn in screen space (ImGui's background draw
 # list): world points projected through the camera, dimmed
@@ -37,6 +39,7 @@ ENCOUNTER_COLOR = (1.0, 0.6, 0.2, 1.0)
 MOON_COLOR = (0.75, 0.75, 0.8, 0.45)
 MARKER_COLOR = (1.0, 0.9, 0.45, 1.0)
 VESSEL_COLOR = (1.0, 1.0, 1.0, 1.0)
+SITE_COLOR = (1.0, 0.85, 0.45, 1.0)
 
 
 @dataclass(slots=True)
@@ -225,12 +228,14 @@ class MapView:
         sea_radius: float,
         planned=None,
         node_world: np.ndarray | None = None,
-        node_label: str = ""
+        node_label: str = "",
+        sites: list | None = None
     ):
         """
         planned: the path after the maneuver node's burn
         (a Prediction, or None), node_world: where the node
-        is.
+        is. sites: (world point, name) of the science sites
+        on the body.
 
         to_world: inertial directions/offsets -> world (3x3).
         body_world: key -> world center now; body_radius:
@@ -262,6 +267,27 @@ class MapView:
 
             if front[0]:
                 draw.add_text((pixel[0, 0] + 8.0, pixel[0, 1] - 8.0), _color((0.85, 0.85, 0.9, 0.9)), body_names.get(key, ""))
+
+        for point, name in sites or ():
+
+            hidden = False
+
+            for key, center in body_world.items():
+                hidden |= bool(hidden_by_sphere(projection.position, point[None, :], center, body_radius.get(key, 0.0) * 0.999)[0])
+
+            if hidden:
+                continue
+
+            pixel, front = projection.project(point[None, :])
+
+            if front[0]:
+
+                x, y = pixel[0]
+
+                color = _color(SITE_COLOR, 0.9)
+
+                draw.add_quad_filled((x, y - 4.0), (x + 4.0, y), (x, y + 4.0), (x - 4.0, y), color)
+                draw.add_text((x + 6.0, y - 7.0), _color(SITE_COLOR, 0.75), name)
 
         if prediction is None:
             return

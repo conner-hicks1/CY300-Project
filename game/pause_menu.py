@@ -61,6 +61,8 @@ CONTROLS: tuple[tuple[str, str], ...] = (
     ("M", "Map: orbits, apoapsis / periapsis, encounters (right mouse turns it, scroll zooms)"),
     ("Right mouse + move", "Swing the camera round the vessel; scroll: closer / farther"),
     ("V", "Free camera (hold right mouse: W A S D Space Shift fly it)"),
+    ("R", "Run the experiments aboard (science)"),
+    ("K", "Science panel: what can be learned here, results aboard, mapping"),
     (". / ,", "Time warp faster / slower (5x at most under thrust or in the air)"),
     ("/", "Back to real time"),
     ("Esc", "This menu (pauses)"),

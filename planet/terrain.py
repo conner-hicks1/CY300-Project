@@ -7,9 +7,12 @@ from planet.dunes import DuneSettings, Dunes
 from planet.erosion import WAVELENGTHS as GULLY_WAVELENGTHS, gullies, relief_gradient
 from core.disk_cache import cache_key
 
+from planet.cube_sphere import edge_length, face_directions
 from planet.maps import load_elevation_map
 from planet.shape import BodyShape, ShapeSettings
 from planet.surface import surface_precipitation, surface_temperature
+
+from science import survey
 
 # Crust brightness of fresh ejecta and rays (1 = the
 # brightest highlands).
@@ -278,6 +281,48 @@ class Terrain:
             return 0.0, 0.0
 
         return self.base_bounds
+
+    @property
+    def survey_mask(
+        self
+    ):
+        """The body's survey (science/survey.py) when it holds the sharper data back, else None."""
+
+        if self.elevation_map is None:
+            return None
+
+        mask = survey.mask_for(self.elevation_map.dataset.body)
+
+        return mask if mask is not None and mask.gating else None
+
+    def detail_signature(
+        self,
+        key,
+        resolution: int
+    ) -> bytes | None:
+        """
+        For a chunk's cache key: the survey cells its sharp
+        heights depend on (None when it takes none, or nothing
+        is held back).
+        """
+
+        mask = self.survey_mask
+
+        if mask is None:
+            return None
+
+        spacing = edge_length(self.settings.radius, key.depth) / (resolution - 1)
+
+        if not self.elevation_map.uses_detail(spacing, self.settings.radius) or self.elevation_map.detail is None:
+            return None
+
+        a0, a1, b0, b1 = key.bounds()
+
+        grid = np.linspace(0.0, 1.0, 9)
+
+        a, b = np.meshgrid(a0 + (a1 - a0) * grid, b0 + (b1 - b0) * grid)
+
+        return mask.signature(face_directions(key.face, a.ravel(), b.ravel()))
 
     @property
     def cache_key(
@@ -572,8 +617,16 @@ class Terrain:
         s = self.settings
 
         # (Sharper data where the samples are finer than the
-        # map: planet/maps.py.)
-        elevation = self.elevation_map.sample(directions, spacing, s.radius)
+        # map, where the body has been mapped: planet/maps.py,
+        # science/survey.py.)
+        mask = self.survey_mask
+
+        elevation = self.elevation_map.sample(
+            directions,
+            spacing,
+            s.radius,
+            mask.weights if mask is not None else None
+        )
 
         # Measured from a sphere: the body's shape is already
         # in the map (Ceres' flattening, Vesta's basins).
