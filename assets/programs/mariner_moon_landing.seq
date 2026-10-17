@@ -1,0 +1,40 @@
+# Mariner: land on an airless body (the Moon, Mercury) from
+# orbit, on the lander's own engine.
+#
+# In orbit with the upper stage spent (or nearly): plan a
+# "Come down" burn on the map (M, Maneuver, Suggested: its
+# periapsis at the ground), then send this.
+
+# Leave the upper stage, keep the shield (stage 3), arm the
+# parachute (4: nothing to catch here), drop the shield and
+# light the lander (5).
+stage
+wait 3 s
+stage
+wait 1 s
+stage
+log Lander free
+
+sas maneuver
+burn
+
+# Fall until the braking burn must start, then brake hard.
+sas retrograde
+wait until brake < 2 s
+log Braking
+throttle full
+
+# Slow: come down briskly (hovering costs fuel), then
+# gently, then touch down softly.
+wait until speed < 40 m/s
+descend 25 m/s
+wait until altitude < 1 km
+descend 8 m/s
+wait until altitude < 100 m
+descend 2 m/s
+wait until landed
+throttle off
+sas hold
+log Landed
+science
+transmit

@@ -55,6 +55,7 @@ KIND_TITLES = (
     ("decoupler", "Stage separators"),
     ("parachute", "Parachutes"),
     ("science", "Science"),
+    ("antenna", "Antennas"),
     ("structure", "Structure"),
 )
 
@@ -120,6 +121,12 @@ def part_summary(
 
         if experiment.needs_air:
             lines.append("Needs air to sample")
+
+    if part.crew:
+        lines.append(f"Crew {part.crew}: flies without a link home")
+
+    if part.antenna_range:
+        lines.append(f"Antenna: reaches home from {part.antenna_range / 1.495978707e11:,.3g} AU ({part.antenna_range / 1e9:,.3g} million km)")
 
     if part.max_temperature != 1400.0:
         lines.append(f"Stands {part.max_temperature:,.0f} K")

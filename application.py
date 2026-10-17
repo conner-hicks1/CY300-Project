@@ -12,6 +12,7 @@ import os
 
 from datetime import datetime, timezone
 from pathlib import Path
+from types import SimpleNamespace
 
 import numpy as np
 
@@ -55,6 +56,8 @@ from ecs.entity import Entity
 from game.chase_camera import ChaseCamera
 from game.flight import FlightContext, frame_body, go_to_orbit, go_to_surface, read_flight
 from game.hud import FlightHud
+from game.computer_context import GameFlightContext, hold_sink_rate
+from game.computer_panel import ComputerInfo, ComputerPanel
 from game.maneuver_panel import ManeuverPanel, NodeInfo
 from game.science_panel import ScienceInfo, SciencePanel
 from game.map_view import MapView, ScreenProjection
@@ -97,6 +100,7 @@ from systems.planet_system import PlanetSystem, planet_extent, terrain_settings_
 from systems.orbit_system import OrbitSystem, body_states
 from systems.render_system import RenderSystem
 from systems.transform_system import TransformSystem
+from systems.comms_system import CommsSystem, Link
 from systems.science_system import ScienceSystem
 from systems.vessel_system import LaunchSite, OrbitStart, Suggestion, VesselSystem
 
@@ -106,6 +110,8 @@ from science.sites import load_sites
 
 from vessel import kepler
 from vessel import maneuver
+from vessel.physics import Controls
+from vessel.sequence import FlightComputer, save_program
 from vessel.maneuver import ManeuverNode
 from vessel.transfer import closest_approach, correction, find_window, plan_transfer
 from game import format as readable
@@ -443,6 +449,17 @@ class Application:
         self.science_system = ScienceSystem(load_sites(), ScienceRecord.load(PROGRESS_PATH), PROGRESS_PATH)
         self.science_panel = SciencePanel()
 
+        # The link home (systems/comms_system.py), this frame;
+        # the flight computer's panel (C).
+        self.comms_system = CommsSystem()
+        self.link = Link(False)
+        self.computer_panel = ComputerPanel()
+
+        # A probe's controls as the pilot has sent them (the
+        # vessel gets them a light time later): (vessel id,
+        # throttle holder, Controls, last sent snapshot).
+        self._sent = None
+
         self.part_editor = PartEditor(self.parts)
 
         # The design to put back if the editor is cancelled,
@@ -507,6 +524,7 @@ class Application:
         self._arrival = None
         self._warp_until = None
         self._site = None
+        self._sent = None
         self.hud.notices.clear()
 
         self._last_camera_position = None
@@ -1106,6 +1124,8 @@ class Application:
 
         self._update_maneuver()
 
+        self._update_comms(paused)
+
         self._pilot(dt, paused)
 
         # The clock runs at the warp's rate (no faster than
@@ -1113,7 +1133,10 @@ class Application:
         self.time_warp.paused = paused
 
         if self.time_warp.limit(
-            self.vessel_system.max_warp(self.scene, self.orbit_system, self.planet_system)
+            min(
+                self.vessel_system.max_warp(self.scene, self.orbit_system, self.planet_system),
+                self._computer_warp()
+            )
         ):
             Logger.info("[Application] Time warp held to %s.", self.time_warp.label())
 
@@ -1279,36 +1302,346 @@ class Application:
             or component.state.destroyed
         )
 
-        if busy:
+        if self.link.crewed:
 
-            release(component.controls)
+            if busy:
+
+                release(component.controls)
+
+                return
+
+            if read_pilot(component.vessel, component.controls, dt):
+                self.stage_vessel(component)
 
             return
 
-        if read_pilot(component.vessel, component.controls, dt):
+        # A probe: the keys go home's way to it, a light time
+        # late; without a link, nowhere.
+        sent = self._sent
 
-            vessel = component.vessel
+        if sent is None or sent[0] != id(component.vessel):
+            sent = self._sent = (id(component.vessel), SimpleNamespace(throttle=component.vessel.throttle), Controls(), None)
 
-            parts = len(vessel.parts)
+        _, throttle, controls, last = sent
 
-            stage = vessel.stage()
+        def snapshot():
+            return (controls.pitch, controls.yaw, controls.roll, controls.sas, controls.sas_mode, throttle.throttle)
 
-            if stage is not None:
+        # Nothing on the way: what is sent is what it has (and
+        # what its computer set: not to be sent back over it).
+        if last is None or not any(kind == "controls" for _, kind, _ in component.uplink):
 
-                Logger.info("[Application] Stage %d.", stage)
+            throttle.throttle = component.vessel.throttle
 
-                what = []
+            for name in ("pitch", "yaw", "roll", "sas", "sas_mode"):
+                setattr(controls, name, getattr(component.controls, name))
 
-                if len(vessel.parts) < parts:
-                    what.append("separated")
+            last = snapshot()
 
-                if any(state.ignited and state.stage == stage for state in vessel.parts):
-                    what.append("engines lit")
+        if busy:
+            release(controls)
+            staged = False
+        else:
+            staged = read_pilot(throttle, controls, dt)
 
-                if any(state.armed and state.stage == stage for state in vessel.parts):
-                    what.append("parachute armed")
+        now_sent = snapshot()
 
-                self.hud.notify(f"Stage {stage}: {', '.join(what) or 'fired'}")
+        if not self.link.connected:
+
+            if now_sent != last or staged:
+                self.hud.notify(f"No link ({self.link.reason}): the probe cannot hear you")
+
+            # Forget what could not be sent.
+            self._sent = (sent[0], throttle, controls, None)
+
+            return
+
+        if now_sent != last:
+            self._uplink(component, "controls", now_sent)
+
+        if staged:
+            self._uplink(component, "stage", None)
+
+        self._sent = (sent[0], throttle, controls, now_sent)
+
+    def stage_vessel(
+        self,
+        component
+    ):
+        """Fire the next stage (the pilot, the computer), with a notice of what it did."""
+
+        vessel = component.vessel
+
+        parts = len(vessel.parts)
+
+        stage = vessel.stage()
+
+        if stage is None:
+            return
+
+        Logger.info("[Application] Stage %d.", stage)
+
+        what = []
+
+        if len(vessel.parts) < parts:
+            what.append("separated")
+
+        if any(state.ignited and state.stage == stage for state in vessel.parts):
+            what.append("engines lit")
+
+        if any(state.armed and state.stage == stage for state in vessel.parts):
+            what.append("parachute armed")
+
+        self.hud.notify(f"Stage {stage}: {', '.join(what) or 'fired'}")
+
+    # -----------------------------------------------------
+    # Communications and the Flight Computer
+    # -----------------------------------------------------
+
+    def _uplink(
+        self,
+        component,
+        kind: str,
+        payload
+    ):
+        """Send a command; it arrives a light time from now (now, crewed)."""
+
+        delay = 0.0 if self.link.crewed else self.link.delay
+
+        component.uplink.append((self.orbit_system.time + delay, kind, payload))
+
+    def _update_comms(
+        self,
+        paused: bool
+    ):
+        """Each frame: the link; commands arriving; the computer's turn."""
+
+        found = self.vessel_system.find(self.scene)
+
+        if found is None:
+
+            self.link = Link(False)
+
+            return
+
+        _, component = found
+
+        self.link = self.comms_system.link(self.scene, self.vessel_system, self.orbit_system, self.planet_system)
+
+        now = self.orbit_system.time
+
+        arrived = [item for item in component.uplink if item[0] <= now]
+
+        if arrived:
+
+            component.uplink = [item for item in component.uplink if item[0] > now]
+
+            for _, kind, payload in sorted(arrived, key=lambda item: item[0]):
+                self._command(component, kind, payload)
+
+        computer = component.computer
+
+        if computer is not None and not computer.done and not component.state.destroyed and not paused:
+
+            line = computer.current
+
+            computer.tick(GameFlightContext(self, component))
+
+            for when, text in computer.log[-3:]:
+                if when == now and text:
+                    self.hud.notify(f"Computer: {text}")
+
+            if computer.done:
+                component.hover = None
+
+            elif line is not computer.current and computer.current is not None:
+                Logger.debug("[Computer] Line %d.", computer.current.line)
+
+        hold_sink_rate(self, component)
+
+    def _command(
+        self,
+        component,
+        kind: str,
+        payload
+    ):
+        """A command arriving at the vessel."""
+
+        if kind == "controls":
+
+            pitch, yaw, roll, sas, sas_mode, throttle = payload
+
+            controls = component.controls
+
+            controls.pitch, controls.yaw, controls.roll = pitch, yaw, roll
+            controls.sas, controls.sas_mode = sas, sas_mode
+
+            component.vessel.throttle = throttle
+
+        elif kind == "stage":
+
+            self.stage_vessel(component)
+
+        elif kind == "science":
+
+            self.run_science_aboard(component)
+
+        elif kind == "program":
+
+            component.computer = FlightComputer(payload)
+            component.hover = None
+
+            self.hud.notify("Computer: program received" if not self.link.crewed else "Computer: running")
+
+        elif kind == "stop":
+
+            if component.computer is not None:
+
+                component.computer.stop(GameFlightContext(self, component))
+
+                component.hover = None
+
+    def _computer_warp(self) -> float:
+        """Fastest the clock may run not to pass the computer's next deadline."""
+
+        found = self.vessel_system.find(self.scene)
+
+        if found is None:
+            return math.inf
+
+        computer = found[1].computer
+
+        if computer is None or computer.done:
+            return math.inf
+
+        gap = computer.time_left(GameFlightContext(self, found[1]))
+
+        if gap is None:
+            return math.inf
+
+        return max(1.0, gap / (4.0 / 30.0))
+
+    def run_science_aboard(
+        self,
+        component
+    ):
+        """Run the experiments (the pilot's R arriving, or the computer)."""
+
+        place = self._science_place()
+
+        if place is None:
+            return
+
+        for notice in self.science_system.run(component, place, self._has_air()):
+            self.hud.notify(notice)
+
+    def transmit_all(
+        self,
+        component
+    ):
+        """Send every result aboard home (half value), if there is a link."""
+
+        if not component.science:
+            return
+
+        if not self.link.connected:
+
+            self.hud.notify(f"No link to transmit ({self.link.reason})")
+
+            return
+
+        gained = 0.0
+
+        while component.science:
+            gained += self.science_system.transmit(component, 0)
+
+        self.hud.notify(f"Transmitted: +{gained:,.1f} science")
+
+    def _link_line(
+        self,
+        component
+    ) -> tuple[str, str] | None:
+        """For the HUD: (link text, "good" / "warn" / "bad"), and the computer's line."""
+
+        link = self.link
+
+        if link.connected:
+            text = f"Link {link.station}" + (f", {readable.countdown(link.delay)} delay" if link.delay >= 0.5 else "")
+            tone = "warn" if link.delay > 5.0 and not link.crewed else "good"
+        else:
+            text = f"No link: {link.reason}"
+            tone = "warn" if link.crewed else "bad"
+
+        computer = component.computer
+
+        if computer is not None and not computer.done and computer.current is not None:
+            text += f"  |  Computer line {computer.current.line}"
+
+        return text, tone
+
+    def _draw_computer(self):
+
+        found = self.vessel_system.find(self.scene)
+
+        if not self.computer_panel.open or found is None:
+            return
+
+        _, component = found
+
+        link = self.link
+
+        now = self.orbit_system.time
+
+        info = ComputerInfo(
+            connected=link.connected,
+            link=link.station if link.connected else link.reason,
+            delay=link.delay,
+            crewed=link.crewed
+        )
+
+        names = {"program": "the program", "stop": "Stop", "controls": "controls", "stage": "Stage", "science": "Run experiments"}
+
+        info.in_flight = [(names.get(kind, kind), when - now) for when, kind, _ in component.uplink if when > now and kind != "controls"]
+
+        computer = component.computer
+
+        if computer is not None:
+
+            info.running = True
+            info.done = computer.done
+            info.log = computer.log
+
+            current = computer.current
+
+            if current is not None:
+                info.line = current.text
+                info.line_number = current.line
+
+            info.wait = computer.deadline - now if computer.deadline is not None else None
+
+        for action in self.computer_panel.draw(info):
+
+            if action[0] == "save":
+
+                try:
+                    path = save_program(action[1], action[2])
+                except OSError as error:
+                    self.hud.notify(f"Could not save: {error}")
+                else:
+                    self.hud.notify(f"Saved {path}")
+
+            elif action[0] in ("send", "stop"):
+
+                if not link.crewed and not link.connected:
+
+                    self.hud.notify(f"No link ({link.reason}): cannot send")
+
+                    continue
+
+                self._uplink(component, "program" if action[0] == "send" else "stop", action[1] if action[0] == "send" else None)
+
+                if not link.crewed and link.delay > 1.0:
+                    self.hud.notify(f"Sent: arrives in {readable.countdown(link.delay)}")
 
     def _chase(
         self,
@@ -1756,17 +2089,27 @@ class Application:
         return environment.air(radius, state.position / radius)[0] > 0.0
 
     def _run_science(self):
-        """R: run the experiments aboard."""
+        """R: run the experiments aboard (a probe: when the command gets there)."""
 
         found = self.vessel_system.find(self.scene)
 
-        place = self._science_place()
-
-        if found is None or place is None:
+        if found is None:
             return
 
-        for notice in self.science_system.run(found[1], place, self._has_air()):
-            self.hud.notify(notice)
+        if self.link.crewed:
+
+            self.run_science_aboard(found[1])
+
+        elif self.link.connected:
+
+            self._uplink(found[1], "science", None)
+
+            if self.link.delay > 1.0:
+                self.hud.notify(f"Run experiments: arrives in {readable.countdown(self.link.delay)}")
+
+        else:
+
+            self.hud.notify(f"No link ({self.link.reason}): the probe cannot hear you")
 
     def _update_science(
         self,
@@ -1863,6 +2206,12 @@ class Application:
                 self._run_science()
 
             elif action[0] == "transmit":
+
+                if not self.link.connected:
+
+                    self.hud.notify(f"No link to transmit ({self.link.reason})")
+
+                    continue
 
                 gained = science.transmit(component, action[1])
 
@@ -2397,6 +2746,9 @@ class Application:
         if Input.is_key_pressed(Key.R) and self.vessel_system.find(self.scene) is not None:
             self._run_science()
 
+        if Input.is_key_pressed(Key.C) and self.vessel_system.find(self.scene) is not None:
+            self.computer_panel.toggle()
+
     def _track_speed(
         self,
         delta_time: float
@@ -2588,12 +2940,15 @@ class Application:
             vessel=vessel,
             maneuver=self._node_readout(found[1]) if found is not None else None,
             braking=self.vessel_system.braking(self.scene, self.orbit_system, self.planet_system),
+            link=self._link_line(found[1]) if found is not None else None,
             navball=self.vessel_system.navball_frame(self.scene, self.orbit_system, self.planet_system)
         )
 
         self._draw_map()
 
         self._draw_science()
+
+        self._draw_computer()
 
         self.pause_menu.draw(
             self._menu_actions(context),

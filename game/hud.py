@@ -96,7 +96,8 @@ class FlightHud:
         vessel=None,
         navball=None,
         maneuver: tuple[float, float, float] | None = None,
-        braking=None
+        braking=None,
+        link: tuple[str, str] | None = None
     ):
         """
         vessel: the vessel's readout (systems/vessel_system.py
@@ -122,7 +123,7 @@ class FlightHud:
 
         if vessel is not None:
 
-            self._draw_vessel(vessel, (x + width * 0.5, y + height - 10.0), maneuver, braking)
+            self._draw_vessel(vessel, (x + width * 0.5, y + height - 10.0), maneuver, braking, link)
 
             if navball is not None and not vessel.destroyed:
 
@@ -283,7 +284,7 @@ class FlightHud:
         if piloting:
             imgui.text_disabled("Z / X  throttle   |   Space  stage   |   W A S D Q E  steer")
             imgui.text_disabled("T  SAS   |   F  SAS mode   |   M  map   |   V  free camera")
-            imgui.text_disabled("R  run experiments   |   K  science")
+            imgui.text_disabled("R  run experiments   |   K  science   |   C  flight computer")
             imgui.text_disabled("Esc  menu   |   , .  time warp   |   right mouse  look around")
         else:
             imgui.text_disabled("Esc  menu   |   , .  time warp   |   hold right mouse  look and fly")
@@ -299,11 +300,13 @@ class FlightHud:
         vessel,
         position,
         maneuver: tuple[float, float, float] | None = None,
-        braking=None
+        braking=None,
+        link: tuple[str, str] | None = None
     ):
         """
         maneuver: the node's (m/s left, s until its burn
-        starts, burn s); braking: vessel/maneuver.py Braking.
+        starts, burn s); braking: vessel/maneuver.py Braking;
+        link: (text, "good" / "warn" / "bad").
         """
 
         imgui.set_next_window_pos(position, imgui.Cond_.always, (0.5, 1.0))
@@ -316,6 +319,12 @@ class FlightHud:
         imgui.text_colored(SITUATION_COLORS.get(vessel.situation, (0.8, 0.8, 0.8, 1.0)), vessel.situation)
         imgui.same_line()
         imgui.text_disabled(f"at {vessel.body}")
+
+        if link is not None:
+
+            text, tone = link
+
+            imgui.text_colored({"good": (0.6, 0.85, 0.6, 1.0), "warn": WARN_COLOR, "bad": BAD_COLOR}[tone], text)
 
         if imgui.begin_table("vessel", 2):
 

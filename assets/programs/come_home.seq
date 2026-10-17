@@ -1,0 +1,22 @@
+# Come home from orbit, with Pathfinder (or anything with
+# its upper stage, then the capsule, then a parachute).
+#
+# First plan a "Come down" burn on the map (M, Maneuver,
+# Suggested), then upload this.
+
+log Deorbit burn
+burn
+
+# Drop the upper stage; the capsule's heat shield first.
+wait 10 s
+stage
+sas retrograde
+
+# Arm the parachute (it opens itself when slow enough).
+wait 5 s
+stage
+
+wait until altitude < 100 km
+log Entry
+wait until landed
+log Home

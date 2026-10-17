@@ -255,6 +255,10 @@ class VesselSystem:
         self._planned = None
         self._burn_time = None
 
+        # The landing burn's estimate: (clock time, Braking or
+        # None).
+        self._braking = None
+
         # Where the vessel was launched from: (body, start),
         # for the part editor to rebuild it there.
         self._launch: tuple | None = None
@@ -1225,6 +1229,24 @@ class VesselSystem:
     ) -> maneuver.Braking | None:
         """Falling toward the ground on engines: when to start the burn that stops at it (HUD)."""
 
+        cached = self._braking
+
+        if cached is not None and cached[0] == orbit_system.time:
+            return cached[1]
+
+        found = self._find_braking(scene, orbit_system, planet_system)
+
+        self._braking = (orbit_system.time, found)
+
+        return found
+
+    def _find_braking(
+        self,
+        scene: Scene,
+        orbit_system,
+        planet_system
+    ) -> maneuver.Braking | None:
+
         found = self.find(scene)
 
         if found is None:
@@ -1262,13 +1284,119 @@ class VesselSystem:
 
         thrust = vessel.max_thrust(pressure)
 
+        impact = self._impact_time(scene, component, environment, orbit_system, planet_system)
+
         return maneuver.braking(
+            impact,
             height,
             float(np.dot(relative, up)),
             float(np.linalg.norm(relative)),
             environment.mu / radius ** 2,
             thrust / vessel.mass if vessel.mass > 0.0 else 0.0
         )
+
+    # Samples of the path ahead against the terrain, and how
+    # finely the ground is looked up for it (m).
+    IMPACT_SAMPLES = 96
+    IMPACT_SPACING = 2_000.0
+
+    def _impact_time(
+        self,
+        scene: Scene,
+        component: VesselComponent,
+        environment: Environment,
+        orbit_system,
+        planet_system
+    ) -> float | None:
+        """
+        s until the path hits the ground: the real terrain
+        along it (planet_system.ground_heights, the body
+        turning meanwhile), between where it is low enough to
+        hit the highest ground and where it passes the lowest
+        (or its periapsis). None: it passes over.
+        """
+
+        state = component.state
+
+        mu = environment.mu
+
+        radius = float(np.linalg.norm(state.position))
+
+        up = state.position / radius
+
+        highest = self._extent(component.body, planet_system, scene, orbit_system)
+
+        start = maneuver.time_to_ground(state.position, state.velocity, mu, highest)
+
+        if start is None:
+            return None
+
+        physics = self._body_physics(scene, component.body, orbit_system)
+
+        terrain = planet_system.terrain(component.body) if planet_system is not None else None
+
+        if terrain is None or component.body not in orbit_system.states:
+
+            # (No terrain to ask: the ground below now.)
+            return maneuver.time_to_ground(state.position, state.velocity, mu, environment.ground(up))
+
+        lowest = physics.radius + terrain.base_bounds[0] + min(terrain.min_elevation, 0.0)
+
+        end = maneuver.time_to_ground(state.position, state.velocity, mu, lowest)
+
+        if end is None:
+            end = maneuver.time_to_apsis(state.position, state.velocity, mu, "periapsis")
+
+        if end is None or end <= start:
+            end = start + 600.0
+
+        times = np.linspace(start, end, self.IMPACT_SAMPLES)
+
+        points, _ = kepler.propagate_many(state.position, state.velocity, mu, times)
+
+        distances = np.linalg.norm(points, axis=1)
+
+        directions = points / np.maximum(distances, 1.0)[:, None]
+
+        # Into the body's frame then: it turns meanwhile.
+        _, frame = orbit_system.states[component.body]
+
+        spin = physics.spin
+
+        rate = float(np.linalg.norm(spin))
+
+        if rate > 0.0:
+
+            axis = spin / rate
+
+            angles = -rate * times
+
+            cos = np.cos(angles)[:, None]
+            sin = np.sin(angles)[:, None]
+
+            directions = directions * cos + np.cross(axis, directions) * sin + axis * (directions @ axis)[:, None] * (1.0 - cos)
+
+        heights = planet_system.ground_heights(component.body, directions @ frame, self.IMPACT_SPACING)
+
+        if heights is None:
+            return maneuver.time_to_ground(state.position, state.velocity, mu, environment.ground(up))
+
+        clearance = distances - (physics.radius + heights)
+
+        below = np.nonzero(clearance < 0.0)[0]
+
+        if not len(below):
+            return None
+
+        k = int(below[0])
+
+        if k == 0:
+            return float(times[0])
+
+        # Between the samples, straight.
+        share = clearance[k - 1] / (clearance[k - 1] - clearance[k])
+
+        return float(times[k - 1] + (times[k] - times[k - 1]) * share)
 
     def _node_warp(
         self,
@@ -1520,7 +1648,7 @@ class VesselSystem:
                     coast(state, environment, remaining)
                     cool(vessel, state, remaining)
 
-                    self._steer(vessel, state, controls, remaining)
+                    self._steer(vessel, state, controls, remaining, environment)
 
                     return
 
@@ -1537,7 +1665,7 @@ class VesselSystem:
                     coast(state, environment, piece)
                     cool(vessel, state, piece)
 
-                    self._steer(vessel, state, controls, piece)
+                    self._steer(vessel, state, controls, piece, environment)
 
                     remaining -= piece
 
@@ -1561,7 +1689,8 @@ class VesselSystem:
         vessel: Vessel,
         state: VesselState,
         controls: Controls,
-        span: float
+        span: float,
+        environment: Environment | None = None
     ):
         """Turn the coasting vessel over `span` s in physics-sized steps."""
 
@@ -1576,7 +1705,7 @@ class VesselSystem:
         steps = max(1, math.ceil(span / self.PHYSICS_STEP))
 
         for _ in range(steps):
-            steer(vessel, state, controls, span / steps)
+            steer(vessel, state, controls, span / steps, environment)
 
     # =====================================================
     # Debris

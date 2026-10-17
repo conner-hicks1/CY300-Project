@@ -763,6 +763,35 @@ class PlanetSystem:
         # Shares the camera-ground cache.
         return planet.ground(direction / np.linalg.norm(direction), accuracy)
 
+    def ground_heights(
+        self,
+        entity: Entity,
+        directions: np.ndarray,
+        spacing: float
+    ) -> np.ndarray | None:
+        """
+        Many ground heights at once (m above the reference
+        radius: the shape's base plus the relief, the
+        liquid's top over seas), coarsely (spacing m): the
+        ground along a path ahead. None without the terrain.
+        """
+
+        planet = self._planets.get(entity)
+
+        if planet is None:
+            return None
+
+        terrain = planet.terrain
+
+        directions = np.asarray(directions, dtype=np.float64)
+
+        elevation = terrain.elevation(directions, spacing=spacing)
+
+        if terrain.settings.has_liquid:
+            elevation = np.maximum(elevation, 0.0)
+
+        return terrain.base_height(directions) + elevation
+
     def extent(
         self,
         entity: Entity

@@ -475,7 +475,11 @@ build your own rocket in the part editor, on the pad.
   correction
 - Landing on engines (airless or thin air, below 60 km): the HUD shows when
   to start braking (the full-throttle burn that just stops at the ground)
-  and when the ground comes without it
+  and when the ground comes without it. The impact is found on the real
+  terrain along the path ahead (the elevation map sampled under the
+  predicted track, the body turning meanwhile), not the ground below now
+- Prograde and retrograde follow the motion over the ground below 30 km
+  (and in air), so retrograde points straight up for a vertical landing
 - Attitude control works coasting too: SAS and the pilot's keys turn the
   vessel in orbit at time warps up to ~2 s a frame; faster, on rails, it
   holds still
@@ -538,14 +542,71 @@ build your own rocket in the part editor, on the pad.
 - The Explorer (built in) is Pathfinder Heavy with the instruments on its
   capsule; progress is saved in `data/science/progress.json`
 
+**Communications and the flight computer**
+
+- The vessel talks home through the Deep Space Network's three ground
+  stations on the body it launched from: Goldstone, Madrid and Canberra
+  (`systems/comms_system.py`). A link needs a station's horizon, no body in
+  between (behind the Moon, behind Mars, on a far side, or behind the Sun
+  at conjunction: none) and the vessel's best antenna's range: command
+  parts reach about the Moon, a medium-gain antenna the inner planets, a
+  high-gain dish the outer ones. Near home (in its air or landed) mission
+  control is always there. The HUD shows the station and the light time,
+  or why there is no link
+- Signals go at the speed of light (1.2 s to the Moon, 3 to 22 minutes to
+  Mars). A crewed vessel (a capsule) flies itself; an uncrewed probe gets
+  every key a light time late (throttle, steering, SAS, staging, R), and
+  without a link nothing; transmitting science needs a link too
+- The flight computer (**C**, `vessel/sequence.py`): a sequence of
+  statements, one a line, sent up and flown on the vessel by itself, link
+  or not:
+
+  ```
+  stage
+  sas retrograde
+  wait until brake < 2 s      # the landing burn's start (HUD)
+  throttle full
+  wait until speed < 40 m/s
+  descend 25 m/s              # throttle held to sink at that speed
+  wait until altitude < 100 m
+  descend 2 m/s
+  wait until landed
+  throttle off
+  science
+  ```
+
+  Statements: `throttle` (full, off, 0.6, 60%), `hover`, `descend <m/s>`,
+  `stage`, `sas` (on, off, hold, prograde, retrograde, maneuver),
+  `science`, `transmit`, `burn` (fly the maneuver node: point, wait for its
+  start, burn until done), `log`, `wait <duration>`, `wait until
+  <condition>`, `at node | periapsis | apoapsis [- 30 s]`, `repeat n ...
+  end`. Conditions compare altitude, apoapsis, periapsis, speed,
+  vertical, orbital, pressure, fuel, heat, brake (s to the landing burn) or
+  node (s to it) with units (m, km, m/s, s, min, h, %, bar), or name a
+  situation (landed, orbiting...), with and / or / not. Errors name the
+  line. Time warp holds back for what the computer waits on (a time, the
+  braking point, the node)
+- The panel: the link, the program (open an example, edit, save to
+  `data/programs/`, check), Send (it starts when it arrives), Stop, the
+  line it is on and its log. Examples in `assets/programs/`: coming home
+  in Pathfinder, a survey that transmits every hour, and the Mariner
+  landing on the Moon or on Mars
+- Mariner (built in): an uncrewed lander on Pathfinder Heavy's stages, a
+  probe core with a high-gain dish, a survey camera and a sample kit on a
+  small engine stage (3.9 km/s), under a parachute, over a heat shield. A
+  played-through Moon landing: from a 40 km orbit, "Come down" planned,
+  the program sent with 1.2 s of light time; it burned, fell behind the
+  Moon out of contact, braked at 3.5 km and touched down at 2 m/s on its
+  own
+
 **Part editor**
 
 - Build on the launch pad (pause menu > Build vessel): the rocket stands
   there and changes as you edit; right mouse turns the view
 - Parts on the left by kind (command, tanks, engines, separators,
-  parachutes, science, structure: 24, at 1.25 m and 2.5 m, with adapters, a
-  nose cone, heat shields, science instruments, a radial separator and a
-  1.25 m booster engine; tooltips with mass,
+  parachutes, science, antennas, structure: 26, at 1.25 m and 2.5 m, with
+  adapters, a nose cone, heat shields, science instruments, antennas, a
+  radial separator and a 1.25 m booster engine; tooltips with mass,
   propellant, thrust and Isp); a click adds one below the selected part, or
   into the selected radial group
 - The stack on the right: select a part (it lights up) to move it, remove
@@ -595,7 +656,7 @@ build your own rocket in the part editor, on the pad.
 - A disk cache (`data/cache/`) of terrain chunks, keyed by their inputs and
   the generators' source code: chunks stream in ~70% faster on a second
   visit; oldest entries pruned past 2 GB
-- 615 unit tests
+- 639 unit tests
 
 ## Getting Started
 
@@ -654,6 +715,7 @@ planet streams in over the first few seconds.
 | Right mouse + move, scroll | Swing the camera round the vessel; closer / farther |
 | **R** | Run the experiments aboard |
 | **K** | Science panel |
+| **C** | Flight computer |
 | **V** | Free camera: hold right mouse, **W A S D** move, **Space** up, **Shift** down (along the ground, around the planet from orbit; speed grows with altitude) |
 | **.** / **,** | Time warp faster / slower |
 | **/** | Back to real time |
@@ -669,8 +731,8 @@ planet streams in over the first few seconds.
 | `main.py`, `application.py` | Entry point, main loop, building a body's scene |
 | `core/` | Window, input, events, timer, logging, profiler, job system, disk cache |
 | `ecs/` | Entity registry and components |
-| `vessel/` | Parts and vessel designs (and drafts being edited, saved designs), staging, propellant and parachutes, flight physics, Kepler orbits, patched conics |
-| `systems/` | Transform, camera controller, orbits and clock, vessels, science, planet streaming and render systems |
+| `vessel/` | Parts and vessel designs (and drafts being edited, saved designs), staging, propellant and parachutes, flight physics, heating, Kepler orbits, patched conics, transfers, maneuver nodes, flight computer sequences |
+| `systems/` | Transform, camera controller, orbits and clock, vessels, science, communications, planet streaming and render systems |
 | `science/` | Science sites, regions from the real maps, the orbital survey (mapping masks), the science record |
 | `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping, impact craters, dunes, surface climate, terrain, chunk building, level of detail, body shapes, orbits and spin, solar time, real maps |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, clouds, rings, eclipses, bloom |
@@ -679,7 +741,7 @@ planet streams in over the first few seconds.
 | `resources/` | Handle-based resource managers |
 | `math3d/` | Transforms, camera, matrix helpers |
 | `ui/` | ImGui integration, developer tool windows (render / stats / profiler) |
-| `assets/` | Shaders, textures, body profiles (`bodies/`), parts (`parts/`), vessels (`vessels/`) and science sites (`science/`) |
+| `assets/` | Shaders, textures, body profiles (`bodies/`), parts (`parts/`), vessels (`vessels/`), science sites (`science/`) and flight computer programs (`programs/`) |
 | `tools/` | Asset generator, micro-benchmarks, real map and star catalog downloaders |
 | `data/` | Downloaded maps and caches (not in the repository) |
 | `tests/` | pytest suite (`tests/fixtures/` holds the OBJ / glTF test models) |

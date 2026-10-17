@@ -1,0 +1,102 @@
+{
+  "format": 1,
+  "name": "Mariner",
+  "description": "An uncrewed lander on Pathfinder Heavy's stages: a probe core with a high-gain dish, a survey camera and a sample kit on a small engine stage, under a parachute, over a heat shield. Far from home its commands take minutes to arrive: fly it with the flight computer (C). Stages: 0-2 as Pathfinder Heavy, 3 lander separation, 4 parachute, 5 heat shield off and the lander engine lit.",
+  "notes": "Parts from the top down. stage: the stage (0 first, Space) that ignites an engine or fires a separator, dropping everything below it. radial: groups of parts round a core part (symmetry copies), with a radial separator.",
+  "parts": [
+    {
+      "part": "parachute_main",
+      "stage": 4
+    },
+    {
+      "part": "probe_core",
+      "radial": [
+        {
+          "symmetry": 1,
+          "offset": 0.0,
+          "parts": [
+            {
+              "part": "antenna_dish"
+            },
+            {
+              "part": "survey_camera"
+            },
+            {
+              "part": "sample_kit"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "part": "tank_1m25_short"
+    },
+    {
+      "part": "engine_small",
+      "stage": 5
+    },
+    {
+      "part": "decoupler_1m25",
+      "stage": 5
+    },
+    {
+      "part": "heat_shield_1m25"
+    },
+    {
+      "part": "decoupler_1m25",
+      "stage": 3
+    },
+    {
+      "part": "adapter_2m5_1m25"
+    },
+    {
+      "part": "tank_2m5_medium"
+    },
+    {
+      "part": "engine_vacuum",
+      "stage": 2
+    },
+    {
+      "part": "decoupler_2m5",
+      "stage": 2
+    },
+    {
+      "part": "tank_2m5_long"
+    },
+    {
+      "part": "tank_2m5_long"
+    },
+    {
+      "part": "tank_2m5_long",
+      "radial": [
+        {
+          "symmetry": 2,
+          "offset": 0.0,
+          "decoupler": {
+            "part": "decoupler_radial",
+            "stage": 1
+          },
+          "parts": [
+            {
+              "part": "nose_cone_1m25"
+            },
+            {
+              "part": "tank_1m25_xl"
+            },
+            {
+              "part": "tank_1m25_xl"
+            },
+            {
+              "part": "engine_medium",
+              "stage": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "part": "engine_booster",
+      "stage": 0
+    }
+  ]
+}

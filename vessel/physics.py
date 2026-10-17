@@ -208,7 +208,7 @@ def step(
     if density > VACUUM_DENSITY and any(chute.deployed > 0.2 for chute in vessel.parachutes):
         controls = Controls(sas=True, sas_mode="retrograde")
 
-    _turn(vessel, state, controls, pressure, dt, air_velocity if density > VACUUM_DENSITY else state.velocity)
+    _turn(vessel, state, controls, pressure, dt, motion(state, environment, density))
 
     # -------------------------------------------------
     # Forces
@@ -287,11 +287,37 @@ def steer(
     vessel: Vessel,
     state: VesselState,
     controls: Controls,
-    dt: float
+    dt: float,
+    environment: Environment | None = None
 ):
     """Coasting: the pilot's (and SAS's) turning, in space (no air), without moving it."""
 
-    _turn(vessel, state, controls, 0.0, dt, state.velocity)
+    _turn(vessel, state, controls, 0.0, dt, motion(state, environment) if environment is not None else state.velocity)
+
+
+# Below this height above the ground (m), prograde and
+# retrograde are over the ground, not round the body: to
+# land, the nose must point against the motion the ground
+# sees.
+SURFACE_MODE_HEIGHT = 30_000.0
+
+
+def motion(
+    state: VesselState,
+    environment: Environment,
+    density: float | None = None
+) -> np.ndarray:
+    """What prograde means now: through the air in it, over the ground near it, along the orbit above."""
+
+    radius = float(np.linalg.norm(state.position))
+
+    if density is None:
+        _, density = environment.air(radius, state.position / radius)
+
+    if density > VACUUM_DENSITY or radius - environment.ground(state.position / radius) < SURFACE_MODE_HEIGHT:
+        return state.velocity - surface_velocity(environment, state.position)
+
+    return state.velocity
 
 
 def cool(

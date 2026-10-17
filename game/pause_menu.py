@@ -63,6 +63,7 @@ CONTROLS: tuple[tuple[str, str], ...] = (
     ("V", "Free camera (hold right mouse: W A S D Space Shift fly it)"),
     ("R", "Run the experiments aboard (science)"),
     ("K", "Science panel: what can be learned here, results aboard, mapping"),
+    ("C", "Flight computer: write a sequence and send it (a probe flies it on its own)"),
     (". / ,", "Time warp faster / slower (5x at most under thrust or in the air)"),
     ("/", "Back to real time"),
     ("Esc", "This menu (pauses)"),

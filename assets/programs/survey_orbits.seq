@@ -1,0 +1,10 @@
+# In orbit with a survey camera: run the experiments every
+# hour for a day, sending each result home as it comes
+# (half its value, but a probe may never come back).
+
+repeat 24
+  science
+  transmit
+  wait 1 h
+end
+log Survey done

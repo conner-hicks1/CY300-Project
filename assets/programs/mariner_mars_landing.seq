@@ -1,0 +1,32 @@
+# Mariner: down through Mars's thin air. Heat shield first,
+# the parachute once slow, then the lander's engine for the
+# last of it (Mars's air alone cannot slow a lander enough:
+# a parachute leaves it ~50 m/s).
+#
+# Arrive with the periapsis in the air (or plan "Come down"
+# from orbit), then send this well before reaching the air:
+# minutes of light away, it has to fly itself.
+
+# Leave the upper stage; the shield faces the air.
+stage
+sas retrograde
+wait until altitude < 125 km
+log Entry interface
+
+# Slow enough: the parachute (stage 4).
+wait until speed < 400 m/s
+stage
+log Parachute
+
+# Shield off, engine lit (stage 5); sink at a safe speed.
+wait until altitude < 3 km
+stage
+log Powered descent
+descend 15 m/s
+wait until altitude < 150 m
+descend 2 m/s
+wait until landed
+throttle off
+log Landed
+science
+transmit

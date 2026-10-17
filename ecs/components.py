@@ -233,6 +233,14 @@ class VesselComponent:
     # ScienceResult), until recovered or transmitted.
     science: list = field(default_factory=list)
 
+    # Commands on their way from home at the speed of light
+    # ((clock time they arrive, kind, payload)); the flight
+    # computer (vessel/sequence.py FlightComputer) and the
+    # sinking speed it holds the throttle to (None: not).
+    uplink: list = field(default_factory=list)
+    computer: object = None
+    hover: float | None = None
+
 
 # A spent stage, falling on its own (no pilot) until it hits
 # the ground or is left far behind. body: as VesselComponent

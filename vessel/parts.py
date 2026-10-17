@@ -16,7 +16,7 @@ from pathlib import Path
 PARTS_PATH = Path("assets/parts/parts.json")
 VESSELS_DIRECTORY = Path("assets/vessels")
 
-KINDS = ("command", "tank", "engine", "decoupler", "parachute", "science", "structure")
+KINDS = ("command", "tank", "engine", "decoupler", "parachute", "science", "antenna", "structure")
 
 # Where an experiment works (science/record.py).
 SITUATIONS = ("landed", "flying", "space_low", "space_high")
@@ -76,6 +76,8 @@ class PartDefinition:
     crash_speed: float = 8.0        # m/s it survives hitting the ground at
     max_temperature: float = 1400.0  # K its skin stands (vessel/heating.py)
     experiment: ExperimentSpec | None = None
+    crew: int = 0                   # people aboard (crewed vessels fly without a link)
+    antenna_range: float = 0.0      # m it reaches home from (systems/comms_system.py)
 
     @property
     def radius(
@@ -239,7 +241,9 @@ def parse_part(
         reaction_wheel_torque=_number(data, "reaction_wheel_torque", where, default=0.0),
         crash_speed=_number(data, "crash_speed", where, default=8.0, minimum=0.1),
         max_temperature=_number(data, "max_temperature", where, default=1400.0, minimum=300.0),
-        experiment=experiment
+        experiment=experiment,
+        crew=int(_number(data, "crew", where, default=0.0)),
+        antenna_range=_number(data, "antenna_range", where, default=0.0)
     )
 
 

@@ -356,7 +356,7 @@ def lower_periapsis(
 
 @dataclass(frozen=True, slots=True)
 class Braking:
-    """Coming down on engines: when to start (s), how high then (m), speed at the ground without braking (m/s)."""
+    """Coming down on engines: when to start (s), how high then (m), speed at the ground without braking (m/s), when it gets there (s)."""
 
     start_in: float
     height: float
@@ -364,7 +364,65 @@ class Braking:
     impact_in: float
 
 
+def time_to_ground(
+    position,
+    velocity,
+    mu: float,
+    ground_radius: float,
+    samples: int = 64
+) -> float | None:
+    """
+    s until the conic comes down to `ground_radius` from the
+    center (0 if below it already); None if it never does
+    (it clears the ground, or is climbing away for good).
+    """
+
+    position = np.asarray(position, dtype=np.float64)
+    velocity = np.asarray(velocity, dtype=np.float64)
+
+    r = float(np.linalg.norm(position))
+
+    if r <= ground_radius:
+        return 0.0
+
+    horizon = time_to_apsis(position, velocity, mu, "periapsis")
+
+    if horizon is None or horizon <= 0.0 or not math.isfinite(horizon):
+
+        # (Straight down, or nearly: half a circular orbit
+        # at this height is surely long enough.)
+        horizon = math.pi * math.sqrt(r ** 3 / mu)
+
+    times = np.linspace(0.0, horizon, samples + 1)
+
+    points, _ = kepler.propagate_many(position, velocity, mu, times)
+
+    distances = np.linalg.norm(points, axis=1)
+
+    below = np.nonzero(np.isfinite(distances) & (distances < ground_radius))[0]
+
+    if not len(below):
+        return None
+
+    high = float(times[below[0]])
+    low = float(times[below[0] - 1]) if below[0] > 0 else 0.0
+
+    for _ in range(40):
+
+        middle = 0.5 * (low + high)
+
+        there, _ = kepler.propagate(position, velocity, mu, middle)
+
+        if float(np.linalg.norm(there)) < ground_radius:
+            high = middle
+        else:
+            low = middle
+
+    return high
+
+
 def braking(
+    time_to_impact: float | None,
     height: float,
     vertical_speed: float,
     surface_speed: float,
@@ -372,40 +430,32 @@ def braking(
     acceleration: float
 ) -> Braking | None:
     """
-    Falling toward the ground (height m above it, speeds
-    m/s, up positive): a full-throttle burn (acceleration
-    m/s^2 of thrust) against the motion must start by the
-    height where it just stops at the ground (the "suicide
-    burn"). None when not falling or the engines cannot hold
-    the weight.
+    Coming down toward the ground (time_to_impact s on the
+    path, height m above the ground now, speeds m/s over the
+    ground, up positive): a full-throttle burn (acceleration
+    m/s^2 of thrust) against the motion that stops it just
+    at the ground must start when the path left is what the
+    burn takes: it stops in speed / a, covering speed^2 / 2a,
+    the time the free path would cover that in being
+    speed / 2a. Gravity along the path takes off from a.
+    None when not coming down.
     """
 
-    if vertical_speed >= 0.0 or height <= 0.0:
+    if time_to_impact is None or height <= 0.0:
         return None
 
-    net = acceleration - gravity
-
-    # Falling freely to the ground.
-    fall = -vertical_speed
-
-    impact_in = (-fall + math.sqrt(fall * fall + 2.0 * gravity * height)) / gravity if gravity > 0.0 else height / fall
+    speed = max(surface_speed, 1e-6)
 
     impact_speed = math.sqrt(max(surface_speed * surface_speed + 2.0 * gravity * height, 0.0))
 
+    # Gravity's share along the path (falling: all of it).
+    net = acceleration - gravity * max(-vertical_speed, 0.0) / speed
+
     if net <= 0.0:
-        return Braking(math.inf, 0.0, impact_speed, impact_in)
+        return Braking(math.inf, 0.0, impact_speed, time_to_impact)
 
-    # Stopping all the motion over the height: v^2 = 2 a h,
-    # the speed then as it falls from here.
-    #   v(h)^2 = s^2 + 2 g (H - h);  h_b = v(h_b)^2 / (2 net)
-    #   => h_b = (s^2 + 2 g H) / (2 net + 2 g) = (s^2 + 2 g H) / (2 a)
-    start_height = (surface_speed * surface_speed + 2.0 * gravity * height) / (2.0 * acceleration)
+    start_in = max(time_to_impact - speed / (2.0 * net), 0.0)
 
-    start_height = min(start_height, height)
+    start_height = max(height + vertical_speed * start_in, 0.0)
 
-    # Time to fall from here to there.
-    drop = height - start_height
-
-    start_in = (-fall + math.sqrt(fall * fall + 2.0 * gravity * drop)) / gravity if gravity > 0.0 else drop / fall
-
-    return Braking(start_in, start_height, impact_speed, impact_in)
+    return Braking(start_in, start_height, impact_speed, time_to_impact)

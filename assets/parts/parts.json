@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together). Kinds: command (needed to fly), tank, engine, decoupler (drops what is below it), parachute, structure (adapters, nose cones). max_temperature: K a part's skin stands (default 1400); a heat shield under a capsule stands ~3300 for coming in from orbit or the Moon. experiment: what science a part does (id, name, value, situations: landed / flying / space_low / space_high; needs_air; maps: maps the ground from orbit).",
+  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together). Kinds: command (needed to fly), tank, engine, decoupler (drops what is below it), parachute, structure (adapters, nose cones). max_temperature: K a part's skin stands (default 1400); a heat shield under a capsule stands ~3300 for coming in from orbit or the Moon. experiment: what science a part does (id, name, value, situations: landed / flying / space_low / space_high; needs_air; maps: maps the ground from orbit). crew: people aboard (crewed vessels fly without a link home). antenna_range: m from home the part's antenna still links (built into command parts: ~the Moon).",
   "parts": [
     {
       "id": "capsule",
@@ -31,7 +31,9 @@
           "space_low",
           "space_high"
         ]
-      }
+      },
+      "crew": 3,
+      "antenna_range": 1000000000.0
     },
     {
       "id": "heat_shield_2m5",
@@ -154,6 +156,44 @@
         ],
         "needs_air": true
       }
+    },
+    {
+      "id": "antenna_medium",
+      "name": "Medium-gain antenna",
+      "kind": "antenna",
+      "mass": 20,
+      "shape": {
+        "radius_top": 0.25,
+        "radius_bottom": 0.08,
+        "height": 0.35
+      },
+      "color": [
+        0.9,
+        0.9,
+        0.9
+      ],
+      "metallic": 0.7,
+      "roughness": 0.3,
+      "antenna_range": 100000000000.0
+    },
+    {
+      "id": "antenna_dish",
+      "name": "High-gain dish",
+      "kind": "antenna",
+      "mass": 80,
+      "shape": {
+        "radius_top": 0.6,
+        "radius_bottom": 0.1,
+        "height": 0.4
+      },
+      "color": [
+        0.92,
+        0.92,
+        0.9
+      ],
+      "metallic": 0.6,
+      "roughness": 0.35,
+      "antenna_range": 2000000000000.0
     },
     {
       "id": "parachute_main",
@@ -338,7 +378,8 @@
           "space_low",
           "space_high"
         ]
-      }
+      },
+      "antenna_range": 1000000000.0
     },
     {
       "id": "nose_cone_1m25",

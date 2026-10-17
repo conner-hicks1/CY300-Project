@@ -171,21 +171,60 @@ def test_burn_time():
     assert vessel.mass == mass
 
 
+def test_time_to_ground():
+
+    moon_mu = 4.9048695e12
+    moon = 1_737_400.0
+
+    # From a 40 km orbit lowered to the ground: about half
+    # an orbit down.
+    r = moon + 40_000.0
+
+    position = np.array([r, 0.0, 0.0])
+
+    circular_speed = kepler.circular_speed(moon_mu, r)
+
+    velocity = np.array([0.0, circular_speed - 10.0, 0.0])
+
+    when = maneuver.time_to_ground(position, velocity, moon_mu, moon)
+
+    period = 2.0 * math.pi * math.sqrt(r ** 3 / moon_mu)
+
+    assert 0.25 * period < when < 0.5 * period
+
+    there, _ = kepler.propagate(position, velocity, moon_mu, when)
+
+    assert float(np.linalg.norm(there)) == pytest.approx(moon, abs=1.0)
+
+    # In orbit: never.
+    assert maneuver.time_to_ground(position, np.array([0.0, circular_speed, 0.0]), moon_mu, moon) is None
+
+    # Straight down from 1 km at 10 m/s: ~23 s on the Moon.
+    fall = maneuver.time_to_ground(np.array([moon + 1_000.0, 0, 0]), np.array([-10.0, 0, 0]), moon_mu, moon)
+
+    g = moon_mu / moon ** 2
+
+    assert fall == pytest.approx((-10.0 + math.sqrt(100.0 + 2.0 * g * 1_000.0)) / g, rel=0.01)
+
+
 def test_braking():
 
-    # 2 km up, falling at 100 m/s on the Moon, 5 m/s^2 of thrust.
-    found = maneuver.braking(2_000.0, -100.0, 100.0, 1.62, 5.0)
+    # Falling straight down at 100 m/s, the ground in 15 s;
+    # 5 m/s^2 of thrust against the Moon's 1.62.
+    found = maneuver.braking(15.0, 2_000.0, -100.0, 100.0, 1.62, 5.0)
 
-    # Stopping height: (v^2 + 2 g H) / (2 a).
-    assert found.height == pytest.approx((100.0 ** 2 + 2.0 * 1.62 * 2_000.0) / 10.0)
+    assert found.start_in == pytest.approx(15.0 - 100.0 / (2.0 * (5.0 - 1.62)))
 
-    # Falling from there, it stops at the ground.
-    fall_speed = math.sqrt(100.0 ** 2 + 2.0 * 1.62 * (2_000.0 - found.height))
+    # Mostly sideways (orbital speed, sinking slowly):
+    # gravity hardly opposes, the burn starts just its half
+    # length before the impact.
+    sideways = maneuver.braking(600.0, 30_000.0, -20.0, 1_600.0, 1.62, 30.0)
 
-    assert fall_speed ** 2 / (2.0 * (5.0 - 1.62)) == pytest.approx(found.height)
+    assert sideways.start_in == pytest.approx(600.0 - 1_600.0 / (2.0 * (30.0 - 1.62 * 20.0 / 1_600.0)))
 
-    assert 0.0 < found.start_in < found.impact_in
+    # Late: now.
+    assert maneuver.braking(1.0, 100.0, -100.0, 100.0, 1.62, 5.0).start_in == 0.0
 
-    # Climbing: nothing to do; too weak: never stops.
-    assert maneuver.braking(2_000.0, 10.0, 50.0, 1.62, 5.0) is None
-    assert maneuver.braking(2_000.0, -10.0, 10.0, 9.8, 5.0).start_in == math.inf
+    # Not coming down; too weak to stop.
+    assert maneuver.braking(None, 2_000.0, 10.0, 50.0, 1.62, 5.0) is None
+    assert maneuver.braking(10.0, 2_000.0, -10.0, 10.0, 9.8, 5.0).start_in == math.inf
