@@ -393,19 +393,7 @@ def drain_tanks(
 ) -> float:
     """Take up to `amount` kg of propellant from the tanks, evenly by what each holds; returns what came out."""
 
-    tanks = [state for state in vessel.parts if state.propellant > 1e-9]
-
-    held = sum(state.propellant * state.count for state in tanks)
-
-    if held <= 0.0 or amount <= 0.0:
-        return 0.0
-
-    share = min(amount / held, 1.0)
-
-    for state in tanks:
-        state.propellant -= state.propellant * share
-
-    return held * share
+    return vessel.draw_propellant(amount)
 
 
 def move_propellant(

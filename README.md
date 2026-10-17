@@ -666,9 +666,16 @@ build your own rocket in the part editor, on the pad.
   with: the joined one is named for the heavier, and undocking (Vessels
   list) splits it at the last joint, each half with its name back, pushed
   apart at 0.2 m/s
+- Side docking ports (a radial group on any core part: the Station Core's
+  habitat has two) face straight out from the core: a plain stack docks to
+  one and hangs off it at right angles, a branch of the station (its stages
+  held, its engine off, its tanks its own); undocking takes the last module
+  off first, back on its own straight out from the port. Stations grow
+  along their axis and out to the sides
 - Translation thrusters (RCS: the capsule, probe cores, the habitat):
   arrows forward / back / left / right, **H** / **N** fore / aft; on rails
-  the orbit stays exact while they push
+  the orbit stays exact while they push. They burn the tanks' propellant
+  (Isp 220 s) and stop when it is gone
 - Auto-docking (**B**, with a vessel targeted, within 2 km): the nose turns
   so the ports face each other, then the thrusters bring it onto the other
   port's axis and in along it, never faster than they can stop from (a
@@ -677,18 +684,19 @@ build your own rocket in the part editor, on the pad.
   (distance, closing speed, angle, off-axis) whenever a vessel is targeted
 - A habitat module (4 crew), the Ferry (Pathfinder with a port on top) and
   the Station Core (a habitat between two 2.5 m ports on Pathfinder Heavy's
-  stages); missions to dock two vessels and to build a crewed station of
-  three. Played through: a Ferry 60 m off docked itself to the Station
-  Core's bottom port in about two minutes, and undocked again
+  stages, with two side ports); missions to dock two vessels and to build a
+  crewed station of three. Played through: a Ferry 60 m off docked itself to
+  the Station Core's bottom port in about two minutes, another to a side
+  port, and both undocked again
 
 **Part editor**
 
 - Build on the launch pad (pause menu > Build vessel): the rocket stands
   there and changes as you edit; right mouse turns the view
 - Parts on the left by kind (command, tanks, engines, separators,
-  parachutes, science, antennas, utility, structure: 30, at 1.25 m and
+  parachutes, science, antennas, utility, structure: 31, at 1.25 m and
   2.5 m, with adapters, a nose cone, heat shields, science instruments,
-  antennas, a propellant plant, docking ports, a habitat, a radial
+  antennas, a propellant plant, docking ports (end and side), a habitat, a radial
   separator and a 1.25 m booster engine; tooltips with cost, mass, propellant, thrust and Isp); a click adds one below the selected part, or
   into the selected radial group
 - The stack on the right: select a part (it lights up) to move it, remove
@@ -738,7 +746,7 @@ build your own rocket in the part editor, on the pad.
 - A disk cache (`data/cache/`) of terrain chunks, keyed by their inputs and
   the generators' source code: chunks stream in ~70% faster on a second
   visit; oldest entries pruned past 2 GB
-- 661 unit tests
+- 664 unit tests
 
 ## Getting Started
 

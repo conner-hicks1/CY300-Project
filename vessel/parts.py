@@ -89,6 +89,7 @@ class PartDefinition:
     cost: float = 0.0               # $ millions (programme/career.py)
     isru: IsruSpec | None = None
     docking: bool = False           # a docking port (vessel/docking.py)
+    side: bool = False              # a side port: on a radial group, facing straight out
     rcs_thrust: float = 0.0         # N of translation thrust each way (docking)
 
     @property
@@ -273,6 +274,7 @@ def parse_part(
         cost=_number(data, "cost", where, default=0.0),
         isru=isru,
         docking=bool(data.get("docking", False)),
+        side=bool(data.get("side", False)),
         rcs_thrust=_number(data, "rcs_thrust", where, default=0.0)
     )
 

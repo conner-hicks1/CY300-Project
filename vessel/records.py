@@ -38,6 +38,11 @@ def vessel_to_json(
                 "flipped": state.flipped,
                 "joined": state.joined,
                 "origin": state.origin,
+                "outward": state.outward,
+                "angle": state.angle,
+                "anchor": list(state.anchor),
+                "occupied": list(state.occupied),
+                "held_stage": state.held_stage,
             }
             for state in vessel.parts
         ],
@@ -69,6 +74,11 @@ def vessel_from_json(
             flipped=bool(raw.get("flipped", False)),
             joined=bool(raw.get("joined", False)),
             origin=str(raw.get("origin", "")),
+            outward=int(raw.get("outward", 0)),
+            angle=float(raw.get("angle", 0.0)),
+            anchor=tuple(raw.get("anchor", ())),
+            occupied=tuple(raw.get("occupied", ())),
+            held_stage=raw.get("held_stage"),
         ))
 
     vessel = Vessel(str(data.get("name", "Vessel")), states, int(data.get("next_stage", 0)))

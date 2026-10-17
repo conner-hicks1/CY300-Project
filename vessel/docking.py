@@ -40,11 +40,12 @@ CAPTURE_ALIGNMENT = 0.97
 
 @dataclass(frozen=True, slots=True)
 class Port:
-    """A free docking port at one end of a vessel's core."""
+    """A free docking port: at one end of a vessel's core, or a side port's copy."""
 
-    end: str                        # "top" or "bottom"
+    end: str                        # "top", "bottom" or "side"
     index: int                      # in vessel.parts
     state: PartState
+    copy: int = 0                   # a side port's copy
 
 
 def free_ports(
@@ -68,7 +69,199 @@ def free_ports(
     if last.part.docking and not last.joined and last_index != first_index:
         found.append(Port("bottom", last_index, last))
 
+    # Side ports: each copy with nothing docked.
+    for index, state in enumerate(vessel.parts):
+
+        if state.radial and state.part.side:
+
+            for copy in range(state.count):
+                if copy not in state.occupied:
+                    found.append(Port("side", index, state, copy))
+
     return found
+
+
+def side_direction(
+    state: PartState,
+    copy: int
+) -> np.ndarray:
+    """Straight out from the core at a radial copy, in the vessel's own axes."""
+
+    angle = math.radians(state.angle) + 2.0 * math.pi * copy / max(state.count, 1)
+
+    return np.array([math.cos(angle), 0.0, math.sin(angle)])
+
+
+def port_face(
+    vessel: Vessel,
+    position: np.ndarray,
+    orientation: np.ndarray,
+    port: Port
+) -> tuple[np.ndarray, np.ndarray]:
+    """Any port's (face point, facing), about the vessel's body, inertial."""
+
+    if port.end != "side":
+        return port_point(vessel, position, orientation, port.end)
+
+    state = port.state
+
+    out = side_direction(state, port.copy)
+
+    local = out * (state.distance + state.part.height) + np.array([0.0, state.bottom, 0.0])
+
+    return (
+        np.asarray(position, dtype=np.float64) + quaternion.rotate_vector(orientation, local),
+        quaternion.rotate_vector(orientation, out)
+    )
+
+
+def can_hang(
+    vessel: Vessel
+) -> str:
+    """Why the vessel cannot dock to a side port ("" when it can): only a plain stack hangs off one."""
+
+    if any(state.radial for state in vessel.parts):
+        return "Only a vessel with no side parts docks to a side port"
+
+    return ""
+
+
+def attach_side(
+    host: Vessel,
+    port: Port,
+    guest: Vessel,
+    guest_end: str
+) -> Vessel:
+    """
+    Dock the guest's end port to the host's side port: the
+    guest's parts hang off it as a group of the host's,
+    straight out (the docked end in), its stages held.
+    """
+
+    guest_port = next(item for item in free_ports(guest) if item.end == guest_end)
+
+    guest_port.state.joined = True
+
+    port.state.occupied = tuple(sorted(set(port.state.occupied) | {port.copy}))
+
+    for vessel in (host, guest):
+        for state in vessel.parts:
+            state.origin = state.origin or vessel.name
+
+    # From the port outward: the docked end first.
+    order = list(guest.parts) if guest_end == "top" else list(reversed(guest.parts))
+
+    sign = -1 if guest_end == "top" else 1
+
+    group = max((state.group for state in host.parts if state.group is not None), default=-1) + 1
+
+    for state in order:
+
+        state.group = group
+        state.count = 1
+        state.offset = 0.0
+        state.outward = sign
+        state.anchor = (port.state.group, port.copy)
+        state.held_stage = state.stage
+        state.stage = None
+        state.ignited = False
+
+    parts = list(host.parts)
+
+    parts[port.index + 1:port.index + 1] = order
+
+    # (Named for the one with the port: the station.)
+    joined = Vessel(host.name, parts, host.next_stage, 0.0)
+
+    joined._restack()
+
+    return joined
+
+
+def side_module(
+    vessel: Vessel
+) -> list[int] | None:
+    """The indices of the last module docked to a side port, or None."""
+
+    groups = [state.group for state in vessel.parts if state.anchor]
+
+    if not groups:
+        return None
+
+    last = groups[-1]
+
+    return [index for index, state in enumerate(vessel.parts) if state.group == last and state.anchor]
+
+
+@dataclass(frozen=True, slots=True)
+class Detached:
+    """A module undocked from a side port, and where it was."""
+
+    host: Vessel
+    guest: Vessel
+    out: np.ndarray                 # straight out at the port (the host's axes)
+    height: float                   # the port's axis height
+    inner: float                    # how far out the port's face is
+    sign: int                       # -1: the guest's top was docked (it points in)
+
+
+def detach_side(
+    vessel: Vessel
+) -> Detached | None:
+    """Undock the last module from its side port."""
+
+    indices = side_module(vessel)
+
+    if not indices:
+        return None
+
+    order = [vessel.parts[index] for index in indices]
+
+    anchor = order[0].anchor
+
+    port = next(state for state in vessel.parts if state.group == anchor[0] and state.part.side)
+
+    port.occupied = tuple(copy for copy in port.occupied if copy != anchor[1])
+
+    sign = order[0].outward
+
+    out = side_direction(port, anchor[1])
+
+    height = port.bottom
+    inner = port.distance + port.part.height
+
+    guest_parts = order if sign < 0 else list(reversed(order))
+
+    for state in guest_parts:
+
+        state.group = None
+        state.count = 1
+        state.outward = 0
+        state.anchor = ()
+        state.angle = 0.0
+        state.distance = 0.0
+        state.stage = state.held_stage
+        state.held_stage = None
+
+    # Its docked port comes free.
+    docked = guest_parts[0] if sign < 0 else guest_parts[-1]
+
+    docked.joined = False
+
+    host_parts = [state for index, state in enumerate(vessel.parts) if index not in set(indices)]
+
+    host = Vessel(_named(host_parts, vessel.name), host_parts, vessel.next_stage, 0.0)
+    guest = Vessel(_named(guest_parts, f"{vessel.name} (undocked)"), guest_parts, 0, 0.0)
+
+    # (Its stages from the first still to fire.)
+    pending = [state.stage for state in guest_parts if state.stage is not None]
+
+    guest.next_stage = min(pending) if pending else 0
+
+    host._restack()
+    guest._restack()
+
+    return Detached(host, guest, out, height, inner, sign)
 
 
 def port_point(
@@ -90,9 +283,13 @@ def port_point(
 def modules(
     vessel: Vessel
 ) -> int:
-    """How many vessels docked make this one (joined pairs + 1)."""
+    """How many vessels docked make this one: end joints (pairs of joined ports), modules on side ports, + 1."""
 
-    return sum(1 for state in vessel.parts if state.joined) // 2 + 1
+    side_modules = {state.group for state in vessel.parts if state.anchor}
+
+    end_ports = sum(1 for state in vessel.parts if state.joined and not state.anchor)
+
+    return end_ports // 2 + len(side_modules) + 1
 
 
 def _turned_over(

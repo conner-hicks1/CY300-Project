@@ -46,7 +46,7 @@ def test_free_ports(parts):
 
     core = station(parts)
 
-    assert [port.end for port in docking.free_ports(core)] == ["top", "bottom"]
+    assert [port.end for port in docking.free_ports(core)] == ["top", "bottom", "side", "side"]
 
     ship = ferry(parts)
 
@@ -209,3 +209,86 @@ def test_names_come_back(parts):
     upper, lower, *_ = docking.split(joined, docking.joint(joined))
 
     assert upper.name == "Station Core" and lower.name == "Ferry"
+
+
+def test_a_module_on_a_side_port(parts):
+
+    core = station(parts)
+    ship = ferry(parts)
+
+    sides = [port for port in docking.free_ports(core) if port.end == "side"]
+
+    assert [port.copy for port in sides] == [0, 1]
+
+    # The side port faces straight out: +X for the first copy.
+    point, facing = docking.port_face(core, np.zeros(3), np.array([0.0, 0.0, 0.0, 1.0]), sides[0])
+
+    np.testing.assert_allclose(facing, [1.0, 0.0, 0.0], atol=1e-9)
+    assert point[0] == pytest.approx(sides[0].state.distance + sides[0].state.part.height)
+
+    assert docking.can_hang(ship) == ""
+
+    mass = core.mass + ship.mass
+
+    ship_ids = [state.part.id for state in ship.parts]
+
+    joined = docking.attach_side(core, sides[0], ship, "top")
+
+    assert joined.mass == pytest.approx(mass)
+    assert docking.modules(joined) == 2 and joined.name == "Station Core"
+
+    # The ferry hangs straight out, its top (the port) in, the
+    # rest outward one after another; its engine does not fire.
+    module = [state for state in joined.parts if state.anchor]
+
+    assert [state.part.id for state in module] == ship_ids
+    assert all(state.outward == -1 for state in module)
+    assert all(b.distance > a.distance for a, b in zip(module, module[1:]))
+    assert not joined.burning_engines()
+
+    # The other side port is still free; the used one not.
+    assert [(port.end, port.copy) for port in docking.free_ports(joined) if port.end == "side"] == [("side", 1)]
+
+    detached = docking.detach_side(joined)
+
+    assert [state.part.id for state in detached.guest.parts] == ship_ids
+    assert detached.guest.name == "Ferry" and detached.host.name == "Station Core"
+    assert detached.sign == -1
+    np.testing.assert_allclose(detached.out, [1.0, 0.0, 0.0], atol=1e-9)
+
+    # Its stages back: the engine fires again once staged.
+    assert any(state.stage is not None for state in detached.guest.parts)
+    assert not any(state.outward or state.anchor for state in detached.guest.parts)
+
+    assert [(port.end, port.copy) for port in docking.free_ports(detached.host) if port.end == "side"] == [("side", 0), ("side", 1)]
+
+
+def test_only_plain_stacks_hang_off_side_ports(parts):
+
+    mariner = Vessel.from_design(load_design("mariner", parts))
+
+    assert docking.can_hang(mariner)
+
+
+def test_thrusters_burn_propellant(parts):
+
+    ship = ferry(parts)
+
+    state = VesselState(np.array([7.0e6, 0.0, 0.0]), np.zeros(3), upright(np.array([1.0, 0.0, 0.0])), np.zeros(3))
+
+    before = ship.propellant
+
+    push = rcs_push(ship, state, Controls(translate=np.array([1.0, 0.0, 0.0])), 10.0)
+
+    assert np.linalg.norm(push) > 0.0
+
+    # F / (Isp g0) for 10 s.
+    from vessel.physics import RCS_ISP
+    from vessel.vessel import G0
+
+    assert before - ship.propellant == pytest.approx(ship.rcs_thrust / (RCS_ISP * G0) * 10.0, rel=1e-6)
+
+    # Dry: no push.
+    ship.draw_propellant(float("inf"))
+
+    assert np.linalg.norm(rcs_push(ship, state, Controls(translate=np.array([1.0, 0.0, 0.0])), 1.0)) == 0.0

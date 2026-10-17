@@ -165,14 +165,43 @@ def copy_positions(
     if not state.radial:
         return [(0.0, state.bottom, 0.0)]
 
+    base = math.radians(state.angle)
+
     return [
         (
-            state.distance * math.cos(2.0 * math.pi * k / state.count),
+            state.distance * math.cos(base + 2.0 * math.pi * k / state.count),
             state.bottom,
-            state.distance * math.sin(2.0 * math.pi * k / state.count)
+            state.distance * math.sin(base + 2.0 * math.pi * k / state.count)
         )
         for k in range(state.count)
     ]
+
+
+def copy_orientations(
+    state
+) -> list:
+    """
+    How a part's copies are turned in the vessel's frame:
+    upright, or (sideways: side ports, modules docked to them)
+    their own axis straight out from the core (or in).
+    """
+
+    if not state.outward:
+        return [np.array([0.0, 0.0, 0.0, 1.0])] * max(state.count, 1)
+
+    base = math.radians(state.angle)
+
+    turned = []
+
+    for k in range(state.count):
+
+        angle = base + 2.0 * math.pi * k / state.count
+
+        out = np.array([math.cos(angle), 0.0, math.sin(angle)]) * state.outward
+
+        turned.append(quaternion.look_rotation(np.array([0.0, 1.0, 0.0]), out))
+
+    return turned
 
 
 class VesselSystem:
@@ -409,7 +438,7 @@ class VesselSystem:
         """A vessel's free ports: (port, (face point, facing)), about its body, inertial."""
 
         return [
-            (port, docking.port_point(component.vessel, component.state.position, component.state.orientation, port.end))
+            (port, docking.port_face(component.vessel, component.state.position, component.state.orientation, port))
             for port in docking.free_ports(component.vessel)
         ]
 
@@ -443,6 +472,18 @@ class VesselSystem:
 
         return best[1:] if best is not None else None
 
+    @staticmethod
+    def _port_at(
+        component: VesselComponent,
+        end: str,
+        copy: int
+    ):
+
+        return next(
+            (port for port in docking.free_ports(component.vessel) if port.end == end and (end != "side" or port.copy == copy)),
+            None
+        )
+
     def dock(
         self,
         scene: Scene,
@@ -450,7 +491,9 @@ class VesselSystem:
         own_end: str,
         target_entity: Entity,
         target_end: str,
-        orbit_system
+        orbit_system,
+        own_copy: int = 0,
+        target_copy: int = 0
     ) -> bool:
         """Join the target to this vessel at their ports: one vessel (this one), the target's parts in its stack."""
 
@@ -465,14 +508,41 @@ class VesselSystem:
 
         up = component.state.up
 
-        joined, below, rise = docking.merge(component.vessel, own_end, target.vessel, target_end)
-
         state = component.state
 
-        # The joined stack's origin: below, at the target's
-        # bottom; both now move as one (momentum kept).
-        state.position = state.position - up * rise
-        state.velocity = (state.velocity * own_mass + target.state.velocity * their_mass) / (own_mass + their_mass)
+        velocity = (state.velocity * own_mass + target.state.velocity * their_mass) / (own_mass + their_mass)
+
+        if target_end == "side" or own_end == "side":
+
+            # Onto a side port: the one with it keeps its core;
+            # the other hangs off it, straight out.
+            host_is_target = target_end == "side"
+
+            host, guest = (target, component) if host_is_target else (component, target)
+
+            port_end, guest_end = (target_end, own_end) if host_is_target else (own_end, target_end)
+
+            port = self._port_at(host, port_end, target_copy if host_is_target else own_copy)
+
+            if port is None or docking.can_hang(guest.vessel):
+                return False
+
+            joined = docking.attach_side(host.vessel, port, guest.vessel, guest_end)
+
+            if host_is_target:
+                state.position = target.state.position.copy()
+                state.orientation = target.state.orientation.copy()
+
+        else:
+
+            joined, below, rise = docking.merge(component.vessel, own_end, target.vessel, target_end)
+
+            # The joined stack's origin: below, at the target's
+            # bottom.
+            state.position = state.position - up * rise
+
+        # Both now move as one (momentum kept).
+        state.velocity = velocity
         state.angular_velocity = np.zeros(3)
 
         component.vessel = joined
@@ -506,6 +576,9 @@ class VesselSystem:
 
         if component is None:
             return None
+
+        if docking.side_module(component.vessel):
+            return self._undock_side(scene, entity, component, orbit_system)
 
         at = docking.joint(component.vessel)
 
@@ -553,6 +626,64 @@ class VesselSystem:
         self.place(scene, orbit_system)
 
         Logger.info("[Vessels] Undocked: %s and %s.", upper.name, lower.name)
+
+        return other
+
+    def _undock_side(
+        self,
+        scene: Scene,
+        entity: Entity,
+        component: VesselComponent,
+        orbit_system
+    ) -> Entity | None:
+        """The last module on a side port goes its own way: straight out from it."""
+
+        detached = docking.detach_side(component.vessel)
+
+        if detached is None:
+            return None
+
+        state = component.state
+
+        rotate = lambda vector: quaternion.rotate_vector(state.orientation, vector)
+
+        out = rotate(detached.out)
+
+        axis_point = state.position + rotate(np.array([0.0, detached.height, 0.0]))
+
+        guest = detached.guest
+
+        length = guest.height
+
+        # Its stack straight out: the docked end at the port.
+        if detached.sign < 0:
+            up = -out
+            origin = axis_point + out * (detached.inner + length)
+        else:
+            up = out
+            origin = axis_point + out * detached.inner
+
+        guest_state = state.copy()
+        guest_state.position = origin
+        guest_state.velocity = state.velocity + out * self.UNDOCK_SPEED
+        guest_state.angular_velocity = np.zeros(3)
+        guest_state.orientation = quaternion.look_rotation(rotate(np.array([0.0, 1.0, 0.0])), up)
+
+        state.velocity = state.velocity - out * self.UNDOCK_SPEED * guest.mass / max(detached.host.mass, 1.0)
+
+        component.vessel = detached.host
+
+        self._clear_parts(scene, component)
+        self._build_parts(scene, entity, component)
+
+        other = self.add_vessel(scene, guest, guest_state, component.body, orbit_system, paid=component.paid)
+
+        self._prediction = None
+        self._planned = None
+
+        self.place(scene, orbit_system)
+
+        Logger.info("[Vessels] Undocked %s from %s's side port.", guest.name, detached.host.name)
 
         return other
 
@@ -2094,7 +2225,7 @@ class VesselSystem:
 
                     coast(state, environment, piece)
 
-                    push = rcs_push(vessel, state, controls)
+                    push = rcs_push(vessel, state, controls, piece)
 
                     state.velocity = state.velocity + push * piece
                     state.position = state.position + push * (0.5 * piece * piece)
@@ -2351,13 +2482,13 @@ class VesselSystem:
 
             copies = []
 
-            for position in copy_positions(state):
+            for position, turned in zip(copy_positions(state), copy_orientations(state)):
 
                 child = scene.create_entity()
 
                 scene.add_component(child, NameComponent(part.name))
                 scene.add_component(child, HierarchyComponent(entity))
-                scene.add_component(child, TransformComponent(transform=Transform(position=position)))
+                scene.add_component(child, TransformComponent(transform=Transform(position=position, orientation=turned)))
                 scene.add_component(
                     child,
                     MeshRendererComponent(
@@ -2379,9 +2510,12 @@ class VesselSystem:
 
         for state in component.vessel.parts:
 
-            for child, position in zip(component.part_entities.get(id(state), []), copy_positions(state)):
+            for child, position, turned in zip(component.part_entities.get(id(state), []), copy_positions(state), copy_orientations(state)):
 
-                scene.get_component(child, TransformComponent).transform.position = position
+                transform = scene.get_component(child, TransformComponent).transform
+
+                transform.position = position
+                transform.orientation = turned
 
     def _drop_parts(
         self,

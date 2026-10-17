@@ -90,6 +90,21 @@ class PartState:
     # back when undocked; "" never docked).
     origin: str = ""
 
+    # Sideways (vessel/docking.py side ports): +1 its stack
+    # axis points straight out from the core, -1 straight in
+    # (0: along the core, as usual); then `bottom` is the
+    # height of its axis and `distance` how far out its bottom
+    # end is. angle: where round the core its group's first
+    # copy stands (deg). anchor: a docked module's side port,
+    # (its group, the copy). occupied: a side port's copies
+    # with a module docked. held_stage: a docked module's own
+    # stage, kept until undocked.
+    outward: int = 0
+    angle: float = 0.0
+    anchor: tuple = ()
+    occupied: tuple = ()
+    held_stage: int | None = None
+
     @property
     def radial(
         self
@@ -198,7 +213,26 @@ class Vessel:
             elif parent is not None:
                 groups.setdefault(state.group, (parent, []))[1].append(state)
 
+        ports = {}
+
         for parent, members in groups.values():
+
+            # Side ports: straight out from the parent's skin,
+            # their axis halfway up it (plus the offset).
+            if members and all(member.part.side for member in members):
+
+                for member in members:
+                    member.outward = 1
+                    member.distance = parent.part.radius
+                    member.bottom = parent.bottom + 0.5 * parent.part.height + member.offset
+
+                ports[members[0].group] = members[0]
+
+                continue
+
+            # A module docked to a side port: on, straight out.
+            if members and members[0].anchor:
+                continue
 
             stacked = [member for member in members if member.part.kind != "decoupler"]
             separators = [member for member in members if member.part.kind == "decoupler"]
@@ -223,6 +257,31 @@ class Vessel:
                 # Between the core and the group, halfway up.
                 separator.bottom = parent.bottom + separator.offset + 0.5 * (span - separator.part.height)
                 separator.distance = parent.part.radius + separator.part.radius
+
+        for parent, members in groups.values():
+
+            if not members or not members[0].anchor:
+                continue
+
+            port = ports.get(members[0].anchor[0])
+
+            if port is None:
+                continue
+
+            copy = members[0].anchor[1]
+
+            angle = port.angle + 360.0 * copy / max(port.count, 1)
+
+            reach = port.distance + port.part.height
+
+            # Listed from the port outward.
+            for member in members:
+
+                member.bottom = port.bottom
+                member.angle = angle
+                member.distance = reach if member.outward > 0 else reach + member.part.height
+
+                reach += member.part.height
 
     # -----------------------------------------------------
     # Sums
@@ -274,7 +333,7 @@ class Vessel:
             return 0.0
 
         return sum(
-            (state.part.mass + state.propellant) * state.count * (state.bottom + state.part.height * 0.5)
+            (state.part.mass + state.propellant) * state.count * (state.bottom + (0.0 if state.outward else state.part.height * 0.5))
             for state in self.parts
         ) / total
 
@@ -298,7 +357,7 @@ class Vessel:
             radius = state.part.radius
             length = state.part.height
 
-            offset = state.bottom + length * 0.5 - com
+            offset = state.bottom + (0.0 if state.outward else length * 0.5) - com
 
             own_pitch = mass * (3.0 * radius * radius + length * length) / 12.0 + mass * offset * offset
             own_roll = 0.5 * mass * radius * radius
@@ -318,6 +377,26 @@ class Vessel:
                 roll += own_roll
 
         return pitch, roll
+
+    def draw_propellant(
+        self,
+        amount: float
+    ) -> float:
+        """Take up to `amount` kg from every tank, evenly by what each holds (the thrusters); returns what came out."""
+
+        tanks = [state for state in self.parts if state.propellant > 1e-9]
+
+        held = sum(state.propellant * state.count for state in tanks)
+
+        if held <= 0.0 or amount <= 0.0:
+            return 0.0
+
+        share = min(amount / held, 1.0)
+
+        for state in tanks:
+            state.propellant -= state.propellant * share
+
+        return held * share
 
     @property
     def rcs_thrust(
@@ -409,6 +488,7 @@ class Vessel:
             if state.ignited
             and state.part.engine is not None
             and not state.flipped
+            and not state.outward
             and any(tank.propellant > 0.0 for tank in self._section_tanks(index))
         ]
 
@@ -702,7 +782,8 @@ class Vessel:
             [
                 PartState(
                     s.part, s.stage, s.propellant, s.ignited, s.bottom, s.armed, s.deployed,
-                    s.count, s.group, s.offset, s.distance, s.source, s.temperature, s.flipped, s.joined, s.origin
+                    s.count, s.group, s.offset, s.distance, s.source, s.temperature, s.flipped, s.joined, s.origin,
+                    s.outward, s.angle, s.anchor, s.occupied, s.held_stage
                 )
                 for s in self.parts
             ],

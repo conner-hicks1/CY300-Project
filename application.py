@@ -742,7 +742,13 @@ class Application:
 
             name = other.vessel.name
 
-            self.vessel_system.dock(self.scene, entity, own.end, target[1], theirs.end, self.orbit_system)
+            if not self.vessel_system.dock(self.scene, entity, own.end, target[1], theirs.end, self.orbit_system, own.copy, theirs.copy):
+
+                self._docking = None
+
+                self.hud.notify(docking.can_hang(component.vessel if theirs.end == "side" else other.vessel) or "Could not dock")
+
+                return
 
             component.controls.translate = np.zeros(3)
 

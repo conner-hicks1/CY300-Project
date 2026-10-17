@@ -8,7 +8,7 @@ import numpy as np
 from math3d import quaternion
 
 from vessel import heating, kepler
-from vessel.vessel import BODY_DRAG_COEFFICIENT, Vessel
+from vessel.vessel import BODY_DRAG_COEFFICIENT, G0, Vessel
 
 
 # =========================================================
@@ -229,7 +229,7 @@ def step(
 
     mass = vessel.mass
 
-    push = state.up * (thrust / mass) + rcs_push(vessel, state, controls)
+    push = state.up * (thrust / mass) + rcs_push(vessel, state, controls, dt)
 
     acceleration = gravity(environment, state.position) + push
 
@@ -331,22 +331,38 @@ def motion(
     return state.velocity
 
 
+# The translation thrusters' specific impulse (s): they burn
+# the tanks' propellant (cold hydrazine-like, ~220 s).
+RCS_ISP = 220.0
+
+
 def rcs_push(
     vessel: Vessel,
     state: VesselState,
-    controls: Controls
+    controls: Controls,
+    dt: float = 0.0
 ) -> np.ndarray:
-    """The translation thrusters' acceleration (inertial, m/s^2)."""
+    """
+    The translation thrusters' acceleration (inertial, m/s^2);
+    dt given, burning their propellant for that long (none
+    left: no push).
+    """
 
     if not controls.translating:
         return np.zeros(3)
 
     thrust = vessel.rcs_thrust
 
-    if thrust <= 0.0:
+    if thrust <= 0.0 or vessel.propellant <= 0.0:
         return np.zeros(3)
 
     command = np.clip(np.asarray(controls.translate, dtype=np.float64), -1.0, 1.0)
+
+    if dt > 0.0:
+
+        used = thrust * float(np.sum(np.abs(command)))
+
+        vessel.draw_propellant(used / (RCS_ISP * G0) * dt)
 
     return quaternion.rotate_vector(state.orientation, command) * (thrust / vessel.mass)
 
