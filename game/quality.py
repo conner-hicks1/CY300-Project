@@ -8,6 +8,7 @@ from graphics.render_settings import RenderSettings
 # =========================================================
 #
 # The settings that cost the most frames, as presets: the
+# scene's resolution (its cost is nearly all per pixel), the
 # atmosphere's samples per pixel, rocks, trees and grass
 # near the ground (~7 ms of GPU time in a dense forest),
 # shadow reach and the mountain-shadow map (~6 ms), bloom
@@ -25,6 +26,7 @@ QUALITY_PRESETS: dict[str, dict[str, object]] = {
         terrain_shadows=False,
         bloom_enabled=False,
         fxaa_enabled=True,
+        render_scale=0.7,
     ),
     "Medium": dict(
         atmosphere_samples=18,
@@ -36,6 +38,7 @@ QUALITY_PRESETS: dict[str, dict[str, object]] = {
         terrain_shadows=False,
         bloom_enabled=True,
         fxaa_enabled=True,
+        render_scale=0.85,
     ),
     "High": dict(
         atmosphere_samples=24,
@@ -47,12 +50,15 @@ QUALITY_PRESETS: dict[str, dict[str, object]] = {
         terrain_shadows=True,
         bloom_enabled=True,
         fxaa_enabled=True,
+        render_scale=1.0,
     ),
 }
 
 QUALITY_NAMES: tuple[str, ...] = tuple(QUALITY_PRESETS)
 
-DEFAULT_QUALITY = "High"
+# Medium: the scene at 85% resolution and no mountain
+# shadows keeps a laptop GPU (Iris Xe) near 45 fps.
+DEFAULT_QUALITY = "Medium"
 
 
 def apply_quality(

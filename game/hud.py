@@ -25,6 +25,7 @@ SITUATION_COLORS = {
     "Sub-orbital": (1.0, 0.82, 0.3, 1.0),
     "Orbiting": (0.5, 1.0, 0.7, 1.0),
     "Escaping": (1.0, 0.6, 1.0, 1.0),
+    "Flyby": (1.0, 0.6, 1.0, 1.0),
     "Destroyed": (1.0, 0.45, 0.35, 1.0),
 }
 LOADING_COLOR = (0.95, 0.8, 0.35, 1.0)
@@ -41,16 +42,44 @@ LOADING_COLOR = (0.95, 0.8, 0.35, 1.0)
 #                 air outside, position, local time
 #   bottom center the vessel: situation, throttle, stage,
 #                 propellant, thrust to weight, speeds, the
-#                 orbit's apoapsis and periapsis
-#   bottom right  key hints
+#                 orbit's apoapsis and periapsis; beside it
+#                 the attitude ball (game/navball.py)
+#   top right     key hints
+#   below clock   notices (a stage separating, a new sphere
+#                 of influence...), a few seconds each
 #
 # F2 hides it (screenshots).
+
+NOTICE_SECONDS = 4.0
+
 
 class FlightHud:
 
     def __init__(self):
 
         self.visible = True
+
+        # (text, seconds left), newest last.
+        self.notices: list[list] = []
+
+    def notify(
+        self,
+        text: str
+    ):
+
+        self.notices.append([text, NOTICE_SECONDS])
+
+        del self.notices[:-3]
+
+    def tick(
+        self,
+        delta_time: float
+    ):
+
+        for notice in self.notices:
+            notice[1] -= delta_time
+
+        self.notices = [notice for notice in self.notices if notice[1] > 0.0]
 
     def draw(
         self,
@@ -59,9 +88,14 @@ class FlightHud:
         warp: TimeWarp,
         loading: bool = False,
         fps: float | None = None,
-        vessel=None
+        vessel=None,
+        navball=None
     ):
-        """vessel: the vessel's readout (systems/vessel_system.py VesselReadout), if flying one."""
+        """
+        vessel: the vessel's readout (systems/vessel_system.py
+        VesselReadout), if flying one. navball: (orientation,
+        up, north, motion) for the attitude ball.
+        """
 
         if not self.visible:
             return
@@ -75,11 +109,33 @@ class FlightHud:
 
         self._draw_flight(readout, speed, loading, fps, (x + 10.0, y + height - 10.0))
 
-        self._draw_hints((x + width - 10.0, y + height - 10.0), vessel is not None)
+        self._draw_hints((x + width - 10.0, y + 10.0), vessel is not None)
+
+        self._draw_notices((x + width * 0.5, y + 48.0))
 
         if vessel is not None:
 
             self._draw_vessel(vessel, (x + width * 0.5, y + height - 10.0))
+
+            if navball is not None and not vessel.destroyed:
+
+                from game.navball import attitude, draw_navball
+
+                radius = 62.0
+
+                center = (x + width * 0.5 + 290.0 + radius, y + height - 22.0 - radius)
+
+                draw_navball(center, radius, *navball)
+
+                heading, pitch = attitude(*navball[:3])
+
+                draw = imgui.get_foreground_draw_list()
+
+                draw.add_text(
+                    (center[0] - 46.0, center[1] + radius + 4.0),
+                    imgui.get_color_u32((0.9, 0.9, 0.9, 1.0)),
+                    f"HDG {heading:03.0f}  PIT {pitch:+.0f}"
+                )
 
             if vessel.destroyed:
                 self._draw_banner(
@@ -210,13 +266,14 @@ class FlightHud:
         piloting: bool
     ):
 
-        imgui.set_next_window_pos(position, imgui.Cond_.always, (1.0, 1.0))
+        imgui.set_next_window_pos(position, imgui.Cond_.always, (1.0, 0.0))
         imgui.set_next_window_bg_alpha(0.55)
 
         imgui.begin("##hud hints", None, PANEL_FLAGS)
 
         if piloting:
             imgui.text_disabled("Z / X  throttle   |   Space  stage   |   W A S D Q E  steer")
+            imgui.text_disabled("T  SAS   |   F  SAS mode   |   M  map   |   V  free camera")
             imgui.text_disabled("Esc  menu   |   , .  time warp   |   right mouse  look around")
         else:
             imgui.text_disabled("Esc  menu   |   , .  time warp   |   hold right mouse  look and fly")
@@ -241,6 +298,8 @@ class FlightHud:
         imgui.text(vessel.name)
         imgui.same_line()
         imgui.text_colored(SITUATION_COLORS.get(vessel.situation, (0.8, 0.8, 0.8, 1.0)), vessel.situation)
+        imgui.same_line()
+        imgui.text_disabled(f"at {vessel.body}")
 
         if imgui.begin_table("vessel", 2):
 
@@ -275,23 +334,53 @@ class FlightHud:
             imgui.text(f"Orbital   {format.distance(vessel.orbital_speed)}/s")
             imgui.text(f"Vertical  {vessel.vertical_speed:+,.0f} m/s")
 
-            imgui.text(
-                f"Apoapsis  {format.distance(vessel.apoapsis)}"
-                if vessel.apoapsis is not None
-                else "Apoapsis  escaping"
-            )
+            if vessel.periapsis is None:
 
-            if vessel.periapsis < -1.0e5:
-                imgui.text_disabled("Periapsis below ground")
+                imgui.text_disabled("Apoapsis  -")
+                imgui.text_disabled("Periapsis -")
+
             else:
-                imgui.text(f"Periapsis {format.distance(vessel.periapsis)}")
+
+                imgui.text(
+                    f"Apoapsis  {format.distance(vessel.apoapsis)}"
+                    if vessel.apoapsis is not None
+                    else "Apoapsis  escaping"
+                )
+
+                if vessel.periapsis < -1.0e5:
+                    imgui.text_disabled("Periapsis below ground")
+                else:
+                    imgui.text(f"Periapsis {format.distance(vessel.periapsis)}")
 
             if vessel.sas:
-                imgui.text("SAS on (T)")
+                imgui.text(f"SAS {vessel.sas_mode} (T, F)")
             else:
                 imgui.text_colored(WARP_COLOR, "SAS off (T)")
 
+            if vessel.parachute == "armed":
+                imgui.text_colored(WARP_COLOR, "Parachute armed")
+            elif vessel.parachute == "open":
+                imgui.text_colored((0.6, 0.85, 0.6, 1.0), "Parachute open")
+
             imgui.end_table()
+
+        imgui.end()
+
+    def _draw_notices(
+        self,
+        position
+    ):
+
+        if not self.notices:
+            return
+
+        imgui.set_next_window_pos(position, imgui.Cond_.always, (0.5, 0.0))
+        imgui.set_next_window_bg_alpha(0.45)
+
+        imgui.begin("##hud notices", None, PANEL_FLAGS)
+
+        for text, left in self.notices:
+            imgui.text_colored((1.0, 0.92, 0.6, min(1.0, left)), text)
 
         imgui.end()
 

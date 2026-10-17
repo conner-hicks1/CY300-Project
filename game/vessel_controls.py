@@ -1,6 +1,8 @@
 from core.input import Input
 from core.key_codes import Key
 
+from vessel.physics import SAS_MODES
+
 
 # =========================================================
 # Piloting
@@ -13,7 +15,9 @@ from core.key_codes import Key
 #   W / S           pitch: nose forward / back
 #   A / D           yaw: nose left / right
 #   Q / E           roll
-#   T               stability assist (hold attitude) on / off
+#   T               stability assist on / off
+#   F               its mode: hold the attitude, point
+#                   prograde, point retrograde
 #   Space           next stage
 #
 # Commands are relative to the vessel: at launch "forward"
@@ -61,6 +65,11 @@ def read_pilot(
 
     if Input.is_key_pressed(Key.T):
         controls.sas = not controls.sas
+
+    if Input.is_key_pressed(Key.F):
+
+        controls.sas = True
+        controls.sas_mode = SAS_MODES[(SAS_MODES.index(controls.sas_mode) + 1) % len(SAS_MODES)]
 
     return Input.is_key_pressed(Key.SPACE)
 

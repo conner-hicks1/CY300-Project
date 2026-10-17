@@ -218,10 +218,24 @@ class VesselComponent:
     body: Entity
     controls: object
 
-    # Child entities drawing the parts (top down), and the
-    # exhaust plume of each burning engine.
+    # Child entities drawing the parts (top down), the
+    # exhaust plume of each burning engine, and the canopy of
+    # each open parachute.
     part_entities: list = field(default_factory=list)
     plume_entities: list = field(default_factory=list)
+    canopy_entities: list = field(default_factory=list)
+
+
+# A spent stage, falling on its own (no pilot) until it hits
+# the ground or is left far behind. body: as VesselComponent
+# (None = the Sun).
+
+@dataclass(slots=True)
+class DebrisComponent:
+    vessel: object
+    state: object
+    body: object
+    age: float = 0.0
 
 
 # =========================================================

@@ -134,30 +134,46 @@ class _Planet:
         self.last_camera: np.ndarray | None = None
         self.dirty = True
 
-        self.ground_cache: tuple[np.ndarray, float, float] | None = None
+        # Recent ground queries, newest first: (direction,
+        # accuracy m, base, surface). Several places ask at
+        # once (the camera for detail, the vessel, the HUD);
+        # one entry would make them evict each other.
+        self.ground_cache: list[tuple[np.ndarray, float, float, float]] = []
 
         self.spawn: SpawnPoint | None = None
 
         self.alive = True
 
+    GROUND_CACHE_SIZE = 4
+
     def ground(
         self,
-        direction: np.ndarray
+        direction: np.ndarray,
+        accuracy: float = 0.0
     ) -> tuple[float, float]:
         """
         (base height of the body's shape, visible surface
         above it: the liquid's over seas) under a unit
-        direction, in m. Cached: re-evaluated (about a
-        millisecond) only after moving a quarter of the
-        finest vertex spacing.
+        direction, in m. accuracy: how close (m) the answer
+        must be; coarser asks evaluate fewer octaves and are
+        reused over a wider area (a vessel high up).
+
+        Cached: re-evaluated (a few ms at full detail) only
+        after moving a quarter of the vertex spacing used.
         """
 
-        cached = self.ground_cache
+        spacing = max(self.finest_spacing, accuracy)
 
-        tolerance = 0.25 * self.finest_spacing / self.terrain.settings.radius
+        tolerance = 0.25 * spacing / self.terrain.settings.radius
 
-        if cached is not None and float(np.linalg.norm(direction - cached[0])) < tolerance:
-            return cached[1], cached[2]
+        for index, (where, used, base, surface) in enumerate(self.ground_cache):
+
+            if used <= spacing and float(np.linalg.norm(direction - where)) < tolerance:
+
+                if index:
+                    self.ground_cache.insert(0, self.ground_cache.pop(index))
+
+                return base, surface
 
         terrain = self.terrain
 
@@ -177,7 +193,7 @@ class _Planet:
 
         samples = terrain.elevation(
             np.vstack((direction[None, :], corners)),
-            spacing=self.finest_spacing
+            spacing=spacing
         )
 
         elevation = float(samples.max())
@@ -187,7 +203,9 @@ class _Planet:
 
         base = float(terrain.base_height(direction[None, :])[0])
 
-        self.ground_cache = (direction.copy(), base, elevation)
+        self.ground_cache.insert(0, (direction.copy(), spacing, base, elevation))
+
+        del self.ground_cache[self.GROUND_CACHE_SIZE:]
 
         return base, elevation
 
@@ -692,12 +710,14 @@ class PlanetSystem:
     def ground(
         self,
         entity: Entity,
-        direction
+        direction,
+        accuracy: float = 0.0
     ) -> tuple[float, float] | None:
         """
         (base height of the shape, visible surface above it),
         m, under a planet-space direction: sea level is at
         radius + base, the ground at radius + base + surface.
+        accuracy: m the answer may be off by (0: as drawn).
         """
 
         planet = self._planets.get(entity)
@@ -708,7 +728,7 @@ class PlanetSystem:
         direction = np.asarray(direction, dtype=np.float64)
 
         # Shares the camera-ground cache.
-        return planet.ground(direction / np.linalg.norm(direction))
+        return planet.ground(direction / np.linalg.norm(direction), accuracy)
 
     def extent(
         self,

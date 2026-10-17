@@ -1,13 +1,16 @@
 {
   "format": 1,
   "name": "Pathfinder",
-  "description": "Two-stage orbital rocket: ~111 t at liftoff, ~9.6 km/s of delta-v in vacuum, enough for low Earth orbit with a good ascent.",
+  "description": "Two-stage orbital rocket with a crew capsule that comes home: ~117 t at liftoff, ~9.5 km/s of delta-v in vacuum, enough for low Earth orbit with a good ascent. Stages: 0 booster, 1 upper stage, 2 capsule separation, 3 main parachute (opens below 250 m/s in thick enough air).",
   "notes": "Parts from the top down. stage: the stage (0 first, Space) that ignites an engine or fires a separator, dropping everything below it.",
   "parts": [
+    {"part": "parachute_main", "stage": 3},
     {"part": "capsule"},
-    {"part": "tank_2m5_short"},
+    {"part": "decoupler_2m5", "stage": 2},
+    {"part": "tank_2m5_medium"},
     {"part": "engine_vacuum", "stage": 1},
     {"part": "decoupler_2m5", "stage": 1},
+    {"part": "tank_2m5_long"},
     {"part": "tank_2m5_long"},
     {"part": "tank_2m5_long"},
     {"part": "engine_booster", "stage": 0}

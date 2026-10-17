@@ -11,6 +11,13 @@ G0 = 9.80665
 # Sea-level pressure (bar) at which isp_sea_level applies.
 ATMOSPHERE_BAR = 1.01325
 
+# Drag coefficient of a rocket nose-first (a cone on a
+# cylinder, ~0.3-0.5).
+BODY_DRAG_COEFFICIENT = 0.45
+
+# Seconds a parachute takes to open fully.
+PARACHUTE_OPENING = 3.0
+
 
 # =========================================================
 # A Vessel's Parts
@@ -41,6 +48,11 @@ class PartState:
 
     # Height of the part's bottom above the vessel's origin.
     bottom: float = 0.0
+
+    # Parachutes: staged (waits for thick, slow enough air),
+    # and how far open, 0..1.
+    armed: bool = False
+    deployed: float = 0.0
 
 
 @dataclass(slots=True)
@@ -390,7 +402,55 @@ class Vessel:
             if state.stage == stage and state.part.engine is not None:
                 state.ignited = True
 
+            if state.stage == stage and state.part.parachute is not None:
+                state.armed = True
+
         return stage
+
+    # -----------------------------------------------------
+    # Drag and parachutes
+    # -----------------------------------------------------
+
+    def open_parachutes(
+        self,
+        pressure_bar: float,
+        airspeed: float,
+        dt: float
+    ):
+        """Staged parachutes open over PARACHUTE_OPENING s once the air is thick enough and slow enough."""
+
+        for state in self.parts:
+
+            chute = state.part.parachute
+
+            if chute is None or not state.armed or state.deployed >= 1.0:
+                continue
+
+            if state.deployed > 0.0 or (pressure_bar >= chute.min_pressure and airspeed <= chute.max_speed):
+                state.deployed = min(1.0, state.deployed + dt / PARACHUTE_OPENING)
+
+    def drag_area(
+        self
+    ) -> float:
+        """Drag coefficient x area (m^2): the stack nose-first, plus open parachutes."""
+
+        area = BODY_DRAG_COEFFICIENT * math.pi * self.radius ** 2
+
+        for state in self.parts:
+
+            chute = state.part.parachute
+
+            if chute is not None and state.deployed > 0.0:
+                area += chute.drag_coefficient * chute.area * state.deployed
+
+        return area
+
+    @property
+    def parachutes(
+        self
+    ) -> list[PartState]:
+
+        return [state for state in self.parts if state.part.parachute is not None]
 
     def delta_v(
         self,
@@ -404,7 +464,7 @@ class Vessel:
         # Work on a copy so nothing changes.
         copy = Vessel(
             self.name,
-            [PartState(s.part, s.stage, s.propellant, s.ignited, s.bottom) for s in self.parts],
+            [PartState(s.part, s.stage, s.propellant, s.ignited, s.bottom, s.armed, s.deployed) for s in self.parts],
             self.next_stage,
             1.0
         )

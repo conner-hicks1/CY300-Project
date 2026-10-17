@@ -16,7 +16,7 @@ from pathlib import Path
 PARTS_PATH = Path("assets/parts/parts.json")
 VESSELS_DIRECTORY = Path("assets/vessels")
 
-KINDS = ("command", "tank", "engine", "decoupler")
+KINDS = ("command", "tank", "engine", "decoupler", "parachute")
 
 
 class PartError(ValueError):
@@ -30,6 +30,15 @@ class EngineSpec:
     isp_vacuum: float               # s
     isp_sea_level: float            # s, at 1 atm
     gimbal: float                   # deg the nozzle can swing
+
+
+@dataclass(frozen=True, slots=True)
+class ParachuteSpec:
+
+    area: float                     # m^2, the open canopy
+    drag_coefficient: float
+    max_speed: float                # m/s through the air it can open at
+    min_pressure: float             # bar it needs to open in
 
 
 @dataclass(frozen=True, slots=True)
@@ -47,6 +56,7 @@ class PartDefinition:
     roughness: float = 0.5
     propellant: float = 0.0         # kg a full tank holds
     engine: EngineSpec | None = None
+    parachute: ParachuteSpec | None = None
     reaction_wheel_torque: float = 0.0
     crash_speed: float = 8.0        # m/s it survives hitting the ground at
 
@@ -134,6 +144,22 @@ def parse_part(
             gimbal=_number(raw, "gimbal", where, default=0.0)
         )
 
+    parachute = None
+
+    if kind == "parachute":
+
+        raw = data.get("parachute")
+
+        if not isinstance(raw, dict):
+            raise PartError(f"{where}: a parachute needs a 'parachute' section")
+
+        parachute = ParachuteSpec(
+            area=_number(raw, "area", where, minimum=0.1),
+            drag_coefficient=_number(raw, "drag_coefficient", where, minimum=0.01),
+            max_speed=_number(raw, "max_speed", where, minimum=1.0),
+            min_pressure=_number(raw, "min_pressure", where, default=0.0)
+        )
+
     color = data.get("color", [0.7, 0.7, 0.7])
 
     if not (isinstance(color, list) and len(color) == 3 and all(isinstance(c, (int, float)) for c in color)):
@@ -152,6 +178,7 @@ def parse_part(
         roughness=_number(data, "roughness", where, default=0.5),
         propellant=_number(data, "propellant", where, default=0.0),
         engine=engine,
+        parachute=parachute,
         reaction_wheel_torque=_number(data, "reaction_wheel_torque", where, default=0.0),
         crash_speed=_number(data, "crash_speed", where, default=8.0, minimum=0.1)
     )
@@ -204,7 +231,7 @@ def parse_design(
         if stage is not None and (isinstance(stage, bool) or not isinstance(stage, int) or stage < 0):
             raise PartError(f"{where}: part {index} stage must be a whole number >= 0")
 
-        if stage is not None and part.kind not in ("engine", "decoupler"):
+        if stage is not None and part.kind not in ("engine", "decoupler", "parachute"):
             raise PartError(f"{where}: part {index} ({part.id}) has nothing to fire at a stage")
 
         stack.append(StackEntry(part, stage))

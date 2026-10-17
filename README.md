@@ -6,8 +6,9 @@ based materials, cascaded shadows and image-based lighting, and streams the
 bodies of the solar system as they were measured (real elevation and color
 maps) under physically based atmospheres, on real orbits with a real clock.
 You fly a two-stage rocket off any body: real-scale parts, gravity, thrust,
-drag in the real air, staging, and orbits followed exactly under time
-warp. Building your own vessels comes next.
+drag in the real air, staging, orbits followed exactly under time warp,
+patched conics to the Moon and back, a map of your orbit, and a capsule that
+parachutes home. Building your own vessels comes next.
 
 ![The procedural planet, seen from the surface](docs/images/scene.png)
 
@@ -387,10 +388,12 @@ warp. Building your own vessels comes next.
 
 - Parts (`assets/parts/parts.json`) and vessels built from them
   (`assets/vessels/`), at real scale in SI units: a crew capsule with
-  reaction wheels, kerosene / oxygen tanks, a booster engine (1.56 MN, Isp
-  285 s at sea level and 315 s in vacuum) and a vacuum engine, a stage
-  separator. Pathfinder, the starting rocket: 111 t, 27 m, two stages,
-  ~9.6 km/s of delta-v, enough for low Earth orbit (the tests fly it there)
+  reaction wheels, a 30 m main parachute, kerosene / oxygen tanks, a booster
+  engine (2.2 MN, Isp 285 s at sea level and 315 s in vacuum) and a vacuum
+  engine (250 kN, 348 s), stage separators. Pathfinder, the starting rocket:
+  160 t, 37 m, ~10.3 km/s of delta-v; stages: booster, upper stage, capsule
+  separation, parachute. It makes low Earth orbit with ~650 m/s to spare
+  (the tests fly it there with simple guidance)
 - Flight physics (`vessel/physics.py`) in the body's non-rotating frame:
   gravity, thrust whose push falls with the outside pressure (Isp), drag
   through the air (density from the body's air column, the air turning with
@@ -405,13 +408,36 @@ warp. Building your own vessels comes next.
   falling arc goes on rails in pieces short enough not to pass through the
   ground
 - Staging (**Space**): the first stage lights the booster; the next fires
-  the separator, drops everything below it and lights the upper engine
+  the separator, drops everything below it and lights the upper engine; then
+  the capsule separates, and the last arms the parachute. Spent stages fall
+  away as debris (gravity and drag) until they hit the ground or are left
+  25 km behind; the vessel goes on from its new bottom without a jump
+- Parachutes open once the air is thick enough and slow enough (below
+  250 m/s), over three seconds; the capsule then hangs nose-up under the
+  canopy and lands at ~9 m/s at sea level (its limit is 10)
+- Patched conics (`vessel/soi.py`): the vessel feels one body at a time,
+  the one whose sphere of influence it is in (the Moon's ~66,000 km, Earth's
+  ~925,000 km; the Sun beyond). Crossing a boundary hands it over, its state
+  re-expressed about the new body; time warp slows ahead of a boundary so
+  the handover is never skipped. Earth to the Moon and round it (a
+  gravity-assisted swing back out) works on rails at full warp
+- Map view (**M**): the camera pulls back round the body; the vessel's path
+  ahead is drawn over the view, patch by patch (its orbit, or its arc to the
+  ground, or out of the sphere; an encounter's flyby round the moon it
+  reaches, with its closest approach), Ap / Pe with heights, the moons'
+  orbits; lines dim where the body hides them
+- Attitude ball (navball): sky and ground about the local horizon, the
+  compass points, prograde and retrograde markers, heading and pitch.
+  Stability assist (**T**) holds the attitude, or (**F**) points prograde
+  or retrograde
 - Chase camera round the vessel (right mouse, scroll); **V** switches to the
   free camera
-- Vessel HUD: situation (landed, flying, sub-orbital, orbiting, escaping),
-  throttle, propellant, stage, thrust to weight, delta-v left, surface /
-  orbital / vertical speed, apoapsis and periapsis; Revert to launch in the
-  pause menu
+- Vessel HUD: situation (landed, flying, sub-orbital, orbiting, flyby,
+  escaping) and the body, throttle, propellant, stage, thrust to weight,
+  delta-v left, surface / orbital / vertical speed, apoapsis and periapsis,
+  SAS mode, parachute; notices as things happen (staging, a new sphere of
+  influence, the parachute opening, landing); Revert to launch in the pause
+  menu
 - Giants and small bodies start in orbit; everywhere else on the ground
 
 **Game shell**
@@ -424,9 +450,10 @@ warp. Building your own vessels comes next.
   back to real time)
 - Pause menu (**Esc**, stops the clock): Revert to launch, Travel to any
   body, Camera (follow the vessel or fly free; surface, low orbit, the whole
-  body in view), Graphics quality (Low /
-  Medium / High: atmosphere samples, rocks / trees / grass, shadow reach and
-  mountain shadows, bloom), Controls, Quit
+  body in view), Graphics quality (Low / Medium / High, Medium by default:
+  the scene's resolution, 70% / 85% / 100% scaled up at the end, since the
+  scene's cost is nearly all per pixel; atmosphere samples; rocks, trees and
+  grass; shadow reach and mountain shadows; bloom), Controls, Quit
 - Developer tools (**F3**, or `--dev`): stats, every render setting, a frame
   profiler (CPU + GPU timings) and cProfile capture, shader hot reload
 
@@ -440,7 +467,7 @@ warp. Building your own vessels comes next.
 - A disk cache (`data/cache/`) of terrain chunks, keyed by their inputs and
   the generators' source code: chunks stream in ~70% faster on a second
   visit; oldest entries pruned past 2 GB
-- 540 unit tests
+- 556 unit tests
 
 ## Getting Started
 
@@ -494,6 +521,8 @@ planet streams in over the first few seconds.
 | **A** / **D** | Yaw left / right |
 | **Q** / **E** | Roll |
 | **T** | Stability assist on / off |
+| **F** | Stability assist mode: hold attitude, prograde, retrograde |
+| **M** | Map view (right mouse turns it, scroll zooms) |
 | Right mouse + move, scroll | Swing the camera round the vessel; closer / farther |
 | **V** | Free camera: hold right mouse, **W A S D** move, **Space** up, **Shift** down (along the ground, around the planet from orbit; speed grows with altitude) |
 | **.** / **,** | Time warp faster / slower |
@@ -510,11 +539,11 @@ planet streams in over the first few seconds.
 | `main.py`, `application.py` | Entry point, main loop, building a body's scene |
 | `core/` | Window, input, events, timer, logging, profiler, job system, disk cache |
 | `ecs/` | Entity registry and components |
-| `vessel/` | Parts and vessel designs, staging and propellant, flight physics, Kepler orbits |
+| `vessel/` | Parts and vessel designs, staging, propellant and parachutes, flight physics, Kepler orbits, patched conics |
 | `systems/` | Transform, camera controller, orbits and clock, vessels, planet streaming and render systems |
 | `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping, impact craters, dunes, surface climate, terrain, chunk building, level of detail, body shapes, orbits and spin, solar time, real maps |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, clouds, rings, eclipses, bloom |
-| `game/` | Flight HUD and readout, piloting keys, chase camera, pause menu, time warp, graphics quality presets |
+| `game/` | Flight HUD and readout, attitude ball, map view, piloting keys, chase camera, pause menu, time warp, graphics quality presets |
 | `scene/` | Scene container and (de)serialization (for save games) |
 | `resources/` | Handle-based resource managers |
 | `math3d/` | Transforms, camera, matrix helpers |

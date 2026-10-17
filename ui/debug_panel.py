@@ -476,6 +476,10 @@ class DebugPanel:
 
             _checkbox(settings, "fxaa_enabled", "FXAA anti-aliasing")
 
+            _slider(settings, "render_scale", "Render scale", 0.4, 1.0, "%.2f")
+
+            imgui.set_item_tooltip("The 3D scene's resolution as a share of the window's (scaled up at the end).")
+
         # -------------------------------------------------
         # Bloom
         # -------------------------------------------------

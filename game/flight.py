@@ -169,14 +169,19 @@ class FlightContext:
     # relative to the camera's: 12:00 when they match.
 
     def solar_time(
-        self
+        self,
+        point: np.ndarray | None = None
     ) -> tuple[float, float, float] | None:
-        """(hour 0-24, declination rad, sun elevation rad) at the camera."""
+        """
+        (hour 0-24, declination rad, sun elevation rad) at a
+        body-space direction (default: under the camera).
+        """
 
-        if self.body is None or self.camera is None or self.sun is None:
+        if self.body is None or self.sun is None or (point is None and self.camera is None):
             return None
 
-        point = self.camera_direction()
+        if point is None:
+            point = self.camera_direction()
 
         if point is None:
             return None
@@ -288,7 +293,9 @@ def read_flight(
 
     hour = elevation = None
 
-    current = context.solar_time()
+    # (Where the player is, not the camera: the map's camera
+    # is far away.)
+    current = context.solar_time(local)
 
     if current is not None:
         hour, _, sun = current

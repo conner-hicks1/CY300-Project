@@ -96,6 +96,9 @@ class OrbitSystem:
         # entity -> spin (rad/s, inertial), see spin().
         self._spins: dict[Entity, np.ndarray] = {}
 
+        # (time, entity -> velocity), see velocities().
+        self._velocities: tuple[float, dict] | None = None
+
     # =====================================================
     # Queries
     # =====================================================
@@ -146,6 +149,40 @@ class OrbitSystem:
         return self._anchor_center + self.inertial_to_world @ (
             np.asarray(position, dtype=np.float64) - anchor_position
         )
+
+    def velocities(
+        self,
+        scene: Scene
+    ) -> dict[Entity, np.ndarray]:
+        """
+        Every body's velocity (m/s, inertial, about the star)
+        now: from its positions 10 s either side (cached for
+        the current time).
+        """
+
+        if self._velocities is not None and self._velocities[0] == self.time:
+            return self._velocities[1]
+
+        bodies = [
+            (entity, transform, orbit)
+            for entity, transform, orbit in scene.registry.view_with(TransformComponent, OrbitComponent)
+            if not scene.registry.has(entity, HierarchyComponent)
+        ]
+
+        interval = 10.0
+
+        before = body_states(scene, bodies, self.time - interval)
+        after = body_states(scene, bodies, self.time + interval)
+
+        velocities = {
+            entity: (after[entity][0] - before[entity][0]) / (2.0 * interval)
+            for entity in after
+            if entity in before
+        }
+
+        self._velocities = (self.time, velocities)
+
+        return velocities
 
     def spin(
         self,
@@ -207,6 +244,7 @@ class OrbitSystem:
 
         # A new planetary system (entities may be reused).
         self._spins.clear()
+        self._velocities = None
 
         self._anchor_center = np.asarray(transform.position, dtype=np.float64).copy()
         self._anchor_rotation = quaternion.to_matrix3(transform.orientation)

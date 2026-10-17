@@ -50,6 +50,11 @@ class RenderSettings:
     # Fast approximate anti-aliasing on the final image.
     fxaa_enabled: bool = True
 
+    # The 3D scene's resolution, as a share of the window's
+    # (the last pass scales it up). The scene's cost is
+    # nearly all per pixel: 0.75 draws 56% of the pixels.
+    render_scale: float = 1.0
+
     # -----------------------------------------------------
     # Bloom
     # -----------------------------------------------------

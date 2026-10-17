@@ -8,7 +8,7 @@ import numpy as np
 from math3d import quaternion
 
 from vessel import kepler
-from vessel.vessel import Vessel
+from vessel.vessel import BODY_DRAG_COEFFICIENT, Vessel
 
 
 # =========================================================
@@ -39,9 +39,8 @@ from vessel.vessel import Vessel
 # followed exactly instead (vessel/kepler.py): any time
 # warp.
 
-# Drag coefficient of a rocket nose-first (a cone on a
-# cylinder, ~0.3-0.5).
-DRAG_COEFFICIENT = 0.45
+# (The stack's own drag coefficient: vessel/vessel.py.)
+DRAG_COEFFICIENT = BODY_DRAG_COEFFICIENT
 
 # Air thinner than this (kg/m^3) does not matter: vacuum.
 VACUUM_DENSITY = 1e-9
@@ -82,6 +81,9 @@ class VesselState:
         return quaternion.rotate_vector(self.orientation, np.array([0.0, 1.0, 0.0]))
 
 
+SAS_MODES = ("hold", "prograde", "retrograde")
+
+
 @dataclass(slots=True)
 class Controls:
 
@@ -89,8 +91,12 @@ class Controls:
     yaw: float = 0.0
     roll: float = 0.0
 
-    # Stability assist: hold the attitude when not steering.
+    # Stability assist when not steering: "hold" the
+    # attitude, or point the nose "prograde" / "retrograde"
+    # (along / against the motion: through the air while in
+    # it, along the orbit above it).
     sas: bool = True
+    sas_mode: str = "hold"
 
 
 @dataclass(slots=True)
@@ -170,11 +176,19 @@ def step(
 
     pressure, density = environment.air(radius, direction)
 
+    air_velocity = state.velocity - surface_velocity(environment, state.position)
+
     # -------------------------------------------------
     # Attitude
     # -------------------------------------------------
 
-    _turn(vessel, state, controls, pressure, dt)
+    # Hanging under an open parachute, the vessel turns to
+    # trail it (nose against the motion through the air),
+    # whatever the pilot asks.
+    if density > VACUUM_DENSITY and any(chute.deployed > 0.2 for chute in vessel.parachutes):
+        controls = Controls(sas=True, sas_mode="retrograde")
+
+    _turn(vessel, state, controls, pressure, dt, air_velocity if density > VACUUM_DENSITY else state.velocity)
 
     # -------------------------------------------------
     # Forces
@@ -188,13 +202,11 @@ def step(
 
     if density > VACUUM_DENSITY:
 
-        air_velocity = state.velocity - surface_velocity(environment, state.position)
-
         speed = float(np.linalg.norm(air_velocity))
 
-        area = math.pi * vessel.radius ** 2
+        vessel.open_parachutes(pressure, speed, dt)
 
-        acceleration -= 0.5 * density * speed * air_velocity * DRAG_COEFFICIENT * area / mass
+        acceleration -= 0.5 * density * speed * air_velocity * vessel.drag_area() / mass
 
     vessel.burn(dt, pressure)
 
@@ -241,8 +253,13 @@ def _turn(
     state: VesselState,
     controls: Controls,
     pressure: float,
-    dt: float
+    dt: float,
+    motion: np.ndarray | None = None
 ):
+    """
+    motion: what prograde means now (through the air while
+    in it, along the orbit above it).
+    """
 
     if state.landed:
 
@@ -264,10 +281,42 @@ def _turn(
 
     if controls.sas:
 
-        # Brake whatever axis is not being steered.
+        # Brake whatever axis is not being steered; in a
+        # pointing mode, turn the nose to the target.
+        wanted = np.zeros(3)
+
+        speed = float(np.linalg.norm(motion)) if motion is not None else 0.0
+
+        if controls.sas_mode != "hold" and speed > 0.5:
+
+            target = motion / speed * (1.0 if controls.sas_mode == "prograde" else -1.0)
+
+            # The target in the vessel's own axes.
+            local = quaternion.rotate_vector(quaternion.conjugate(state.orientation), target)
+
+            # About the axis from the nose (+Y) to it; no
+            # faster than it can stop in time (v = sqrt(2 a
+            # angle)); no roll.
+            axis = np.cross([0.0, 1.0, 0.0], local)
+
+            sine = float(np.linalg.norm(axis))
+
+            angle = math.atan2(sine, float(local[1]))
+
+            if sine > 1e-9:
+
+                rate = math.sqrt(2.0 * 0.8 * min(limit[0], limit[2]) * angle)
+
+                wanted = axis / sine * min(rate, 0.6)
+
+            elif local[1] < 0.0:
+
+                # Exactly backwards: any way round.
+                wanted = np.array([0.3, 0.0, 0.0])
+
         idle = np.abs(command) < 1e-3
 
-        brake = np.clip(-state.angular_velocity / max(dt, 1e-6), -limit, limit)
+        brake = np.clip((wanted - state.angular_velocity) / max(dt, 1e-6), -limit, limit)
 
         accel = np.where(idle, brake, accel)
 

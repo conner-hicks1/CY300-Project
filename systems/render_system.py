@@ -452,6 +452,18 @@ class RenderSystem:
 
         settings = self.settings
 
+        # The scene at render_scale; the last pass fills the
+        # window's rectangle (output_width x output_height).
+        output_width, output_height = width, height
+
+        scale = min(max(float(settings.render_scale), 0.25), 1.0)
+
+        if scale < 0.999:
+            width = max(1, int(round(width * scale)))
+            height = max(1, int(round(height * scale)))
+
+        scaled = (width, height) != (output_width, output_height)
+
         profiler = self._profiler
 
         # The debug UI may have changed GL state last frame.
@@ -663,7 +675,7 @@ class RenderSystem:
             # floats.)
             exposure_texture = self._update_exposure(hdr.color_texture_id, bloom_texture)
 
-            if settings.fxaa_enabled:
+            if settings.fxaa_enabled or scaled:
 
                 ldr = self._ensure_framebuffer(
                     "_ldr_framebuffer",
@@ -685,9 +697,11 @@ class RenderSystem:
                 exposure_texture
             )
 
-            if settings.fxaa_enabled:
+            if settings.fxaa_enabled or scaled:
 
-                Framebuffer.bind_default(width, height, *output_origin)
+                # (Scaled up to the window as it goes; FXAA also
+                # smooths the upscale's stair steps.)
+                Framebuffer.bind_default(output_width, output_height, *output_origin)
 
                 self._render_fxaa(
                     ldr,

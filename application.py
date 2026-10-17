@@ -54,6 +54,7 @@ from ecs.entity import Entity
 from game.chase_camera import ChaseCamera
 from game.flight import FlightContext, frame_body, go_to_orbit, go_to_surface, read_flight
 from game.hud import FlightHud
+from game.map_view import MapView, ScreenProjection
 from game.pause_menu import Destination, MenuActions, PauseMenu
 from game.quality import DEFAULT_QUALITY, apply_quality, current_quality
 from game.time_warp import TimeWarp
@@ -94,6 +95,7 @@ from systems.render_system import RenderSystem
 from systems.transform_system import TransformSystem
 from systems.vessel_system import LaunchSite, OrbitStart, VesselSystem
 
+from vessel import kepler
 from vessel.parts import load_design, load_parts
 
 from scene.scene import Scene
@@ -198,9 +200,17 @@ class Application:
         self.vessel_design = None
         self.body_id: str | None = None
 
-        # Following the vessel, or flying free (V).
+        # Following the vessel, or flying free (V); the map
+        # (M) over either.
         self.chase_camera = ChaseCamera()
         self.free_camera = False
+        self.map_view = MapView()
+
+        # Moons' orbits for the map: key -> (hour, points).
+        self._moon_orbits: dict = {}
+
+        # Last frame's parachute state (for the notice).
+        self._parachute = ""
 
         # Camera speed for the HUD (smoothed).
         self._last_camera_position: np.ndarray | None = None
@@ -441,6 +451,10 @@ class Application:
 
         self.chase_camera = ChaseCamera()
         self.free_camera = False
+        self.map_view = MapView()
+        self._moon_orbits = {}
+        self._parachute = ""
+        self.hud.notices.clear()
 
         self._last_camera_position = None
         self._speed = 0.0
@@ -1107,9 +1121,17 @@ class Application:
             if "destroyed" in events or "landed" in events:
                 self.time_warp.stop()
 
+            self._notify(events)
+
+        self.hud.tick(dt)
+
         with profiler.scope("Camera"):
 
-            if self.free_camera or self.vessel_system.find(self.scene) is None:
+            if self.map_view.open and self.vessel_system.find(self.scene) is not None:
+
+                self._map_camera(paused)
+
+            elif self.free_camera or self.vessel_system.find(self.scene) is None:
 
                 # Planet-mode cameras fly relative to the
                 # ground under them.
@@ -1194,10 +1216,28 @@ class Application:
 
         if read_pilot(component.vessel, component.controls, dt):
 
-            stage = component.vessel.stage()
+            vessel = component.vessel
+
+            parts = len(vessel.parts)
+
+            stage = vessel.stage()
 
             if stage is not None:
+
                 Logger.info("[Application] Stage %d.", stage)
+
+                what = []
+
+                if len(vessel.parts) < parts:
+                    what.append("separated")
+
+                if any(state.ignited and state.stage == stage for state in vessel.parts):
+                    what.append("engines lit")
+
+                if any(state.armed and state.stage == stage for state in vessel.parts):
+                    what.append("parachute armed")
+
+                self.hud.notify(f"Stage {stage}: {', '.join(what) or 'fired'}")
 
     def _chase(
         self,
@@ -1235,9 +1275,18 @@ class Application:
 
         target = np.asarray(transform.position, dtype=np.float64) + axis_world * component.vessel.center_of_mass
 
-        body = self.scene.get_component(component.body, TransformComponent)
+        body = self.scene.try_get_component(component.body, TransformComponent) if component.body is not None else None
 
-        spin_axis = np.asarray(body.world_matrix, dtype=np.float64)[:3, 1]
+        if body is not None:
+
+            spin_axis = np.asarray(body.world_matrix, dtype=np.float64)[:3, 1]
+
+        else:
+
+            # Around the Sun: the orbit's pole.
+            pole = np.cross(component.state.position, component.state.velocity)
+
+            spin_axis = self.orbit_system.inertial_to_world @ (pole / max(float(np.linalg.norm(pole)), 1e-9))
 
         # Close to the ground: keep the camera out of it.
         height = float(np.dot(target - np.asarray(transform.position, dtype=np.float64), up))
@@ -1250,6 +1299,171 @@ class Application:
             up,
             spin_axis,
             floor
+        )
+
+    def _notify(
+        self,
+        events: list[str]
+    ):
+        """Notices for what happened to the vessel."""
+
+        readout = self.vessel_system.readout(self.scene, self.orbit_system, self.planet_system)
+
+        if readout is None:
+            return
+
+        if "soi" in events:
+            self.hud.notify(f"Now in {readout.body}'s sphere of influence")
+
+        if "landed" in events:
+            self.hud.notify(f"Landed on {readout.body}")
+
+        if readout.parachute == "open" and self._parachute != "open":
+            self.hud.notify("Parachute opening")
+
+        self._parachute = readout.parachute
+
+    def _map_camera(
+        self,
+        paused: bool
+    ):
+        """The map's camera, far round the body the vessel flies about."""
+
+        context = FlightContext.find(self.scene)
+
+        found = self.vessel_system.find(self.scene)
+
+        if found is None or context.camera is None:
+            return
+
+        _, component = found
+
+        scroll = 0.0 if self.imgui_layer.wants_mouse or paused else Input.scroll_delta()[1]
+
+        self.map_view.orbit(Input.mouse_delta() if self._looking and not paused else (0.0, 0.0), scroll)
+
+        center, axis, radius = self._map_body(component.body, component)
+
+        prediction = self.vessel_system.prediction(self.scene, self.orbit_system)
+
+        fit = radius * 2.0
+
+        if prediction is not None and prediction.patches:
+
+            reach = float(np.linalg.norm(prediction.patches[0].points, axis=1).max())
+
+            fit = max(fit, min(reach, 50.0 * radius))
+
+        self.map_view.place_camera(context.camera_transform(), center, axis, fit, radius * 1.3)
+
+    def _map_body(
+        self,
+        key,
+        component
+    ) -> tuple[np.ndarray, np.ndarray, float]:
+        """(world center, spin axis, radius) of a body in patched conics (None: the Sun)."""
+
+        bodies = self.vessel_system.soi_bodies(self.scene)
+
+        body = bodies.get(key)
+
+        radius = body.radius if body is not None else 1.0
+
+        if key is None:
+
+            center = self.orbit_system.star_position()
+
+            pole = np.cross(component.state.position, component.state.velocity)
+
+            axis = self.orbit_system.inertial_to_world @ (pole / max(float(np.linalg.norm(pole)), 1e-9))
+
+            return (center if center is not None else np.zeros(3)), axis, radius
+
+        transform = self.scene.get_component(key, TransformComponent)
+
+        matrix = np.asarray(transform.world_matrix, dtype=np.float64)
+
+        return matrix[:3, 3].copy(), matrix[:3, 1] / np.linalg.norm(matrix[:3, 1]), radius
+
+    def _draw_map(self):
+        """The map's orbit lines over the view."""
+
+        found = self.vessel_system.find(self.scene)
+
+        context = FlightContext.find(self.scene)
+
+        if not self.map_view.open or found is None or context.camera is None:
+            return
+
+        entity, component = found
+
+        camera = self.scene.get_component(context.camera, CameraComponent)
+
+        io = imgui.get_io()
+
+        projection = ScreenProjection.of(context.camera_transform(), camera.fov, io.display_size.x, io.display_size.y)
+
+        bodies = self.vessel_system.soi_bodies(self.scene)
+
+        reference = component.body
+
+        keys = [reference] + [
+            key for key, body in bodies.items()
+            if key is not None and body.parent == reference and key != reference
+        ]
+
+        body_world = {}
+        body_radius = {}
+        names = {}
+
+        for key in keys:
+
+            center, _, radius = self._map_body(key, component)
+
+            body_world[key] = center
+            body_radius[key] = radius
+            names[key] = bodies[key].name if key in bodies else ""
+
+        # The moons' orbits about the reference body (redrawn
+        # every simulated hour).
+        hour = int(self.orbit_system.time // 3600.0)
+
+        children = [key for key in keys[1:] if key in self.orbit_system.states]
+
+        relative = self.vessel_system.relative_states(self.scene, self.orbit_system, reference, children)
+
+        moon_orbits = {}
+
+        for key in children:
+
+            cached = self._moon_orbits.get(key)
+
+            if cached is None or cached[0] != hour:
+
+                position, velocity = relative[key]
+
+                shape = kepler.orbit_shape(position, velocity, bodies[reference].mu)
+
+                span = shape.period if shape.period is not None else 30.0 * 86_400.0
+
+                points, _ = kepler.propagate_many(position, velocity, bodies[reference].mu, np.linspace(0.0, span, 129))
+
+                cached = (hour, points)
+
+                self._moon_orbits[key] = cached
+
+            moon_orbits[key] = cached[1]
+
+        self.map_view.draw(
+            projection,
+            self.orbit_system.inertial_to_world,
+            body_world,
+            body_radius,
+            names,
+            self.vessel_system.prediction(self.scene, self.orbit_system),
+            np.asarray(self.scene.get_component(entity, TransformComponent).transform.position, dtype=np.float64),
+            moon_orbits,
+            body_radius.get(reference, 0.0)
         )
 
     def revert(self):
@@ -1304,6 +1518,9 @@ class Application:
 
         if Input.is_key_pressed(Key.V) and self.vessel_system.find(self.scene) is not None:
             self.free_camera = not self.free_camera
+
+        if Input.is_key_pressed(Key.M) and self.vessel_system.find(self.scene) is not None:
+            self.map_view.toggle()
 
     def _track_speed(
         self,
@@ -1465,14 +1682,23 @@ class Application:
 
         vessel = self.vessel_system.readout(self.scene, self.orbit_system, self.planet_system)
 
+        # (The vessel's own ground lookup, reused.)
+        accuracy = self.vessel_system.ground_accuracy if found is not None else 0.0
+
+        def ground(body, direction):
+            return self.planet_system.ground(body, direction, accuracy)
+
         self.hud.draw(
-            read_flight(context, self.planet_system.ground, focus),
+            read_flight(context, ground, focus),
             vessel.surface_speed if vessel is not None and not self.free_camera else self._speed,
             self.time_warp,
             loading=bool(planets.chunks_building or planets.chunks_queued),
             fps=self.timer.fps if self.dev_tools else None,
-            vessel=vessel
+            vessel=vessel,
+            navball=self.vessel_system.navball_frame(self.scene, self.orbit_system, self.planet_system)
         )
+
+        self._draw_map()
 
         self.pause_menu.draw(
             self._menu_actions(context),

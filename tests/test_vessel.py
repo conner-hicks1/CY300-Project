@@ -112,19 +112,19 @@ def test_inclination():
 
 def test_pathfinder_adds_up(pathfinder):
 
-    assert pathfinder.mass == pytest.approx(111_150.0)
-    assert pathfinder.height == pytest.approx(27.3)
+    assert pathfinder.mass == pytest.approx(159_620.0)
+    assert pathfinder.height == pytest.approx(37.2)
     assert pathfinder.radius == pytest.approx(1.25)
 
     # The engine bottom is the origin; the capsule on top.
     assert pathfinder.parts[-1].bottom == 0.0
-    assert pathfinder.parts[0].bottom == pytest.approx(27.3 - 2.4)
+    assert pathfinder.parts[0].bottom == pytest.approx(37.2 - 0.5)
 
     # Enough to reach low orbit (~9.4 km/s with losses).
-    assert 9_200.0 < pathfinder.delta_v() < 10_000.0
+    assert 10_000.0 < pathfinder.delta_v() < 10_600.0
 
     # Nothing changed by working that out.
-    assert pathfinder.mass == pytest.approx(111_150.0) and pathfinder.next_stage == 0
+    assert pathfinder.mass == pytest.approx(159_620.0) and pathfinder.next_stage == 0
 
 
 def test_launch_thrust(pathfinder):
@@ -138,9 +138,9 @@ def test_launch_thrust(pathfinder):
     sea_level, flow = pathfinder.thrust(1.01325)
     vacuum, _ = pathfinder.thrust(0.0)
 
-    assert sea_level == pytest.approx(1_560_000.0 * 285.0 / 315.0)
-    assert vacuum == pytest.approx(1_560_000.0)
-    assert flow == pytest.approx(1_560_000.0 / (315.0 * G0))
+    assert sea_level == pytest.approx(2_200_000.0 * 285.0 / 315.0)
+    assert vacuum == pytest.approx(2_200_000.0)
+    assert flow == pytest.approx(2_200_000.0 / (315.0 * G0))
 
     # Lifts off on Earth.
     assert sea_level / (pathfinder.mass * 9.81) > 1.2
@@ -151,28 +151,39 @@ def test_burn_and_separate(pathfinder):
     pathfinder.stage()
     pathfinder.throttle = 1.0
 
-    upper_tank = pathfinder.parts[1]
+    upper_tank = pathfinder.parts[3]
 
     pathfinder.burn(10.0)
 
     # Only the lower section's tanks feed the booster.
-    assert upper_tank.propellant == 20_000.0
-    assert pathfinder.parts[4].propellant == pathfinder.parts[5].propellant < 40_000.0
+    assert upper_tank.propellant == 25_000.0
+    assert pathfinder.parts[6].propellant == pathfinder.parts[8].propellant < 40_000.0
 
     assert pathfinder.stage() == 1
 
-    assert [state.part.id for state in pathfinder.parts] == ["capsule", "tank_2m5_short", "engine_vacuum"]
-    assert len(pathfinder.dropped) == 4
+    assert [state.part.id for state in pathfinder.parts] == [
+        "parachute_main", "capsule", "decoupler_2m5", "tank_2m5_medium", "engine_vacuum"
+    ]
+    assert len(pathfinder.dropped) == 5
 
     assert pathfinder.parts[-1].ignited
     assert pathfinder.parts[-1].bottom == 0.0
 
-    assert pathfinder.stage() is None
-    assert pathfinder.stages_left == 0
-
     left, capacity = pathfinder.section_propellant()
 
-    assert left == capacity == 20_000.0
+    assert left == capacity == 25_000.0
+
+    # The capsule goes home on its own.
+    assert pathfinder.stage() == 2
+
+    assert [state.part.id for state in pathfinder.parts] == ["parachute_main", "capsule"]
+    assert pathfinder.mass == pytest.approx(2_620.0)
+
+    assert pathfinder.stage() == 3
+    assert pathfinder.parts[0].armed
+
+    assert pathfinder.stage() is None
+    assert pathfinder.stages_left == 0
 
 
 def test_runs_dry(pathfinder):
@@ -184,7 +195,7 @@ def test_runs_dry(pathfinder):
 
     assert pathfinder.burning_engines() == []
     assert pathfinder.thrust()[0] == 0.0
-    assert pathfinder.parts[4].propellant == 0.0
+    assert pathfinder.parts[6].propellant == 0.0
 
 
 def test_bad_designs(parts):
@@ -282,8 +293,8 @@ def test_liftoff(pathfinder):
 
     altitude = np.linalg.norm(state.position) - EARTH_RADIUS
 
-    # 10 s at ~1.4-1.5 g of thrust against 1 g.
-    assert 150.0 < altitude < 600.0
+    # 10 s at ~1.3 g of thrust against 1 g.
+    assert 100.0 < altitude < 600.0
 
     assert pathfinder.mass < start
 
@@ -385,7 +396,9 @@ def test_steering_and_sas(pathfinder):
         angular_velocity=np.zeros(3)
     )
 
-    for _ in range(50):
+    # (No engines burning: reaction wheels only, slow on
+    # a fully fuelled stack.)
+    for _ in range(200):
         step(pathfinder, state, env, Controls(pitch=1.0), 0.02)
 
     assert state.angular_velocity[0] > 0.0
@@ -515,4 +528,127 @@ def test_pathfinder_reaches_low_earth_orbit(pathfinder):
 
     # On the upper stage, propellant to spare.
     assert pathfinder.next_stage == 2
-    assert pathfinder.propellant > 100.0
+    assert pathfinder.propellant > 1_000.0
+
+
+# =========================================================
+# Coming Home
+# =========================================================
+
+def capsule_only(pathfinder):
+
+    for _ in range(4):
+        pathfinder.stage()
+
+    pathfinder.dropped.clear()
+
+    return pathfinder
+
+
+def sea_level_air(radius, direction):
+
+    return 1.0, 1.2
+
+
+def test_parachute_waits_for_slow_thick_air(pathfinder):
+
+    capsule = capsule_only(pathfinder)
+
+    chute = capsule.parts[0]
+
+    assert chute.armed and chute.deployed == 0.0
+
+    # Too fast: stays packed.
+    capsule.open_parachutes(1.0, 600.0, 1.0)
+
+    assert chute.deployed == 0.0
+
+    # Too thin: stays packed.
+    capsule.open_parachutes(0.001, 100.0, 1.0)
+
+    assert chute.deployed == 0.0
+
+    # Opens over three seconds, then stays open.
+    capsule.open_parachutes(0.5, 200.0, 1.5)
+
+    assert chute.deployed == pytest.approx(0.5)
+
+    capsule.open_parachutes(0.5, 900.0, 5.0)
+
+    assert chute.deployed == 1.0
+
+    assert capsule.drag_area() > 500.0
+
+
+def test_capsule_lands_under_its_parachute(pathfinder):
+
+    capsule = capsule_only(pathfinder)
+
+    env = Environment(
+        mu=EARTH_MU,
+        spin=np.zeros(3),
+        air=sea_level_air,
+        ground=lambda d: EARTH_RADIUS,
+        air_top=EARTH_RADIUS + 100_000.0
+    )
+
+    state = VesselState(
+        position=np.array([EARTH_RADIUS + 3_000.0, 0.0, 0.0]),
+        velocity=np.array([-200.0, 0.0, 0.0]),
+        orientation=upright(np.array([1.0, 0.0, 0.0])),
+        angular_velocity=np.zeros(3)
+    )
+
+    for _ in range(int(600 / 0.02)):
+
+        step(capsule, state, env, Controls(), 0.02)
+
+        if state.landed or state.destroyed:
+            break
+
+    assert state.landed and not state.destroyed
+
+    # Without it: destroyed.
+    bare = capsule_only(Vessel.from_design(load_design("pathfinder", load_parts())))
+    bare.parts[0].armed = False
+
+    state = VesselState(
+        position=np.array([EARTH_RADIUS + 3_000.0, 0.0, 0.0]),
+        velocity=np.array([-200.0, 0.0, 0.0]),
+        orientation=upright(np.array([1.0, 0.0, 0.0])),
+        angular_velocity=np.zeros(3)
+    )
+
+    for _ in range(int(600 / 0.02)):
+
+        step(bare, state, env, Controls(), 0.02)
+
+        if state.landed or state.destroyed:
+            break
+
+    assert state.destroyed
+
+
+def test_sas_points_prograde_and_retrograde(pathfinder):
+
+    env = environment()
+
+    r = EARTH_RADIUS + 400_000.0
+
+    for mode, sign in (("prograde", 1.0), ("retrograde", -1.0)):
+
+        state = VesselState(
+            position=np.array([r, 0.0, 0.0]),
+            velocity=np.array([0.0, 0.0, kepler.circular_speed(EARTH_MU, r)]),
+            orientation=upright(np.array([1.0, 0.0, 0.0])),
+            angular_velocity=np.zeros(3)
+        )
+
+        for _ in range(int(60 / 0.02)):
+            step(pathfinder, state, env, Controls(sas_mode=mode), 0.02)
+
+        heading = state.velocity / np.linalg.norm(state.velocity) * sign
+
+        assert np.dot(state.up, heading) > math.cos(math.radians(2.0)), mode
+
+        assert np.linalg.norm(state.angular_velocity) < 0.01

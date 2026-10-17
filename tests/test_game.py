@@ -17,6 +17,7 @@ from game.pause_menu import Destination, PauseMenu
 from game.quality import QUALITY_NAMES, apply_quality, current_quality
 from game.time_warp import WARP_RATES, TimeWarp
 from graphics.render_settings import RenderSettings
+from math3d import quaternion
 from math3d.transform import Transform
 from scene.scene import Scene
 
@@ -321,3 +322,70 @@ def test_frustum_faces_point_out():
 
         # Counter-clockwise seen from where the normals face.
         assert np.dot(face, normals[a] + normals[b] + normals[c]) > 0.0
+
+
+# =========================================================
+# Navball, Map Projection
+# =========================================================
+
+def test_navball_sky_is_up_when_upright_and_down_when_inverted():
+
+    from game.navball import attitude, from_ball, to_ball
+
+    up = np.array([1.0, 0.0, 0.0])
+    north = np.array([0.0, 1.0, 0.0])
+    east = np.cross(north, up)
+
+    # Nose east on the horizon, belly down (+Z up).
+    level = quaternion.look_rotation(-up, east)
+
+    heading, pitch = attitude(level, up, north)
+
+    assert heading == pytest.approx(90.0) and pitch == pytest.approx(0.0)
+
+    top = from_ball(level, np.array([0.0]), np.array([0.9]))[0]
+
+    assert top @ up > 0.8
+
+    # Rolled over (belly up): the ground on top.
+    inverted = quaternion.look_rotation(up, east)
+
+    top = from_ball(inverted, np.array([0.0]), np.array([0.9]))[0]
+
+    assert top @ up < -0.8
+
+    # Straight ahead is the ball's center.
+    point, front = to_ball(level, east[None, :])
+
+    np.testing.assert_allclose(point[0], [0.0, 0.0], atol=1e-12)
+    assert front[0]
+
+
+def test_map_projection_and_occlusion():
+
+    from game.map_view import ScreenProjection, hidden_by_sphere
+
+    transform = Transform(position=(0.0, 0.0, 10.0))
+
+    # Looking down -Z at the origin.
+    projection = ScreenProjection.of(transform, 90.0, 800.0, 600.0)
+
+    pixels, front = projection.project(np.array([[0.0, 0.0, 0.0], [5.0, 0.0, 5.0], [0.0, 0.0, 20.0]]))
+
+    np.testing.assert_allclose(pixels[0], [400.0, 300.0])
+
+    # 5 m right at 5 m away, 90 deg vertical fov: half the
+    # height to the right of center.
+    np.testing.assert_allclose(pixels[1], [700.0, 300.0])
+
+    assert front.tolist() == [True, True, False]
+
+    hidden = hidden_by_sphere(
+        transform.position,
+        np.array([[0.0, 0.0, -5.0], [5.0, 0.0, -5.0], [0.0, 0.0, 4.0]]),
+        np.zeros(3),
+        2.0
+    )
+
+    # Behind the sphere; clear of it; in front of it.
+    assert hidden.tolist() == [True, False, False]
