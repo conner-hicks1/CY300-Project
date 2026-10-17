@@ -57,7 +57,7 @@ CONTROLS: tuple[tuple[str, str], ...] = (
     ("A / D", "Yaw: nose left / right"),
     ("Q / E", "Roll"),
     ("T", "Stability assist on / off"),
-    ("F", "Its mode: hold attitude, point prograde, point retrograde"),
+    ("F", "Its mode: hold attitude, prograde, retrograde, maneuver (the course correction to the map's target)"),
     ("M", "Map: orbits, apoapsis / periapsis, encounters (right mouse turns it, scroll zooms)"),
     ("Right mouse + move", "Swing the camera round the vessel; scroll: closer / farther"),
     ("V", "Free camera (hold right mouse: W A S D Space Shift fly it)"),

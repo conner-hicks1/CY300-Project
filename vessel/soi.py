@@ -115,6 +115,9 @@ class Patch:
     # For "encounter" / "escape": the patch it leads into.
     next_body: Hashable = None
 
+    # s from now of each point.
+    times: np.ndarray | None = None
+
 
 @dataclass(slots=True)
 class Prediction:
@@ -300,7 +303,8 @@ def _follow(
         start=start,
         end=end,
         periapsis=periapsis,
-        next_body=child
+        next_body=child,
+        times=start + times[:last + 1]
     )
 
     return patch, (r, v), child, elapsed

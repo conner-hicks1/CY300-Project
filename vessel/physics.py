@@ -81,7 +81,7 @@ class VesselState:
         return quaternion.rotate_vector(self.orientation, np.array([0.0, 1.0, 0.0]))
 
 
-SAS_MODES = ("hold", "prograde", "retrograde")
+SAS_MODES = ("hold", "prograde", "retrograde", "maneuver")
 
 
 @dataclass(slots=True)
@@ -94,9 +94,13 @@ class Controls:
     # Stability assist when not steering: "hold" the
     # attitude, or point the nose "prograde" / "retrograde"
     # (along / against the motion: through the air while in
-    # it, along the orbit above it).
+    # it, along the orbit above it), or along a "maneuver"
+    # (a planned velocity change, below; holds without one).
     sas: bool = True
     sas_mode: str = "hold"
+
+    # The planned velocity change (m/s, inertial), or None.
+    maneuver: np.ndarray | None = None
 
 
 @dataclass(slots=True)
@@ -287,9 +291,18 @@ def _turn(
 
         speed = float(np.linalg.norm(motion)) if motion is not None else 0.0
 
-        if controls.sas_mode != "hold" and speed > 0.5:
+        target = None
+
+        if controls.sas_mode == "maneuver":
+
+            if controls.maneuver is not None and float(np.linalg.norm(controls.maneuver)) > 1e-6:
+                target = controls.maneuver / float(np.linalg.norm(controls.maneuver))
+
+        elif controls.sas_mode != "hold" and speed > 0.5:
 
             target = motion / speed * (1.0 if controls.sas_mode == "prograde" else -1.0)
+
+        if target is not None:
 
             # The target in the vessel's own axes.
             local = quaternion.rotate_vector(quaternion.conjugate(state.orientation), target)

@@ -89,7 +89,8 @@ class FlightHud:
         loading: bool = False,
         fps: float | None = None,
         vessel=None,
-        navball=None
+        navball=None,
+        maneuver: float | None = None
     ):
         """
         vessel: the vessel's readout (systems/vessel_system.py
@@ -115,7 +116,7 @@ class FlightHud:
 
         if vessel is not None:
 
-            self._draw_vessel(vessel, (x + width * 0.5, y + height - 10.0))
+            self._draw_vessel(vessel, (x + width * 0.5, y + height - 10.0), maneuver)
 
             if navball is not None and not vessel.destroyed:
 
@@ -287,7 +288,8 @@ class FlightHud:
     @staticmethod
     def _draw_vessel(
         vessel,
-        position
+        position,
+        maneuver: float | None = None
     ):
 
         imgui.set_next_window_pos(position, imgui.Cond_.always, (0.5, 1.0))
@@ -356,6 +358,9 @@ class FlightHud:
                 imgui.text(f"SAS {vessel.sas_mode} (T, F)")
             else:
                 imgui.text_colored(WARP_COLOR, "SAS off (T)")
+
+            if maneuver is not None:
+                imgui.text_colored((0.5, 1.0, 0.6, 1.0), f"Maneuver {maneuver:,.0f} m/s")
 
             if vessel.parachute == "armed":
                 imgui.text_colored(WARP_COLOR, "Parachute armed")

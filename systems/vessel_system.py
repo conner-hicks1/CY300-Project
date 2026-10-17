@@ -819,12 +819,18 @@ class VesselSystem:
 
         children = self._children(bodies, component.body, orbit_system)
 
+        # Round the Sun: years, finely (a planet's sphere is
+        # crossed in days).
+        around_sun = component.body is SUN
+
         prediction = soi.predict(
             component.state.position,
             component.state.velocity,
             bodies[component.body],
             bodies,
-            self.relative_states(scene, orbit_system, component.body, children)
+            self.relative_states(scene, orbit_system, component.body, children),
+            samples=2048 if around_sun else 256,
+            horizon=3.0 * 365.25 * 86_400.0 if around_sun else 30.0 * 86_400.0
         )
 
         self._prediction = (key, prediction)
@@ -892,15 +898,25 @@ class VesselSystem:
             if outbound and (shape.apoapsis is None or shape.apoapsis > reference.soi):
                 limit = min(limit, max(self.PHYSICS_WARP, (reference.soi - radius) / speed / (4.0 * frame_time)))
 
-            origin, _ = self.reference_state(orbit_system, component.body)
+            children = self._children(bodies, component.body, orbit_system)
 
-            for key in self._children(bodies, component.body, orbit_system):
+            relative = self.relative_states(scene, orbit_system, component.body, children)
 
-                gap = float(np.linalg.norm(state.position - (orbit_system.states[key][0] - origin))) - bodies[key].soi
+            for key in children:
 
-                # (Closing at no more than the vessel's speed
-                # plus the moon's ~1 km/s.)
-                limit = min(limit, max(self.PHYSICS_WARP, gap / (speed + 1_000.0) / (4.0 * frame_time)))
+                where, moving = relative[key]
+
+                gap = float(np.linalg.norm(state.position - where)) - bodies[key].soi
+
+                # Closing at about the speed between them now
+                # (with room for the paths' curving and the
+                # child's pull near it); a planet met at a few
+                # km/s, not the ~50 km/s of both round the Sun.
+                closing = 1.5 * float(np.linalg.norm(state.velocity - moving)) + math.sqrt(
+                    2.0 * bodies[key].mu / max(bodies[key].soi, 1.0)
+                ) + 1.0
+
+                limit = min(limit, max(self.PHYSICS_WARP, gap / closing / (4.0 * frame_time)))
 
         return limit
 

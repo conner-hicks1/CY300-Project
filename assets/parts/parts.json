@@ -43,7 +43,7 @@
         "area": 707,
         "drag_coefficient": 0.8,
         "max_speed": 250,
-        "min_pressure": 0.02
+        "min_pressure": 0.004
       },
       "crash_speed": 10
     },

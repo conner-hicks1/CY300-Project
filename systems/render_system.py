@@ -1105,8 +1105,20 @@ class RenderSystem:
     #   eclipses, with the ring system of the nearest ringed
     #   planet.
 
-    # Other bodies' air drawn per frame, nearest first.
+    # Other bodies' air drawn per frame, nearest first...
     MAX_DISTANT_ATMOSPHERES = 2
+
+    # ...and the smallest apparent radius (rad) it is drawn
+    # at (~1 px at 720 lines over 60 degrees).
+    DISTANT_ATMOSPHERE_ANGLE = 0.0015
+
+    # Smallest apparent radius (rad) of a body in the bodies
+    # block when its shadow cannot reach the focus (~1/3 px).
+    BODY_BLOCK_ANGLE = 0.0005
+
+    # An eclipser must look at least this share of the sun's
+    # disc (by radius) from the body in focus.
+    ECLIPSE_SIZE = 0.05
 
     def _gather_bodies(
         self,
@@ -1217,10 +1229,14 @@ class RenderSystem:
 
         # Other bodies' air, as seen from here (farthest drawn
         # first, under nearer ones).
+        # (Only air that spans a pixel or more: far planets
+        # are points of light.)
         distant = sorted(
             (
                 b for b in bodies
-                if b is not primary and b.atmosphere is not None
+                if b is not primary
+                and b.atmosphere is not None
+                and b.planet.radius * 1.1 / max(b.distance, 1.0) > self.DISTANT_ATMOSPHERE_ANGLE
             ),
             key=lambda b: b.distance
         )[:self.MAX_DISTANT_ATMOSPHERES]
@@ -1391,8 +1407,11 @@ class RenderSystem:
                 )
             )
 
-        # Nearest first if there are too many.
-        order = sorted(range(len(bodies)), key=lambda i: bodies[i].distance)[:MAX_BODIES]
+        # Nearest first; only bodies that matter here (each
+        # one costs every pixel a loop step): those whose
+        # shadow can reach the focus, and those big enough in
+        # the sky to cast planetshine or hide anything.
+        order = sorted(range(len(bodies)), key=lambda i: bodies[i].distance)
 
         eclipsing = []
 
@@ -1402,9 +1421,19 @@ class RenderSystem:
                 focus.atmosphere.height if focus.atmosphere is not None else 0.0
             )
 
+            # (A body far smaller in the focus's sky than the
+            # sun's disc dims it by nothing worth a sample:
+            # Venus in transit, 0.1%.)
+            def big_enough(b):
+
+                apart = float(np.linalg.norm(np.asarray(b.center) - np.asarray(focus.center)))
+
+                return b.planet.radius / max(apart, 1.0) > self.ECLIPSE_SIZE * self._sun_angular_radius
+
             eclipsing = [
                 i for i in order
                 if bodies[i] is not focus
+                and big_enough(bodies[i])
                 and shadow_reaches(
                     spheres[i],
                     focus.center,
@@ -1414,7 +1443,15 @@ class RenderSystem:
                 )
             ]
 
-        rest = [i for i in order if i not in eclipsing]
+        rest = [
+            i for i in order
+            if i not in eclipsing
+            and (bodies[i] is focus or bodies[i].planet.radius / max(bodies[i].distance, 1.0) > self.BODY_BLOCK_ANGLE)
+        ]
+
+        eclipsing = eclipsing[:MAX_BODIES]
+
+        rest = rest[:MAX_BODIES - len(eclipsing)]
 
         return pack_bodies_block(
             [spheres[i] for i in eclipsing + rest],
@@ -1452,9 +1489,13 @@ class RenderSystem:
         self._rings_to_draw = None
         self._ring_system = None
 
+        # (Rings a pixel across or more: a far Saturn's would
+        # cost every pixel its ring-shadow test for nothing.)
         ringed = [
             b for b in bodies
-            if b.rings is not None and b.rings.outer_radius > b.rings.inner_radius
+            if b.rings is not None
+            and b.rings.outer_radius > b.rings.inner_radius
+            and b.rings.outer_radius / max(b.distance, 1.0) > self.DISTANT_ATMOSPHERE_ANGLE
         ]
 
         if not ringed:

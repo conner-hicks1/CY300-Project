@@ -7,8 +7,9 @@ bodies of the solar system as they were measured (real elevation and color
 maps) under physically based atmospheres, on real orbits with a real clock.
 You fly a two-stage rocket off any body: real-scale parts, gravity, thrust,
 drag in the real air, staging, orbits followed exactly under time warp,
-patched conics to the Moon and back, a map of your orbit, and a capsule that
-parachutes home; or build your own rocket in the part editor, on the pad.
+patched conics to the Moon and back or out to Mars, a map of your orbit with
+transfer windows and course corrections, and a capsule that parachutes home;
+or build your own rocket in the part editor, on the pad.
 
 ![The procedural planet, seen from the surface](docs/images/scene.png)
 
@@ -139,7 +140,7 @@ parachutes home; or build your own rocket in the part editor, on the pad.
 
 ![Jupiter from Io with a moon's shadow crossing it, the Moon's shadow on Earth in the 2027 eclipse, the red Moon of the March 2026 lunar eclipse, and Saturn from Enceladus](docs/images/orbits.png)
 
-- A simulation clock (time warp from real time to a million times faster)
+- A simulation clock (time warp from real time to ten million times faster)
   drives everything: planets on Keplerian orbits
   from JPL's mean elements, moons around their planets, and every body's
   spin from its IAU pole and prime meridian, so the sun's direction, day
@@ -403,7 +404,7 @@ parachutes home; or build your own rocket in the part editor, on the pad.
 - The ground: launch from a pad turning with the body, land below the
   bottom part's crash speed, or be destroyed above it
 - Coasting above the air, the orbit is followed exactly (universal-variable
-  Kepler propagation): time warp to 1,000,000x. Under thrust, in the air or
+  Kepler propagation): time warp to 10,000,000x. Under thrust, in the air or
   near the ground physics steps every 0.02 s and warp stops at 5x; a
   falling arc goes on rails in pieces short enough not to pass through the
   ground
@@ -414,13 +415,36 @@ parachutes home; or build your own rocket in the part editor, on the pad.
   25 km behind; the vessel goes on from its new bottom without a jump
 - Parachutes open once the air is thick enough and slow enough (below
   250 m/s), over three seconds; the capsule then hangs nose-up under the
-  canopy and lands at ~9 m/s at sea level (its limit is 10)
+  canopy and lands at ~9 m/s at sea level (its limit is 10); it opens in
+  air down to 0.004 bar, so it works in Mars's thin air too
 - Patched conics (`vessel/soi.py`): the vessel feels one body at a time,
   the one whose sphere of influence it is in (the Moon's ~66,000 km, Earth's
   ~925,000 km; the Sun beyond). Crossing a boundary hands it over, its state
   re-expressed about the new body; time warp slows ahead of a boundary so
-  the handover is never skipped. Earth to the Moon and round it (a
-  gravity-assisted swing back out) works on rails at full warp
+  the handover is never skipped (judged by the speed between vessel and
+  body, so a planet met at a few km/s does not slow the clock from afar).
+  Earth to the Moon and round it (a gravity-assisted swing back out) works
+  on rails at full warp
+- The whole solar system is in the scene: every planet, moon and small body
+  on its real orbit, each with its sphere of influence, so you can fly from
+  one to another. Bodies far away cost little: a planet too small in the
+  view to see detail on sleeps (no terrain streamed), and distant air,
+  rings, shadows and eclipses are drawn only for bodies big enough in view
+  to matter
+- Interplanetary transfers (`vessel/transfer.py`): with a planet targeted
+  from orbit round another, the map's navigation panel finds the cheapest
+  departure window in the next synodic period (Lambert's problem solved
+  across departure dates and flight times, on the planets' real eccentric,
+  inclined orbits), the burn there and now, where in the parking orbit to
+  burn (a "Burn here" marker on the map), the flight time and the speed
+  you arrive at. Earth to Mars: ~3.6 km/s from low orbit, ~250-290 days
+- Round the Sun with a planet targeted: the closest approach on the
+  predicted path and a course correction (a Lambert solve to the target at
+  the cheapest arrival round it); the **F** SAS mode "maneuver" points the
+  nose along it and the HUD counts it down; once the path enters the
+  target's sphere it shows the encounter and how close it passes. A Mars
+  voyage played through in the game (window, escape burn, one ~150 m/s
+  correction) arrives on a ~100,000 km flyby
 - Map view (**M**): the camera pulls back round the body; the vessel's path
   ahead is drawn over the view, patch by patch (its orbit, or its arc to the
   ground, or out of the sphere; an encounter's flyby round the moon it
@@ -428,8 +452,8 @@ parachutes home; or build your own rocket in the part editor, on the pad.
   orbits; lines dim where the body hides them
 - Attitude ball (navball): sky and ground about the local horizon, the
   compass points, prograde and retrograde markers, heading and pitch.
-  Stability assist (**T**) holds the attitude, or (**F**) points prograde
-  or retrograde
+  Stability assist (**T**) holds the attitude, or (**F**) points prograde,
+  retrograde or along the course correction (maneuver)
 - Chase camera round the vessel (right mouse, scroll); **V** switches to the
   free camera
 - Vessel HUD: situation (landed, flying, sub-orbital, orbiting, flyby,
@@ -475,7 +499,7 @@ parachutes home; or build your own rocket in the part editor, on the pad.
   bottom the body you are nearest, altitude above ground and sea level
   (depth below a giant's cloud tops), speed, the air's pressure and
   temperature outside, latitude / longitude and local time
-- Time warp in steps from real time to 1,000,000x (**,** and **.**; **/**
+- Time warp in steps from real time to 10,000,000x (**,** and **.**; **/**
   back to real time)
 - Pause menu (**Esc**, stops the clock): Revert to launch, Build vessel, Travel to any
   body, Camera (follow the vessel or fly free; surface, low orbit, the whole
@@ -496,7 +520,7 @@ parachutes home; or build your own rocket in the part editor, on the pad.
 - A disk cache (`data/cache/`) of terrain chunks, keyed by their inputs and
   the generators' source code: chunks stream in ~70% faster on a second
   visit; oldest entries pruned past 2 GB
-- 574 unit tests
+- 586 unit tests
 
 ## Getting Started
 
@@ -550,8 +574,8 @@ planet streams in over the first few seconds.
 | **A** / **D** | Yaw left / right |
 | **Q** / **E** | Roll |
 | **T** | Stability assist on / off |
-| **F** | Stability assist mode: hold attitude, prograde, retrograde |
-| **M** | Map view (right mouse turns it, scroll zooms) |
+| **F** | Stability assist mode: hold attitude, prograde, retrograde, maneuver (the course correction to the map's target) |
+| **M** | Map view (right mouse turns it, scroll zooms; choose a target in its navigation panel) |
 | Right mouse + move, scroll | Swing the camera round the vessel; closer / farther |
 | **V** | Free camera: hold right mouse, **W A S D** move, **Space** up, **Shift** down (along the ground, around the planet from orbit; speed grows with altitude) |
 | **.** / **,** | Time warp faster / slower |

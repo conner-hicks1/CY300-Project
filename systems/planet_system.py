@@ -329,9 +329,16 @@ class PlanetSystem:
             PlanetComponent
         ):
 
-            seen.add(entity)
-
             planet = self._planets.get(entity)
+
+            # Too far to show a disc: no terrain at all (the
+            # star pass draws it as a point of light); built
+            # once it would span a few pixels, dropped again
+            # once it is well under one.
+            if self._dormant(transform, component, camera_position, planet is not None):
+                continue
+
+            seen.add(entity)
 
             config = _config_of(component)
 
@@ -516,6 +523,28 @@ class PlanetSystem:
             chunks_building=building,
             chunks_queued=queued
         )
+
+    # Apparent radius (rad) at which a body's terrain is
+    # built, and below which it is released (~1 px and half
+    # of that at 720 lines over 60 degrees).
+    WAKE_ANGLE = 0.003
+    SLEEP_ANGLE = 0.0012
+
+    def _dormant(
+        self,
+        transform,
+        component: PlanetComponent,
+        camera_position: np.ndarray,
+        built: bool
+    ) -> bool:
+
+        center = np.asarray(transform.world_matrix, dtype=np.float64)[:3, 3]
+
+        distance = max(float(np.linalg.norm(center - camera_position)) - component.radius, 1.0)
+
+        angle = component.radius / distance
+
+        return angle < (self.SLEEP_ANGLE if built else self.WAKE_ANGLE)
 
     @property
     def draw_items(
@@ -757,10 +786,16 @@ class PlanetSystem:
 
         last = planet.last_camera
 
+        # The selection only changes once the camera has moved
+        # a fair share of its height above the body: a
+        # millimeter near the ground, kilometers for a moon
+        # across the sky (which moves a little every frame).
+        altitude = float(np.linalg.norm(camera_local)) - planet.terrain.settings.radius
+
         if (
             not planet.dirty
             and last is not None
-            and float(np.linalg.norm(camera_local - last)) < 1e-3
+            and float(np.linalg.norm(camera_local - last)) < max(1e-3, 0.002 * altitude)
         ):
             return
 

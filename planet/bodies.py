@@ -1087,6 +1087,21 @@ def system_members(
     return [p.id for p in members if p.id != profile_id][:limit]
 
 
+def solar_system(
+    presets: dict[str, "BodyProfile"],
+    profile_id: str
+) -> list[str]:
+    """
+    Every other body among the presets (the whole solar
+    system, so a vessel can fly from one to another): the
+    profile's own system first.
+    """
+
+    near = system_members(presets, profile_id, limit=len(presets))
+
+    return near + [other for other in presets if other != profile_id and other not in near]
+
+
 def preset_groups(
     presets: dict[str, BodyProfile]
 ) -> dict[str, list[BodyProfile]]:

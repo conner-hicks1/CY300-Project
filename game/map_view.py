@@ -122,11 +122,23 @@ def _color(
     return imgui.get_color_u32((r, g, b, a * alpha_scale))
 
 
+PANEL_FLAGS = (
+    imgui.WindowFlags_.no_collapse.value
+    | imgui.WindowFlags_.no_docking.value
+    | imgui.WindowFlags_.no_saved_settings.value
+    | imgui.WindowFlags_.always_auto_resize.value
+)
+
+
 class MapView:
 
     def __init__(self):
 
         self.open = False
+
+        # The body to fly to (a key as in vessel/soi.py), for
+        # the navigation panel; None: none.
+        self.target = None
 
         self.yaw = 0.0                  # deg
         self.pitch = 35.0               # deg above the body's equator
@@ -354,6 +366,53 @@ class MapView:
             # still ahead.)
             if low > 0:
                 self._marker(draw, projection, world[low], MARKER_COLOR, f"Pe {format.distance(distances[low] - sea_radius)}")
+
+    def draw_navigation(
+        self,
+        targets: list[tuple[object, str]],
+        lines: list[tuple[str, tuple | None]],
+        burn_marker: np.ndarray | None,
+        projection: ScreenProjection | None
+    ):
+        """
+        The navigation panel: choose a target; `lines` (text,
+        color or None) say how to get there; burn_marker:
+        world point to burn at, marked on the map.
+        """
+
+        if not self.open:
+            return
+
+        viewport = imgui.get_main_viewport()
+
+        imgui.set_next_window_pos((viewport.work_pos.x + 10.0, viewport.work_pos.y + 10.0), imgui.Cond_.always)
+
+        imgui.begin("Navigation", None, PANEL_FLAGS)
+
+        names = ["(none)"] + [name for _, name in targets]
+
+        keys = [None] + [key for key, _ in targets]
+
+        index = keys.index(self.target) if self.target in keys else 0
+
+        imgui.set_next_item_width(200.0)
+
+        changed, index = imgui.combo("Target", index, names)
+
+        if changed:
+            self.target = keys[index]
+
+        for text, color in lines:
+
+            if color is None:
+                imgui.text(text)
+            else:
+                imgui.text_colored(color, text)
+
+        imgui.end()
+
+        if burn_marker is not None and projection is not None:
+            self._marker(imgui.get_background_draw_list(), projection, burn_marker, (0.4, 1.0, 0.5, 1.0), "Burn here")
 
     @staticmethod
     def _marker(

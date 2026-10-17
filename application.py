@@ -79,7 +79,7 @@ from planet.bodies import (
     preset_groups,
     star_color,
     sun_intensity,
-    system_members,
+    solar_system,
 )
 from planet.orbits import DAY, seconds_since_j2000
 from planet.spawn import find_spawn
@@ -97,6 +97,8 @@ from systems.transform_system import TransformSystem
 from systems.vessel_system import LaunchSite, OrbitStart, VesselSystem
 
 from vessel import kepler
+from vessel.transfer import closest_approach, correction, find_window, plan_transfer
+from game import format as readable
 from vessel.design import DesignDraft
 from vessel.parts import load_design, load_parts
 
@@ -213,6 +215,18 @@ class Application:
 
         # Last frame's parachute state (for the notice).
         self._parachute = ""
+
+        # The departure window to the map's target: (origin,
+        # target, clock time found, transfer.Window).
+        self._window = None
+
+        # Course correction toward the target, round the Sun:
+        # the arrival aimed at ((target, clock time) or None),
+        # when it was last found (s, real time), and the burn
+        # left (m/s, or None).
+        self._arrival = None
+        self._arrival_found = -1.0e9
+        self.maneuver_dv: float | None = None
 
         # Camera speed for the HUD (smoothed).
         self._last_camera_position: np.ndarray | None = None
@@ -465,6 +479,8 @@ class Application:
         self.map_view = MapView()
         self._moon_orbits = {}
         self._parachute = ""
+        self._window = None
+        self._arrival = None
         self.hud.notices.clear()
 
         self._last_camera_position = None
@@ -612,11 +628,11 @@ class Application:
         body_id: str
     ):
         """
-        Add the other bodies of a body's planetary system
-        (OrbitSystem places them).
+        Add every other body of the solar system (OrbitSystem
+        places them; far ones stay dormant: PlanetSystem).
         """
 
-        for member_id in system_members(self.body_presets, body_id):
+        for member_id in solar_system(self.body_presets, body_id):
 
             member = self.body_presets[member_id]
 
@@ -1058,6 +1074,8 @@ class Application:
 
         paused = self.pause_menu.open or building
 
+        self._update_maneuver()
+
         self._pilot(dt, paused)
 
         # The clock runs at the warp's rate (no faster than
@@ -1371,7 +1389,13 @@ class Application:
 
             reach = float(np.linalg.norm(prediction.patches[0].points, axis=1).max())
 
-            fit = max(fit, min(reach, 50.0 * radius))
+            # (Round a planet, no farther than its sphere of
+            # influence; round the Sun, the whole path.)
+            bodies = self.vessel_system.soi_bodies(self.scene)
+
+            limit = bodies[component.body].soi if component.body in bodies else math.inf
+
+            fit = max(fit, min(reach, limit if math.isfinite(limit) else reach))
 
         self.map_view.place_camera(context.camera_transform(), center, axis, fit, radius * 1.3)
 
@@ -1473,17 +1497,292 @@ class Application:
 
             moon_orbits[key] = cached[1]
 
+        prediction = self.vessel_system.prediction(self.scene, self.orbit_system)
+
         self.map_view.draw(
             projection,
             self.orbit_system.inertial_to_world,
             body_world,
             body_radius,
             names,
-            self.vessel_system.prediction(self.scene, self.orbit_system),
+            prediction,
             np.asarray(self.scene.get_component(entity, TransformComponent).transform.position, dtype=np.float64),
             moon_orbits,
             body_radius.get(reference, 0.0)
         )
+
+        targets = sorted(
+            (
+                (key, body.name)
+                for key, body in bodies.items()
+                if key is not None and key != reference and key in self.orbit_system.states
+            ),
+            # Planets first, then moons (by name).
+            key=lambda item: (bodies[item[0]].parent is not None, item[1])
+        )
+
+        lines, burn = self._navigation(component, bodies, prediction)
+
+        self.map_view.draw_navigation(targets, lines, burn, projection)
+
+    # Colors for the navigation panel.
+    GOOD = (0.5, 1.0, 0.6, 1.0)
+    NOTE = (0.75, 0.75, 0.8, 1.0)
+
+    def _update_maneuver(self):
+        """
+        Round the Sun with a planet targeted: the course
+        correction that reaches it (vessel/transfer.py), for
+        the maneuver SAS mode and the HUD.
+        """
+
+        self.maneuver_dv = None
+
+        found = self.vessel_system.find(self.scene)
+
+        if found is None:
+            return
+
+        _, component = found
+
+        component.controls.maneuver = None
+
+        target = self.map_view.target
+
+        bodies = self.vessel_system.soi_bodies(self.scene)
+
+        if (
+            component.body is not None
+            or target not in bodies
+            or bodies[target].parent is not None
+            or target not in self.orbit_system.states
+            or component.state.destroyed
+        ):
+            return
+
+        now = self.orbit_system.time
+
+        clock_now = self.timer.time_ns / 1e9 if self.timer is not None else 0.0
+
+        # When it gets closest, from the predicted path (found
+        # again every few seconds; the aim is that moment).
+        if self._arrival is None or self._arrival[0] != target or clock_now - self._arrival_found > 3.0:
+
+            prediction = self.vessel_system.prediction(self.scene, self.orbit_system)
+
+            if prediction is None or not prediction.patches:
+                return
+
+            # Already meeting it: trim inside its sphere instead.
+            if any(patch.body == target for patch in prediction.patches[1:]):
+
+                self._arrival = (target, None)
+
+            else:
+
+                patch = prediction.patches[0]
+
+                relative = self.vessel_system.relative_states(self.scene, self.orbit_system, None, [target])[target]
+
+                where, _ = kepler.propagate_many(*relative, bodies[None].mu, patch.times)
+
+                _, when = closest_approach(patch.points, patch.times, where)
+
+                self._arrival = (target, now + when if when > 86_400.0 else None)
+
+            self._arrival_found = clock_now
+
+        arrival = self._arrival[1]
+
+        if arrival is None or arrival - now < 86_400.0:
+            return
+
+        velocities = self.orbit_system.velocities(self.scene)
+
+        # The cheapest of a few arrival times round the closest
+        # approach (near half a turn away the transfer's plane
+        # is ill-defined, and one exact time can cost a lot).
+        candidates = []
+
+        for factor in (0.85, 0.9, 0.95, 1.0, 1.05, 1.1, 1.15):
+
+            try:
+                candidates.append(correction(
+                    bodies[None].mu,
+                    component.state.position,
+                    component.state.velocity,
+                    self.orbit_system.states[target][0],
+                    velocities[target],
+                    (arrival - now) * factor
+                ))
+            except (ValueError, ZeroDivisionError, OverflowError):
+                continue
+
+        if not candidates:
+            return
+
+        change = min(candidates, key=lambda vector: float(np.linalg.norm(vector)))
+
+        component.controls.maneuver = change
+
+        self.maneuver_dv = float(np.linalg.norm(change))
+
+    def _navigation(
+        self,
+        component,
+        bodies: dict,
+        prediction
+    ) -> tuple[list, np.ndarray | None]:
+        """
+        (lines, burn point in the world or None) for the map's
+        navigation panel: how to get from here to the target.
+        """
+
+        target = self.map_view.target
+
+        if target not in bodies:
+            return [("Choose a target: how to get there shows here.", self.NOTE)], None
+
+        reference = component.body
+
+        state = component.state
+
+        here = bodies.get(reference)
+        goal = bodies[target]
+
+        days = lambda seconds: seconds / 86_400.0
+
+        # Encountering it already?
+        if prediction is not None:
+
+            for patch in prediction.patches[1:]:
+
+                if patch.body == target:
+
+                    return [
+                        (f"Encounter with {goal.name} in {days(patch.start):,.1f} days", self.GOOD),
+                        (f"Closest: {readable.distance(patch.periapsis - goal.radius)} above it", None),
+                        ("Tune it with small burns; the map follows.", self.NOTE),
+                    ], None
+
+        # There already.
+        if target == reference:
+
+            if state.landed:
+                return [(f"Landed on {goal.name}.", self.GOOD)], None
+
+            return [
+                (f"In {goal.name}'s sphere of influence.", self.GOOD),
+                ("Brake retrograde at the periapsis to stay in orbit,", self.NOTE),
+                ("or through the air to land (parachutes).", self.NOTE),
+            ], None
+
+        # From a planet's orbit to another planet: the window.
+        if (
+            here is not None
+            and reference is not None
+            and here.parent is None
+            and goal.parent is None
+            and not state.landed
+        ):
+
+            velocities = self.orbit_system.velocities(self.scene)
+
+            now = self.orbit_system.time
+
+            cached = self._window
+
+            # The cheapest departure (~0.1 s to find): found
+            # again for a new target, once it has passed, or
+            # every couple of months (the orbits drift from
+            # their conics).
+            if (
+                cached is None
+                or cached[:2] != (reference, target)
+                or now > cached[2] + cached[3].departure + 2.0 * 86_400.0
+                or now - cached[2] > 60.0 * 86_400.0
+            ):
+
+                window = find_window(
+                    bodies[None].mu,
+                    (self.orbit_system.states[reference][0], velocities[reference]),
+                    (self.orbit_system.states[target][0], velocities[target])
+                )
+
+                cached = self._window = (reference, target, now, window)
+
+            plan = plan_transfer(
+                bodies[None].mu,
+                self.orbit_system.states[reference][0],
+                velocities[reference],
+                self.orbit_system.states[target][0],
+                velocities[target],
+                here.mu,
+                state.position,
+                state.velocity,
+                window=cached[3],
+                window_wait_time=cached[2] + cached[3].departure - now
+            )
+
+            wait = days(plan.wait)
+
+            lines = [
+                (f"To {goal.name}: {days(plan.transfer_time):,.0f} days on the way", None),
+                (f"{goal.name} leads by {plan.phase_now:+.0f} deg (window at {plan.phase_wanted:+.0f})", None),
+            ]
+
+            # (Within a day either side.)
+            if abs(wait) < 1.0:
+                lines.append(("Window: now", self.GOOD))
+            else:
+                lines.append((f"Window in {wait:,.0f} days (time warp: . )", None))
+
+            minutes, seconds = divmod(int(plan.time_to_burn_point), 60)
+
+            lines += [
+                (f"At the window: ~{plan.departure_burn:,.0f} m/s prograde", None),
+                (f"Burning now at the marker: {plan.burn_now:,.0f} m/s", self.GOOD if plan.burn_now < plan.departure_burn * 1.1 else None),
+                (f"(over it in {minutes}:{seconds:02d})", self.NOTE),
+                (f"Arrive {plan.arrival_excess:,.0f} m/s fast: burn or brake in its air", self.NOTE),
+            ]
+
+            center, _, _ = self._map_body(reference, component)
+
+            burn = center + self.orbit_system.inertial_to_world @ (
+                plan.burn_direction * float(np.linalg.norm(state.position))
+            )
+
+            return lines, burn
+
+        # Both round the same body: how close the path comes.
+        if goal.parent == reference and prediction is not None and prediction.patches:
+
+            patch = prediction.patches[0]
+
+            relative = self.vessel_system.relative_states(self.scene, self.orbit_system, reference, [target])[target]
+
+            where, _ = kepler.propagate_many(*relative, bodies[reference].mu if reference in bodies else here.mu, patch.times)
+
+            gap, when = closest_approach(patch.points, patch.times, where)
+
+            lines = [(f"Closest approach: {readable.distance(gap)} in {days(when):,.1f} days", None)]
+
+            if gap < goal.soi:
+                lines.append(("Inside its sphere of influence: an encounter", self.GOOD))
+            else:
+                lines.append((f"(its sphere of influence: {readable.distance(goal.soi)})", self.NOTE))
+
+            if self.maneuver_dv is not None:
+                lines += [
+                    (f"Course correction: {self.maneuver_dv:,.0f} m/s", self.GOOD),
+                    ("SAS maneuver mode (F) points along it; burn until ~0", self.NOTE),
+                ]
+
+            return lines, None
+
+        parent = bodies.get(goal.parent)
+
+        return [(f"Reach {parent.name if parent is not None else 'orbit'} first.", self.NOTE)], None
 
     # -----------------------------------------------------
     # The Part Editor
@@ -1822,6 +2121,7 @@ class Application:
             loading=bool(planets.chunks_building or planets.chunks_queued),
             fps=self.timer.fps if self.dev_tools else None,
             vessel=vessel,
+            maneuver=self.maneuver_dv,
             navball=self.vessel_system.navball_frame(self.scene, self.orbit_system, self.planet_system)
         )
 

@@ -7,7 +7,8 @@ from ecs.components import ClockComponent
 #
 # How fast simulated time runs, in steps (the "," and "."
 # keys), as in most spaceflight games: real time, then
-# faster by steps up to a year in under a minute. Paused is
+# faster by steps up to a year in a few seconds (waiting
+# for a window to Mars). Paused is
 # separate (the pause menu): the warp is kept for after it.
 #
 # The rate is the clock's (ClockComponent.rate: simulated
@@ -24,6 +25,7 @@ WARP_RATES: tuple[float, ...] = (
     10_000.0,
     100_000.0,
     1_000_000.0,
+    10_000_000.0,
 )
 
 
