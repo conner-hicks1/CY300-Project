@@ -896,7 +896,9 @@ class Application:
         # Sun and clock (OrbitSystem moves everything)
         # -------------------------------------------------
 
-        clock = ClockComponent(time=seconds_since_j2000(self.START_DATE), rate=1.0)
+        # The programme's calendar goes on (a revert does not
+        # turn it back): from the latest it reached.
+        clock = ClockComponent(time=max(seconds_since_j2000(self.START_DATE), self.programme_system.career.clock), rate=1.0)
 
         self._create_entity(
             "Sun",

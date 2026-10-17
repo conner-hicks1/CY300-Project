@@ -188,7 +188,7 @@ def test_saving(tmp_path):
 
     campaign = load_campaign()
 
-    career = Career(funds=123.0, reputation=7.0, outcomes={"first_orbit": "done"}, paid_through=(2026, 10), made=5.0)
+    career = Career(funds=123.0, reputation=7.0, outcomes={"first_orbit": "done"}, paid_through=(2026, 10), made=5.0, clock=8.4e8)
 
     path = tmp_path / "career.json"
 
@@ -196,7 +196,7 @@ def test_saving(tmp_path):
 
     again = Career.load(campaign, path)
 
-    assert (again.funds, again.reputation, again.outcomes, again.paid_through, again.made) == (123.0, 7.0, {"first_orbit": "done"}, (2026, 10), 5.0)
+    assert (again.funds, again.reputation, again.outcomes, again.paid_through, again.made, again.clock) == (123.0, 7.0, {"first_orbit": "done"}, (2026, 10), 5.0, 8.4e8)
 
     # Nothing saved: the campaign's start.
     assert Career.load(campaign, tmp_path / "none.json").funds == campaign.start_funds

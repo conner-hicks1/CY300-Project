@@ -172,6 +172,10 @@ class Career:
     # Propellant made away from home (kg), all flights.
     made: float = 0.0
 
+    # The latest clock time reached (s since J2000): new
+    # scenes start from it.
+    clock: float = 0.0
+
     # Notices for the HUD (taken by the game).
     news: list = field(default_factory=list)
 
@@ -371,6 +375,7 @@ class Career:
             "outcomes": self.outcomes,
             "paid_through": list(self.paid_through) if self.paid_through else None,
             "made": self.made,
+            "clock": self.clock,
         }
 
     @classmethod
@@ -386,7 +391,8 @@ class Career:
             reputation=float(data.get("reputation", 0.0)),
             outcomes={str(key): str(value) for key, value in data.get("outcomes", {}).items()},
             paid_through=tuple(paid) if paid else None,
-            made=float(data.get("made", 0.0))
+            made=float(data.get("made", 0.0)),
+            clock=float(data.get("clock", 0.0))
         )
 
     def save(

@@ -627,7 +627,8 @@ build your own rocket in the part editor, on the pad.
   as the days pass (time warp included). Refuel on the Moon or Mars and
   come home: a sample return
 - The part editor shows the design's cost against the funds. Progress is
-  saved in `data/programme/career.json`
+  saved in `data/programme/career.json`, the calendar with it: a revert or a
+  trip elsewhere starts from the latest date reached, never earlier
 
 **Part editor**
 

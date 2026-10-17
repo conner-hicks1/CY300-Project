@@ -152,6 +152,8 @@ class ProgrammeSystem:
 
         career = self.career
 
+        career.clock = max(career.clock, app.orbit_system.time)
+
         today = today_of(date_of(app.orbit_system.time))
 
         income = career.pay_budget(self.campaign, today)
