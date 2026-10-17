@@ -112,19 +112,19 @@ def test_inclination():
 
 def test_pathfinder_adds_up(pathfinder):
 
-    assert pathfinder.mass == pytest.approx(159_620.0)
-    assert pathfinder.height == pytest.approx(37.2)
+    assert pathfinder.mass == pytest.approx(159_970.0)
+    assert pathfinder.height == pytest.approx(37.5)
     assert pathfinder.radius == pytest.approx(1.25)
 
     # The engine bottom is the origin; the capsule on top.
     assert pathfinder.parts[-1].bottom == 0.0
-    assert pathfinder.parts[0].bottom == pytest.approx(37.2 - 0.5)
+    assert pathfinder.parts[0].bottom == pytest.approx(37.5 - 0.5)
 
     # Enough to reach low orbit (~9.4 km/s with losses).
     assert 10_000.0 < pathfinder.delta_v() < 10_600.0
 
     # Nothing changed by working that out.
-    assert pathfinder.mass == pytest.approx(159_620.0) and pathfinder.next_stage == 0
+    assert pathfinder.mass == pytest.approx(159_970.0) and pathfinder.next_stage == 0
 
 
 def test_launch_thrust(pathfinder):
@@ -151,18 +151,18 @@ def test_burn_and_separate(pathfinder):
     pathfinder.stage()
     pathfinder.throttle = 1.0
 
-    upper_tank = pathfinder.parts[3]
+    upper_tank = pathfinder.parts[4]
 
     pathfinder.burn(10.0)
 
     # Only the lower section's tanks feed the booster.
     assert upper_tank.propellant == 25_000.0
-    assert pathfinder.parts[6].propellant == pathfinder.parts[8].propellant < 40_000.0
+    assert pathfinder.parts[7].propellant == pathfinder.parts[9].propellant < 40_000.0
 
     assert pathfinder.stage() == 1
 
     assert [state.part.id for state in pathfinder.parts] == [
-        "parachute_main", "capsule", "decoupler_2m5", "tank_2m5_medium", "engine_vacuum"
+        "parachute_main", "capsule", "heat_shield_2m5", "decoupler_2m5", "tank_2m5_medium", "engine_vacuum"
     ]
     assert len(pathfinder.dropped) == 5
 
@@ -176,8 +176,8 @@ def test_burn_and_separate(pathfinder):
     # The capsule goes home on its own.
     assert pathfinder.stage() == 2
 
-    assert [state.part.id for state in pathfinder.parts] == ["parachute_main", "capsule"]
-    assert pathfinder.mass == pytest.approx(2_620.0)
+    assert [state.part.id for state in pathfinder.parts] == ["parachute_main", "capsule", "heat_shield_2m5"]
+    assert pathfinder.mass == pytest.approx(2_970.0)
 
     assert pathfinder.stage() == 3
     assert pathfinder.parts[0].armed
@@ -195,7 +195,7 @@ def test_runs_dry(pathfinder):
 
     assert pathfinder.burning_engines() == []
     assert pathfinder.thrust()[0] == 0.0
-    assert pathfinder.parts[6].propellant == 0.0
+    assert pathfinder.parts[7].propellant == 0.0
 
 
 def test_bad_designs(parts):

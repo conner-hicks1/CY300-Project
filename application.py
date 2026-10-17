@@ -54,6 +54,7 @@ from ecs.entity import Entity
 from game.chase_camera import ChaseCamera
 from game.flight import FlightContext, frame_body, go_to_orbit, go_to_surface, read_flight
 from game.hud import FlightHud
+from game.maneuver_panel import ManeuverPanel, NodeInfo
 from game.map_view import MapView, ScreenProjection
 from game.part_editor import EditorActions, LaunchBody, PartEditor
 from game.pause_menu import Destination, MenuActions, PauseMenu
@@ -94,9 +95,11 @@ from systems.planet_system import PlanetSystem, planet_extent, terrain_settings_
 from systems.orbit_system import OrbitSystem, body_states
 from systems.render_system import RenderSystem
 from systems.transform_system import TransformSystem
-from systems.vessel_system import LaunchSite, OrbitStart, VesselSystem
+from systems.vessel_system import LaunchSite, OrbitStart, Suggestion, VesselSystem
 
 from vessel import kepler
+from vessel import maneuver
+from vessel.maneuver import ManeuverNode
 from vessel.transfer import closest_approach, correction, find_window, plan_transfer
 from game import format as readable
 from vessel.design import DesignDraft
@@ -227,6 +230,12 @@ class Application:
         self._arrival = None
         self._arrival_found = -1.0e9
         self.maneuver_dv: float | None = None
+        self._correction: np.ndarray | None = None
+
+        # The map's maneuver planning; warping to the node:
+        # until this clock time (or None).
+        self.maneuver_panel = ManeuverPanel()
+        self._warp_until: float | None = None
 
         # Camera speed for the HUD (smoothed).
         self._last_camera_position: np.ndarray | None = None
@@ -481,6 +490,7 @@ class Application:
         self._parachute = ""
         self._window = None
         self._arrival = None
+        self._warp_until = None
         self.hud.notices.clear()
 
         self._last_camera_position = None
@@ -1352,6 +1362,15 @@ class Application:
         if "soi" in events:
             self.hud.notify(f"Now in {readout.body}'s sphere of influence")
 
+        if "node done" in events:
+
+            found = self.vessel_system.find(self.scene)
+
+            if found is not None:
+                found[1].vessel.throttle = 0.0
+
+            self.hud.notify("Maneuver done: throttle cut")
+
         if "landed" in events:
             self.hud.notify(f"Landed on {readout.body}")
 
@@ -1499,6 +1518,17 @@ class Application:
 
         prediction = self.vessel_system.prediction(self.scene, self.orbit_system)
 
+        planned = self.vessel_system.planned(self.scene, self.orbit_system)
+
+        node_world = None
+
+        if component.node is not None:
+
+            where = self.vessel_system.node_state(self.scene, self.orbit_system, component.node.time)
+
+            if where is not None and reference in body_world:
+                node_world = body_world[reference] + self.orbit_system.inertial_to_world @ where[0]
+
         self.map_view.draw(
             projection,
             self.orbit_system.inertial_to_world,
@@ -1508,7 +1538,10 @@ class Application:
             prediction,
             np.asarray(self.scene.get_component(entity, TransformComponent).transform.position, dtype=np.float64),
             moon_orbits,
-            body_radius.get(reference, 0.0)
+            body_radius.get(reference, 0.0),
+            planned=planned,
+            node_world=node_world,
+            node_label=f"Node {self.maneuver_dv:,.0f} m/s" if self.maneuver_dv is not None else ""
         )
 
         targets = sorted(
@@ -1521,9 +1554,16 @@ class Application:
             key=lambda item: (bodies[item[0]].parent is not None, item[1])
         )
 
-        lines, burn = self._navigation(component, bodies, prediction)
+        # (Planning a burn, the encounter it makes shows.)
+        lines, burn, suggested = self._navigation(component, bodies, planned or prediction)
 
         self.map_view.draw_navigation(targets, lines, burn, projection)
+
+        self._plan_node(
+            component,
+            planned,
+            suggested + self.vessel_system.suggested_burns(self.scene, self.orbit_system, self.planet_system)
+        )
 
     # Colors for the navigation panel.
     GOOD = (0.5, 1.0, 0.6, 1.0)
@@ -1531,12 +1571,15 @@ class Application:
 
     def _update_maneuver(self):
         """
-        Round the Sun with a planet targeted: the course
+        Each frame: the maneuver SAS mode points along what is
+        left of the node's burn (the HUD counts it down); and
+        round the Sun with a planet targeted, the course
         correction that reaches it (vessel/transfer.py), for
-        the maneuver SAS mode and the HUD.
+        the navigation panel to suggest as a node.
         """
 
         self.maneuver_dv = None
+        self._correction = None
 
         found = self.vessel_system.find(self.scene)
 
@@ -1545,7 +1588,29 @@ class Application:
 
         _, component = found
 
-        component.controls.maneuver = None
+        remaining = self.vessel_system.node_remaining(component)
+
+        component.controls.maneuver = remaining
+
+        if remaining is not None:
+            self.maneuver_dv = float(np.linalg.norm(remaining))
+
+        # Warping to the node: as fast as allowed (the node
+        # holds it back as the burn comes), until there.
+        if self._warp_until is not None:
+
+            if component.node is None or self.orbit_system.time >= self._warp_until:
+                self._warp_until = None
+            else:
+                self.time_warp.index = len(self.time_warp.rates) - 1
+
+        self._correction = self._course_correction(component)
+
+    def _course_correction(
+        self,
+        component
+    ) -> np.ndarray | None:
+        """Round the Sun, the map's target a planet: the velocity change now that meets it, or None."""
 
         target = self.map_view.target
 
@@ -1558,7 +1623,7 @@ class Application:
             or target not in self.orbit_system.states
             or component.state.destroyed
         ):
-            return
+            return None
 
         now = self.orbit_system.time
 
@@ -1571,7 +1636,7 @@ class Application:
             prediction = self.vessel_system.prediction(self.scene, self.orbit_system)
 
             if prediction is None or not prediction.patches:
-                return
+                return None
 
             # Already meeting it: trim inside its sphere instead.
             if any(patch.body == target for patch in prediction.patches[1:]):
@@ -1595,7 +1660,7 @@ class Application:
         arrival = self._arrival[1]
 
         if arrival is None or arrival - now < 86_400.0:
-            return
+            return None
 
         velocities = self.orbit_system.velocities(self.scene)
 
@@ -1619,29 +1684,214 @@ class Application:
                 continue
 
         if not candidates:
-            return
+            return None
 
-        change = min(candidates, key=lambda vector: float(np.linalg.norm(vector)))
+        return min(candidates, key=lambda vector: float(np.linalg.norm(vector)))
 
-        component.controls.maneuver = change
+    # -----------------------------------------------------
+    # Maneuver Nodes
+    # -----------------------------------------------------
 
-        self.maneuver_dv = float(np.linalg.norm(change))
+    def _node_readout(
+        self,
+        component
+    ) -> tuple[float, float, float] | None:
+        """For the HUD: (m/s left, s until the burn should start, burn s), or None."""
+
+        if component.node is None or self.maneuver_dv is None:
+            return None
+
+        burn = self.vessel_system.node_burn_time(component)
+
+        start = component.node.time - 0.5 * (burn if math.isfinite(burn) else 0.0)
+
+        return self.maneuver_dv, start - self.orbit_system.time, burn
+
+    def _plan_node(
+        self,
+        component,
+        planned,
+        suggestions: list
+    ):
+        """The maneuver panel: show the node (or how to add one), carry out what was clicked."""
+
+        vessels = self.vessel_system
+
+        state = component.state
+
+        now = self.orbit_system.time
+
+        info = NodeInfo(can_plan=not state.landed and not state.destroyed)
+
+        bodies = vessels.soi_bodies(self.scene)
+
+        mu = bodies[component.body].mu if component.body in bodies else None
+
+        if mu is not None and info.can_plan:
+
+            info.apsides = tuple(
+                apsis
+                for apsis in ("apoapsis", "periapsis")
+                if maneuver.time_to_apsis(state.position, state.velocity, mu, apsis) is not None
+            )
+
+        node = component.node
+
+        info.suggestions = [(item.label, item.why) for item in suggestions]
+
+        if node is not None:
+
+            remaining = vessels.node_remaining(component)
+
+            info.exists = True
+            info.time_to = node.time - now
+            info.components = {"prograde": node.prograde, "normal": node.normal, "radial": node.radial}
+            info.remaining = float(np.linalg.norm(remaining))
+            info.burn_time = vessels.node_burn_time(component)
+            info.delta_v = component.vessel.delta_v()
+            info.after = self._after_node(component, planned, bodies)
+
+            if planned is None:
+                info.note = "Past the path's next sphere: move it sooner"
+
+        for action in self.maneuver_panel.draw(info):
+            self._node_action(component, action, suggestions, mu)
+
+    def _node_action(
+        self,
+        component,
+        action: tuple,
+        suggestions: list,
+        mu: float | None
+    ):
+
+        vessels = self.vessel_system
+
+        state = component.state
+
+        now = self.orbit_system.time
+
+        kind = action[0]
+
+        def apsis_time(which: str) -> float | None:
+
+            if mu is None:
+                return None
+
+            wait = maneuver.time_to_apsis(state.position, state.velocity, mu, which)
+
+            return None if wait is None else now + max(wait, 30.0)
+
+        if kind == "new":
+
+            time = now + 300.0 if action[1] == "soon" else apsis_time(action[1])
+
+            if time is not None:
+                vessels.set_node(self.scene, self.orbit_system, ManeuverNode(time))
+
+        elif kind == "suggest":
+
+            item = suggestions[action[1]]
+
+            where = vessels.node_state(self.scene, self.orbit_system, item.time)
+
+            if where is not None:
+
+                prograde, normal, radial = maneuver.from_inertial(*where, item.vector)
+
+                vessels.set_node(self.scene, self.orbit_system, ManeuverNode(item.time, prograde, normal, radial))
+
+        elif component.node is not None:
+
+            node = component.node
+
+            if kind == "delete":
+
+                vessels.set_node(self.scene, self.orbit_system, None)
+
+                self._warp_until = None
+
+            elif kind == "warp":
+
+                self._warp_until = node.time - 0.5 * min(vessels.node_burn_time(component), 1.0e7) - vessels.NODE_LEAD
+
+            else:
+
+                moved = ManeuverNode(node.time, node.prograde, node.normal, node.radial)
+
+                if kind == "time":
+                    moved.time = max(node.time + action[1], now + 1.0)
+                elif kind == "time_to":
+                    moved.time = apsis_time(action[1]) or node.time
+                elif kind == "set":
+                    setattr(moved, action[1], float(action[2]))
+
+                if not vessels.set_node(self.scene, self.orbit_system, moved):
+                    self.hud.notify("No orbit there to burn on")
+
+    def _after_node(
+        self,
+        component,
+        planned,
+        bodies: dict
+    ) -> list:
+        """What the orbit becomes after the node, for the panel."""
+
+        if planned is None or not planned.patches:
+            return []
+
+        first = planned.patches[0]
+
+        body = bodies.get(first.body)
+
+        if body is None:
+            return []
+
+        lines = []
+
+        sea = body.radius
+
+        if first.end == "orbit":
+
+            distances = np.linalg.norm(first.points, axis=1)
+
+            lines.append((f"After: Ap {readable.distance(float(distances.max()) - sea)}  Pe {readable.distance(first.periapsis - sea)}", None))
+
+        elif first.end == "impact":
+
+            lines.append((f"After: comes down on {body.name}", (1.0, 0.6, 0.4, 1.0)))
+
+        elif first.end == "escape":
+
+            lines.append((f"After: escapes {body.name}", (1.0, 0.6, 1.0, 1.0)))
+
+        if first.end == "encounter" and len(planned.patches) > 1:
+
+            inner = planned.patches[1]
+
+            goal = bodies.get(inner.body)
+
+            if goal is not None:
+                lines.append((f"After: meets {goal.name}, Pe {readable.distance(inner.periapsis - goal.radius)}", self.GOOD))
+
+        return lines
 
     def _navigation(
         self,
         component,
         bodies: dict,
         prediction
-    ) -> tuple[list, np.ndarray | None]:
+    ) -> tuple[list, np.ndarray | None, list]:
         """
-        (lines, burn point in the world or None) for the map's
-        navigation panel: how to get from here to the target.
+        (lines, burn point in the world or None, Suggestions)
+        for the map's navigation panel: how to get from here
+        to the target, and the burns to plan for it.
         """
 
         target = self.map_view.target
 
-        if target not in bodies:
-            return [("Choose a target: how to get there shows here.", self.NOTE)], None
+        if target is None or target not in bodies:
+            return [("Choose a target: how to get there shows here.", self.NOTE)], None, []
 
         reference = component.body
 
@@ -1663,19 +1913,20 @@ class Application:
                         (f"Encounter with {goal.name} in {days(patch.start):,.1f} days", self.GOOD),
                         (f"Closest: {readable.distance(patch.periapsis - goal.radius)} above it", None),
                         ("Tune it with small burns; the map follows.", self.NOTE),
-                    ], None
+                        ("Inside its sphere, plan the capture at Pe.", self.NOTE),
+                    ], None, []
 
         # There already.
         if target == reference:
 
             if state.landed:
-                return [(f"Landed on {goal.name}.", self.GOOD)], None
+                return [(f"Landed on {goal.name}.", self.GOOD)], None, []
 
             return [
                 (f"In {goal.name}'s sphere of influence.", self.GOOD),
-                ("Brake retrograde at the periapsis to stay in orbit,", self.NOTE),
-                ("or through the air to land (parachutes).", self.NOTE),
-            ], None
+                ("Capture at the periapsis to stay (Maneuver),", self.NOTE),
+                ("or come down through the air (heat shield first).", self.NOTE),
+            ], None, []
 
         # From a planet's orbit to another planet: the window.
         if (
@@ -1752,7 +2003,24 @@ class Application:
                 plan.burn_direction * float(np.linalg.norm(state.position))
             )
 
-            return lines, burn
+            suggested = []
+
+            # The window open: a node over the marker.
+            if abs(wait) < 1.0:
+
+                when = now + plan.time_to_burn_point
+
+                where = self.vessel_system.node_state(self.scene, self.orbit_system, when)
+
+                if where is not None:
+                    suggested.append(Suggestion(
+                        f"Burn for {goal.name}",
+                        f"{plan.burn_now:,.0f} m/s prograde over the marker",
+                        when,
+                        maneuver.to_inertial(*where, plan.burn_now, 0.0, 0.0)
+                    ))
+
+            return lines, burn, suggested
 
         # Both round the same body: how close the path comes.
         if goal.parent == reference and prediction is not None and prediction.patches:
@@ -1772,17 +2040,26 @@ class Application:
             else:
                 lines.append((f"(its sphere of influence: {readable.distance(goal.soi)})", self.NOTE))
 
-            if self.maneuver_dv is not None:
-                lines += [
-                    (f"Course correction: {self.maneuver_dv:,.0f} m/s", self.GOOD),
-                    ("SAS maneuver mode (F) points along it; burn until ~0", self.NOTE),
-                ]
+            suggested = []
 
-            return lines, None
+            if self._correction is not None:
+
+                size = float(np.linalg.norm(self._correction))
+
+                lines.append((f"Course correction: {size:,.0f} m/s (Maneuver: suggested)", self.GOOD))
+
+                suggested.append(Suggestion(
+                    "Course correction",
+                    f"{size:,.0f} m/s to meet {goal.name}",
+                    self.orbit_system.time + 10.0,
+                    self._correction
+                ))
+
+            return lines, None, suggested
 
         parent = bodies.get(goal.parent)
 
-        return [(f"Reach {parent.name if parent is not None else 'orbit'} first.", self.NOTE)], None
+        return [(f"Reach {parent.name if parent is not None else 'orbit'} first.", self.NOTE)], None, []
 
     # -----------------------------------------------------
     # The Part Editor
@@ -1922,9 +2199,11 @@ class Application:
 
         if Input.is_key_pressed(Key.COMMA):
             self.time_warp.slower()
+            self._warp_until = None
 
         if Input.is_key_pressed(Key.SLASH):
             self.time_warp.stop()
+            self._warp_until = None
 
         if Input.is_key_pressed(Key.V) and self.vessel_system.find(self.scene) is not None:
             self.free_camera = not self.free_camera
@@ -2121,7 +2400,8 @@ class Application:
             loading=bool(planets.chunks_building or planets.chunks_queued),
             fps=self.timer.fps if self.dev_tools else None,
             vessel=vessel,
-            maneuver=self.maneuver_dv,
+            maneuver=self._node_readout(found[1]) if found is not None else None,
+            braking=self.vessel_system.braking(self.scene, self.orbit_system, self.planet_system),
             navball=self.vessel_system.navball_frame(self.scene, self.orbit_system, self.planet_system)
         )
 

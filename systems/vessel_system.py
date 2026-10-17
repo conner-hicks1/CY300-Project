@@ -36,7 +36,7 @@ from resources.resources import Resources
 
 from scene.scene import Scene
 
-from vessel import kepler, soi
+from vessel import heating, kepler, maneuver, soi
 from vessel.parts import VesselDesign
 from vessel.physics import (
     Controls,
@@ -44,7 +44,9 @@ from vessel.physics import (
     VesselState,
     can_coast,
     coast,
+    cool,
     land,
+    steer,
     step
 )
 from vessel.vessel import Vessel
@@ -91,6 +93,30 @@ class _BodyPhysics:
     air_top: float | None           # m above sea level
 
 
+@dataclass(frozen=True, slots=True)
+class Suggestion:
+    """A burn worth planning: what, why, when (clock s), the inertial velocity change (m/s)."""
+
+    label: str
+    why: str | None
+    time: float
+    vector: np.ndarray
+
+
+def format_distance(
+    meters: float
+) -> str:
+    """A height for a suggestion's line (as game/format.py)."""
+
+    return f"{meters:,.0f} m" if abs(meters) < 1_000.0 else f"{meters / 1000.0:,.0f} km"
+
+
+# Coming down into the air, the periapsis at about this
+# pressure (bar): deep enough to be caught (Earth ~45 km,
+# Mars ~10 km), not so deep the heat is fierce.
+ENTRY_PRESSURE_BAR = 0.002
+
+
 @dataclass(slots=True)
 class VesselReadout:
 
@@ -116,6 +142,13 @@ class VesselReadout:
     destroyed: bool
     impact_speed: float
     parachute: str                  # "", "armed", "open"
+
+    # Burned up: the part's name ("" otherwise).
+    burned_up: str = ""
+
+    # The part nearest its heat limit: (skin K, limit K,
+    # name); None without parts.
+    heat: tuple[float, float, str] | None = None
 
 
 def copy_positions(
@@ -216,8 +249,11 @@ class VesselSystem:
         self._bodies: dict[Hashable, _BodyPhysics] = {}
 
         # The map's prediction: (clock time, body key,
-        # Prediction).
+        # Prediction); the path after the maneuver node: (key,
+        # Prediction or None); the node's burn time: (key, s).
         self._prediction = None
+        self._planned = None
+        self._burn_time = None
 
         # Where the vessel was launched from: (body, start),
         # for the part editor to rebuild it there.
@@ -598,12 +634,17 @@ class VesselSystem:
 
                 return pressure, pressure * 1e5 / (gas_constant * column.temperature(altitude))
 
+            def temperature(radius):
+                return column.temperature((radius - sea_radius) / 1000.0)
+
             air_top = sea_radius + physics.air_top
 
         else:
 
             def air(radius, direction):
                 return 0.0, 0.0
+
+            temperature = None
 
             air_top = 0.0
 
@@ -612,7 +653,8 @@ class VesselSystem:
             spin=physics.spin,
             air=air,
             ground=lambda d: ground_radius,
-            air_top=air_top
+            air_top=air_top,
+            temperature=temperature
         )
 
     def _extent(
@@ -838,6 +880,424 @@ class VesselSystem:
         return prediction
 
     # =====================================================
+    # Maneuver Nodes
+    # =====================================================
+    #
+    # A planned burn on the vessel's path (vessel/maneuver.py),
+    # on its current conic (before the next sphere of
+    # influence): the path after it drawn on the map, time
+    # warp slowing to arrive at its burn's start, done once
+    # the burn has made its velocity change.
+
+    # Time warp comes back to real time this long (s) before
+    # a node's burn starts.
+    NODE_LEAD = 15.0
+
+    # Done within (m/s).
+    NODE_DONE = 0.5
+
+    def node_state(
+        self,
+        scene: Scene,
+        orbit_system,
+        time: float
+    ) -> tuple[np.ndarray, np.ndarray] | None:
+        """
+        The vessel's (position, velocity) about its body at a
+        clock time on its current conic (now, if past); None
+        landed, destroyed, or when the path leaves the conic
+        first (another sphere).
+        """
+
+        found = self.find(scene)
+
+        if found is None:
+            return None
+
+        _, component = found
+
+        state = component.state
+
+        if state.landed or state.destroyed:
+            return None
+
+        ahead = time - orbit_system.time
+
+        if ahead <= 0.0:
+            return state.position.copy(), state.velocity.copy()
+
+        prediction = self.prediction(scene, orbit_system)
+
+        if prediction is None or not prediction.patches:
+            return None
+
+        first = prediction.patches[0]
+
+        if first.end != "orbit" and first.times is not None and ahead > float(first.times[-1]):
+            return None
+
+        return kepler.propagate(state.position, state.velocity, self._body_physics(scene, component.body, orbit_system).mu, ahead)
+
+    def set_node(
+        self,
+        scene: Scene,
+        orbit_system,
+        node: maneuver.ManeuverNode | None
+    ) -> bool:
+        """
+        Put (or move, or change: call again) the vessel's
+        node; None removes it. False when there is no conic
+        there to burn on.
+        """
+
+        found = self.find(scene)
+
+        if found is None:
+            return False
+
+        _, component = found
+
+        if node is None:
+            component.node = None
+            return True
+
+        where = self.node_state(scene, orbit_system, node.time)
+
+        if where is None:
+            return False
+
+        node.vector = maneuver.to_inertial(*where, *node.components)
+        node.baseline = component.state.thrust_dv.copy()
+
+        component.node = node
+
+        return True
+
+    @staticmethod
+    def node_remaining(
+        component: VesselComponent
+    ) -> np.ndarray | None:
+
+        if component.node is None:
+            return None
+
+        return component.node.remaining(component.state.thrust_dv)
+
+    def node_burn_time(
+        self,
+        component: VesselComponent
+    ) -> float:
+        """s at full throttle for what is left of the node's burn."""
+
+        remaining = self.node_remaining(component)
+
+        if remaining is None:
+            return 0.0
+
+        size = float(np.linalg.norm(remaining))
+
+        key = (round(size, 1), round(component.vessel.mass), component.vessel.next_stage)
+
+        if self._burn_time is None or self._burn_time[0] != key:
+            self._burn_time = (key, maneuver.burn_time(component.vessel, size))
+
+        return self._burn_time[1]
+
+    def planned(
+        self,
+        scene: Scene,
+        orbit_system
+    ) -> soi.Prediction | None:
+        """The path after the node's burn (times from now), or None."""
+
+        found = self.find(scene)
+
+        if found is None or found[1].node is None:
+            return None
+
+        _, component = found
+
+        node = component.node
+
+        remaining = self.node_remaining(component)
+
+        key = (orbit_system.time, component.body, node.time, tuple(np.round(remaining, 3)))
+
+        if self._planned is not None and self._planned[0] == key:
+            return self._planned[1]
+
+        planned = None
+
+        where = self.node_state(scene, orbit_system, node.time)
+
+        bodies = self.soi_bodies(scene)
+
+        if where is not None and component.body in bodies:
+
+            ahead = max(node.time - orbit_system.time, 0.0)
+
+            mu = bodies[component.body].mu
+
+            children = self._children(bodies, component.body, orbit_system)
+
+            # The moons (or planets) where they will be then.
+            moved = {
+                key: kepler.propagate(position, velocity, mu, ahead)
+                for key, (position, velocity) in self.relative_states(scene, orbit_system, component.body, children).items()
+            }
+
+            around_sun = component.body is SUN
+
+            planned = soi.predict(
+                where[0],
+                where[1] + remaining,
+                bodies[component.body],
+                bodies,
+                moved,
+                samples=2048 if around_sun else 256,
+                horizon=3.0 * 365.25 * 86_400.0 if around_sun else 30.0 * 86_400.0
+            )
+
+            for patch in planned.patches:
+
+                patch.start += ahead
+
+                if patch.times is not None:
+                    patch.times = patch.times + ahead
+
+        self._planned = (key, planned)
+
+        return planned
+
+    def suggested_burns(
+        self,
+        scene: Scene,
+        orbit_system,
+        planet_system
+    ) -> list[Suggestion]:
+        """
+        Burns worth a node from where the vessel is:
+        circularizing at either apsis, capturing at the
+        periapsis coming in, coming down into the air (or to
+        the ground).
+        """
+
+        found = self.find(scene)
+
+        if found is None:
+            return []
+
+        _, component = found
+
+        state = component.state
+
+        if state.landed or state.destroyed:
+            return []
+
+        bodies = self.soi_bodies(scene)
+
+        body = bodies.get(component.body)
+
+        if body is None:
+            return []
+
+        physics = self._body_physics(scene, component.body, orbit_system)
+
+        mu = physics.mu
+
+        now = orbit_system.time
+
+        shape = kepler.orbit_shape(state.position, state.velocity, mu)
+
+        floor = max(self._extent(component.body, planet_system, scene, orbit_system), self.environment(scene, component.body, orbit_system, planet_system).air_top)
+
+        closed = shape.apoapsis is not None and shape.apoapsis < body.soi
+
+        suggestions = []
+
+        def at(seconds):
+
+            return kepler.propagate(state.position, state.velocity, mu, seconds)
+
+        sea = physics.radius + (self._ground[0] if self._ground is not None and physics.solid else 0.0)
+
+        if closed:
+
+            for apsis, short in (("apoapsis", "Ap"), ("periapsis", "Pe")):
+
+                wait = maneuver.time_to_apsis(state.position, state.velocity, mu, apsis)
+
+                if wait is None:
+                    continue
+
+                # Not one already behind (a near-circular
+                # orbit's apsis is anywhere): a little ahead.
+                wait = max(wait, 60.0)
+
+                where = at(wait)
+
+                height = float(np.linalg.norm(where[0])) - sea
+
+                if apsis == "periapsis" and float(np.linalg.norm(where[0])) < floor:
+                    continue
+
+                change = maneuver.circularize(*where, mu)
+
+                suggestions.append(Suggestion(
+                    f"Circularize at {short}",
+                    f"{float(np.linalg.norm(change)):,.0f} m/s, at {format_distance(height)}",
+                    now + wait,
+                    change
+                ))
+
+        else:
+
+            # Coming in to a body (not the Sun): capture at the
+            # periapsis, if the path passes it above the air.
+            wait = maneuver.time_to_apsis(state.position, state.velocity, mu, "periapsis")
+
+            if component.body is not SUN and wait is not None and wait > 0.0 and shape.periapsis > floor:
+
+                where = at(wait)
+
+                circular = maneuver.circularize(*where, mu)
+
+                suggestions.append(Suggestion(
+                    "Capture: circular at Pe",
+                    f"{float(np.linalg.norm(circular)):,.0f} m/s",
+                    now + wait,
+                    circular
+                ))
+
+                # A long ellipse costs much less (and can be
+                # lowered later, or aerobraked).
+                loose = maneuver.capture(*where, mu, 0.4 * body.soi)
+
+                suggestions.append(Suggestion(
+                    "Capture: long orbit",
+                    f"{float(np.linalg.norm(loose)):,.0f} m/s, Ap {format_distance(0.4 * body.soi - sea)}",
+                    now + wait,
+                    loose
+                ))
+
+        # Coming down from orbit: at the apoapsis (or soon,
+        # near circular), the periapsis into the air or to the
+        # ground.
+        if closed and physics.solid and shape.periapsis > floor:
+
+            column = physics.column
+
+            if column is not None and physics.air_top:
+                goal = sea + min(1000.0 * column.altitude_of_pressure(ENTRY_PRESSURE_BAR), 0.5 * physics.air_top)
+                why = f"Pe {format_distance(goal - sea)} in the air"
+            else:
+                goal = sea
+                why = "Pe at the ground: brake to land (HUD)"
+
+            wait = maneuver.time_to_apsis(state.position, state.velocity, mu, "apoapsis")
+
+            wait = 300.0 if wait is None or shape.eccentricity < 0.01 else max(wait, 60.0)
+
+            where = at(wait)
+
+            change = maneuver.lower_periapsis(*where, mu, max(goal, 1.0))
+
+            if change is not None:
+                suggestions.append(Suggestion(
+                    "Come down",
+                    f"{float(np.linalg.norm(change)):,.0f} m/s: {why}",
+                    now + wait,
+                    change
+                ))
+
+        return suggestions
+
+    # Braking help shows below this height (m) and in air no
+    # thicker than this (bar; thicker, parachutes do it).
+    BRAKING_HEIGHT = 60_000.0
+    BRAKING_PRESSURE = 0.05
+
+    def braking(
+        self,
+        scene: Scene,
+        orbit_system,
+        planet_system
+    ) -> maneuver.Braking | None:
+        """Falling toward the ground on engines: when to start the burn that stops at it (HUD)."""
+
+        found = self.find(scene)
+
+        if found is None:
+            return None
+
+        _, component = found
+
+        state = component.state
+
+        if state.landed or state.destroyed or self.reference_state(orbit_system, component.body) is None:
+            return None
+
+        physics = self._body_physics(scene, component.body, orbit_system)
+
+        if not physics.solid:
+            return None
+
+        environment = self.environment(scene, component.body, orbit_system, planet_system)
+
+        radius = float(np.linalg.norm(state.position))
+
+        up = state.position / radius
+
+        height = radius - environment.ground(up)
+
+        pressure, _ = environment.air(radius, up)
+
+        if height > self.BRAKING_HEIGHT or pressure > self.BRAKING_PRESSURE:
+            return None
+
+        # The ground's frame: what the landing has to stop.
+        relative = state.velocity - np.cross(environment.spin, state.position)
+
+        vessel = component.vessel
+
+        thrust = vessel.max_thrust(pressure)
+
+        return maneuver.braking(
+            height,
+            float(np.dot(relative, up)),
+            float(np.linalg.norm(relative)),
+            environment.mu / radius ** 2,
+            thrust / vessel.mass if vessel.mass > 0.0 else 0.0
+        )
+
+    def _node_warp(
+        self,
+        component: VesselComponent,
+        orbit_system,
+        frame_time: float
+    ) -> float:
+        """Fastest the clock may run not to pass the start of the node's burn."""
+
+        node = component.node
+
+        if node is None:
+            return math.inf
+
+        burn = self.node_burn_time(component)
+
+        if not math.isfinite(burn):
+            burn = 0.0
+
+        gap = node.time - 0.5 * burn - self.NODE_LEAD - orbit_system.time
+
+        if gap <= 0.0:
+            # Burning (or late): real time until it is done
+            # or long past.
+            return 1.0 if orbit_system.time < node.time + burn + self.NODE_LEAD else math.inf
+
+        return max(1.0, gap / (4.0 * frame_time))
+
+    # =====================================================
     # Time Warp
     # =====================================================
 
@@ -869,10 +1329,12 @@ class VesselSystem:
 
         environment = self.environment(scene, component.body, orbit_system, planet_system)
 
-        if not can_coast(component.vessel, state, environment):
-            return self.PHYSICS_WARP
+        node_limit = self._node_warp(component, orbit_system, frame_time)
 
-        limit = math.inf
+        if not can_coast(component.vessel, state, environment):
+            return min(self.PHYSICS_WARP, node_limit)
+
+        limit = node_limit
 
         radius = float(np.linalg.norm(state.position))
         speed = max(float(np.linalg.norm(state.velocity)), 1.0)
@@ -980,7 +1442,10 @@ class VesselSystem:
 
                 events.append("destroyed")
 
-                Logger.info("[Vessels] %s hit the ground at %.0f m/s.", vessel.name, state.impact_speed)
+                if state.burned_up:
+                    Logger.info("[Vessels] %s burned up (its %s overheated).", vessel.name, state.burned_up)
+                else:
+                    Logger.info("[Vessels] %s hit the ground at %.0f m/s.", vessel.name, state.impact_speed)
 
                 self._clear_parts(scene, component)
 
@@ -991,6 +1456,24 @@ class VesselSystem:
             elif self._hand_over(scene, component, orbit_system) is not None:
 
                 events.append("soi")
+
+            node = component.node
+
+            if node is not None and not state.destroyed:
+
+                remaining = node.remaining(state.thrust_dv)
+
+                done = state.thrust_dv - node.baseline
+
+                # Made (or overshot) once burning.
+                if float(np.linalg.norm(done)) > 0.0 and (
+                    float(np.linalg.norm(remaining)) < self.NODE_DONE
+                    or float(np.dot(remaining, node.vector)) < 0.0
+                ):
+
+                    component.node = None
+
+                    events.append("node done")
 
         self._update_debris(scene, component, environment, dt, planet_system, orbit_system)
 
@@ -1035,6 +1518,9 @@ class VesselSystem:
                 if shape.periapsis > floor:
 
                     coast(state, environment, remaining)
+                    cool(vessel, state, remaining)
+
+                    self._steer(vessel, state, controls, remaining)
 
                     return
 
@@ -1049,6 +1535,9 @@ class VesselSystem:
                     piece = min(piece, remaining)
 
                     coast(state, environment, piece)
+                    cool(vessel, state, piece)
+
+                    self._steer(vessel, state, controls, piece)
 
                     remaining -= piece
 
@@ -1062,6 +1551,32 @@ class VesselSystem:
             step(vessel, state, environment, controls, delta)
 
             remaining -= delta
+
+    # Coasting, attitude still turns at warps up to this much
+    # simulated time a frame (s); beyond, it holds (on rails).
+    STEER_SPAN = 2.0
+
+    def _steer(
+        self,
+        vessel: Vessel,
+        state: VesselState,
+        controls: Controls,
+        span: float
+    ):
+        """Turn the coasting vessel over `span` s in physics-sized steps."""
+
+        if span > self.STEER_SPAN:
+
+            # Too fast to steer: stop any spin, as KSP does on
+            # rails.
+            state.angular_velocity = np.zeros(3)
+
+            return
+
+        steps = max(1, math.ceil(span / self.PHYSICS_STEP))
+
+        for _ in range(steps):
+            steer(vessel, state, controls, span / steps)
 
     # =====================================================
     # Debris
@@ -1627,5 +2142,7 @@ class VesselSystem:
             periapsis=shape.periapsis - sea_radius if orbit_known else None,
             destroyed=state.destroyed,
             impact_speed=state.impact_speed,
-            parachute=parachute
+            parachute=parachute,
+            burned_up=state.burned_up,
+            heat=(hot.temperature, hot.part.max_temperature, hot.part.name) if (hot := heating.hottest(vessel)) is not None else None
         )

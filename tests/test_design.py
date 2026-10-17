@@ -150,6 +150,18 @@ def test_problems_and_warnings(parts):
 
     assert any("no tank" in warning for warning in dry.warnings())
 
+    # Coming home without a heat shield.
+    home = DesignDraft("Home")
+
+    for part in ("parachute_main", "capsule", "decoupler_2m5", "tank_2m5_short", "engine_booster"):
+        home.insert(99, parts[part])
+
+    assert any("heat shield" in warning for warning in home.warnings())
+
+    home.insert(2, parts["heat_shield_2m5"])
+
+    assert not any("heat shield" in warning for warning in home.warnings())
+
 
 def test_stage_stats_add_up(parts, pathfinder):
 
@@ -171,7 +183,7 @@ def test_stage_stats_add_up(parts, pathfinder):
     assert stats[2].delta_v_vacuum == 0.0 and stats[3].engines == 0
 
     # Nothing about the vessel itself changed.
-    assert vessel.next_stage == 0 and vessel.mass == pytest.approx(159_620.0)
+    assert vessel.next_stage == 0 and vessel.mass == pytest.approx(159_970.0)
 
 
 # =========================================================

@@ -59,6 +59,7 @@ class PartDefinition:
     parachute: ParachuteSpec | None = None
     reaction_wheel_torque: float = 0.0
     crash_speed: float = 8.0        # m/s it survives hitting the ground at
+    max_temperature: float = 1400.0  # K its skin stands (vessel/heating.py)
 
     @property
     def radius(
@@ -197,7 +198,8 @@ def parse_part(
         engine=engine,
         parachute=parachute,
         reaction_wheel_torque=_number(data, "reaction_wheel_torque", where, default=0.0),
-        crash_speed=_number(data, "crash_speed", where, default=8.0, minimum=0.1)
+        crash_speed=_number(data, "crash_speed", where, default=8.0, minimum=0.1),
+        max_temperature=_number(data, "max_temperature", where, default=1400.0, minimum=300.0)
     )
 
 

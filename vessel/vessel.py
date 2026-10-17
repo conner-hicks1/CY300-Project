@@ -77,6 +77,9 @@ class PartState:
     # index, group, part) or (core index, group, "separator").
     source: tuple = ()
 
+    # Its skin's temperature (K; vessel/heating.py).
+    temperature: float = 290.0
+
     @property
     def radial(
         self
@@ -672,7 +675,7 @@ class Vessel:
             [
                 PartState(
                     s.part, s.stage, s.propellant, s.ignited, s.bottom, s.armed, s.deployed,
-                    s.count, s.group, s.offset, s.distance, s.source
+                    s.count, s.group, s.offset, s.distance, s.source, s.temperature
                 )
                 for s in self.parts
             ],

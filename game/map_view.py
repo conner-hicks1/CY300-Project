@@ -23,12 +23,16 @@ from math3d import quaternion
 #     moon it reaches, drawn round that moon
 #   * Ap / Pe: the highest and lowest points, with heights
 #   * the moons' orbits, faint, with their names
+#   * a maneuver node, and the path after its burn (green),
+#     its own Ap / Pe and encounters
 #
 # Lines are drawn in screen space (ImGui's background draw
 # list): world points projected through the camera, dimmed
 # where the body hides them.
 
 PATH_COLOR = (0.35, 0.85, 1.0, 1.0)
+PLANNED_COLOR = (0.45, 1.0, 0.55, 1.0)
+NODE_COLOR = (0.45, 1.0, 0.55, 1.0)
 ENCOUNTER_COLOR = (1.0, 0.6, 0.2, 1.0)
 MOON_COLOR = (0.75, 0.75, 0.8, 0.45)
 MARKER_COLOR = (1.0, 0.9, 0.45, 1.0)
@@ -218,9 +222,16 @@ class MapView:
         prediction,
         vessel_world: np.ndarray | None,
         moon_orbits: dict,
-        sea_radius: float
+        sea_radius: float,
+        planned=None,
+        node_world: np.ndarray | None = None,
+        node_label: str = ""
     ):
         """
+        planned: the path after the maneuver node's burn
+        (a Prediction, or None), node_world: where the node
+        is.
+
         to_world: inertial directions/offsets -> world (3x3).
         body_world: key -> world center now; body_radius:
         key -> m; moon_orbits: key -> (n, 3) points about
@@ -255,7 +266,43 @@ class MapView:
         if prediction is None:
             return
 
-        # The vessel's path, patch by patch.
+        paths = [(prediction, PATH_COLOR, MARKER_COLOR, "")]
+
+        if planned is not None:
+            paths.append((planned, PLANNED_COLOR, PLANNED_COLOR, "after "))
+
+        for path, first_color, marker_color, prefix in paths:
+            self._draw_path(draw, projection, to_world, path, first_color, marker_color, prefix, body_world, body_radius, body_names, sea_radius)
+
+        if node_world is not None:
+            self._marker(draw, projection, node_world, NODE_COLOR, node_label or "Node")
+
+        if vessel_world is not None:
+
+            pixel, front = projection.project(vessel_world[None, :])
+
+            if front[0]:
+
+                x, y = pixel[0]
+
+                draw.add_triangle_filled((x, y - 7.0), (x - 6.0, y + 5.0), (x + 6.0, y + 5.0), _color(VESSEL_COLOR))
+
+    def _draw_path(
+        self,
+        draw,
+        projection: ScreenProjection,
+        to_world,
+        prediction,
+        first_color,
+        marker_color,
+        prefix: str,
+        body_world: dict,
+        body_radius: dict,
+        body_names: dict,
+        sea_radius: float
+    ):
+        """One predicted path, patch by patch, with its markers."""
+
         for index, patch in enumerate(prediction.patches):
 
             center = body_world.get(patch.body)
@@ -265,12 +312,12 @@ class MapView:
 
             world = center + patch.points @ to_world.T
 
-            color = PATH_COLOR if index == 0 else ENCOUNTER_COLOR
+            color = first_color if index == 0 else ENCOUNTER_COLOR
 
             self._polyline(draw, projection, world, color, body_world, body_radius, 2.0)
 
             if index == 0:
-                self._apsides(draw, projection, patch, world, sea_radius, body_world, body_radius)
+                self._apsides(draw, projection, patch, world, sea_radius, body_world, body_radius, marker_color, prefix)
 
             if patch.end == "encounter" and len(world):
                 self._marker(draw, projection, world[-1], ENCOUNTER_COLOR, f"{body_names.get(patch.next_body, '')} encounter")
@@ -291,17 +338,7 @@ class MapView:
                 self._marker(draw, projection, world[-1], (1.0, 0.4, 0.3, 1.0), "Impact")
 
             if patch.end == "escape" and len(world):
-                self._marker(draw, projection, world[-1], MARKER_COLOR, "Escape")
-
-        if vessel_world is not None:
-
-            pixel, front = projection.project(vessel_world[None, :])
-
-            if front[0]:
-
-                x, y = pixel[0]
-
-                draw.add_triangle_filled((x, y - 7.0), (x - 6.0, y + 5.0), (x + 6.0, y + 5.0), _color(VESSEL_COLOR))
+                self._marker(draw, projection, world[-1], marker_color, "Escape")
 
     def _polyline(
         self,
@@ -347,7 +384,9 @@ class MapView:
         world,
         sea_radius,
         body_world,
-        body_radius
+        body_radius,
+        color=MARKER_COLOR,
+        prefix: str = ""
     ):
 
         distances = np.linalg.norm(patch.points, axis=1)
@@ -356,7 +395,10 @@ class MapView:
 
             high = int(np.argmax(distances))
 
-            self._marker(draw, projection, world[high], MARKER_COLOR, f"Ap {format.distance(distances[high] - sea_radius)}")
+            # (Not where the path starts: the vessel, or the
+            # node, is marked there.)
+            if high > 0:
+                self._marker(draw, projection, world[high], color, f"{prefix}Ap {format.distance(distances[high] - sea_radius)}")
 
         if patch.end != "impact":
 
@@ -365,7 +407,7 @@ class MapView:
             # (On an open path, only if the lowest point is
             # still ahead.)
             if low > 0:
-                self._marker(draw, projection, world[low], MARKER_COLOR, f"Pe {format.distance(distances[low] - sea_radius)}")
+                self._marker(draw, projection, world[low], color, f"{prefix}Pe {format.distance(distances[low] - sea_radius)}")
 
     def draw_navigation(
         self,

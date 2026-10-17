@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together). Kinds: command (needed to fly), tank, engine, decoupler (drops what is below it), parachute, structure (adapters, nose cones).",
+  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together). Kinds: command (needed to fly), tank, engine, decoupler (drops what is below it), parachute, structure (adapters, nose cones). max_temperature: K a part's skin stands (default 1400); a heat shield under a capsule stands ~3300 for coming in from orbit or the Moon.",
   "parts": [
     {
       "id": "capsule",
@@ -21,6 +21,46 @@
       "roughness": 0.45,
       "reaction_wheel_torque": 30000,
       "crash_speed": 10
+    },
+    {
+      "id": "heat_shield_2m5",
+      "name": "Heat shield, 2.5 m",
+      "kind": "structure",
+      "mass": 350,
+      "shape": {
+        "radius_top": 1.25,
+        "radius_bottom": 1.25,
+        "height": 0.3
+      },
+      "color": [
+        0.32,
+        0.22,
+        0.14
+      ],
+      "metallic": 0.0,
+      "roughness": 0.85,
+      "crash_speed": 10,
+      "max_temperature": 3300
+    },
+    {
+      "id": "heat_shield_1m25",
+      "name": "Heat shield, 1.25 m",
+      "kind": "structure",
+      "mass": 90,
+      "shape": {
+        "radius_top": 0.625,
+        "radius_bottom": 0.625,
+        "height": 0.2
+      },
+      "color": [
+        0.32,
+        0.22,
+        0.14
+      ],
+      "metallic": 0.0,
+      "roughness": 0.85,
+      "crash_speed": 10,
+      "max_temperature": 3300
     },
     {
       "id": "parachute_main",

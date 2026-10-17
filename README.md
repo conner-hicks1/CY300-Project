@@ -8,8 +8,9 @@ maps) under physically based atmospheres, on real orbits with a real clock.
 You fly a two-stage rocket off any body: real-scale parts, gravity, thrust,
 drag in the real air, staging, orbits followed exactly under time warp,
 patched conics to the Moon and back or out to Mars, a map of your orbit with
-transfer windows and course corrections, and a capsule that parachutes home;
-or build your own rocket in the part editor, on the pad.
+maneuver nodes, transfer windows and course corrections, reentry heating, and
+a capsule that comes home behind its heat shield and under its parachute; or
+build your own rocket in the part editor, on the pad.
 
 ![The procedural planet, seen from the surface](docs/images/scene.png)
 
@@ -417,6 +418,16 @@ or build your own rocket in the part editor, on the pad.
   250 m/s), over three seconds; the capsule then hangs nose-up under the
   canopy and lands at ~9 m/s at sea level (its limit is 10); it opens in
   air down to 0.004 bar, so it works in Mars's thin air too
+- Reentry heating (`vessel/heating.py`): fast through the air, the part
+  meeting the flow heats (Sutton-Graves stagnation flux, k sqrt(rho / r_n)
+  v^3: ~1.6 MW/m^2 back from low orbit), every part a little along its side
+  at an angle; each part's skin has its own temperature, radiating its heat
+  back out (sigma eps T^4). Past its limit (1,400 K for most parts) the part
+  burns up and takes the vessel with it. The heat shield under Pathfinder's
+  capsule (rated 3,300 K) peaks ~2,400 K coming back from low orbit and
+  ~3,000 K from the Moon; nose first, or without one, the capsule burns up.
+  The HUD shows the hottest part against its limit; the part editor warns
+  of a capsule with no shield
 - Patched conics (`vessel/soi.py`): the vessel feels one body at a time,
   the one whose sphere of influence it is in (the Moon's ~66,000 km, Earth's
   ~925,000 km; the Sun beyond). Crossing a boundary hands it over, its state
@@ -440,26 +451,51 @@ or build your own rocket in the part editor, on the pad.
   you arrive at. Earth to Mars: ~3.6 km/s from low orbit, ~250-290 days
 - Round the Sun with a planet targeted: the closest approach on the
   predicted path and a course correction (a Lambert solve to the target at
-  the cheapest arrival round it); the **F** SAS mode "maneuver" points the
-  nose along it and the HUD counts it down; once the path enters the
-  target's sphere it shows the encounter and how close it passes. A Mars
-  voyage played through in the game (window, escape burn, one ~150 m/s
-  correction) arrives on a ~100,000 km flyby
+  the cheapest arrival round it), offered as a maneuver node; once the path
+  enters the target's sphere it shows the encounter and how close it
+  passes. A Mars voyage played through in the game (window, escape burn,
+  one ~150 m/s correction) arrives on a ~100,000 km flyby
+- Maneuver nodes (`vessel/maneuver.py`, the map's Maneuver panel): plan a
+  burn at the apoapsis, the periapsis or a few minutes ahead, then move it
+  (by steps, or to an apsis) and drag its prograde / normal / radial parts;
+  the path after it is drawn in green with its own Ap / Pe and encounters,
+  and the panel shows what it costs (m/s against the delta-v left, burn
+  time at full throttle by the rocket equation, stage by stage) and what
+  the orbit becomes. Time warp slows to arrive 15 s before the burn should
+  start (half its length before the node); "Warp to it" goes as fast as
+  allowed until then. The **F** SAS mode "maneuver" points the nose along
+  what is left of the burn (the thrust's own velocity change is counted,
+  not gravity's), the HUD counts down to the burn and then what is left,
+  and the throttle is cut when it is done
+- Suggested burns, one click to a node: circularize at either apsis;
+  coming in to a planet or moon, capture at the periapsis (circular, or a
+  cheaper long orbit); come down from orbit, the periapsis into the air
+  (where it is ~0.002 bar: Earth ~41 km, Mars ~10 km) or, airless, to the
+  ground; with a target, the window's burn over the marker and the course
+  correction
+- Landing on engines (airless or thin air, below 60 km): the HUD shows when
+  to start braking (the full-throttle burn that just stops at the ground)
+  and when the ground comes without it
+- Attitude control works coasting too: SAS and the pilot's keys turn the
+  vessel in orbit at time warps up to ~2 s a frame; faster, on rails, it
+  holds still
 - Map view (**M**): the camera pulls back round the body; the vessel's path
   ahead is drawn over the view, patch by patch (its orbit, or its arc to the
   ground, or out of the sphere; an encounter's flyby round the moon it
   reaches, with its closest approach), Ap / Pe with heights, the moons'
-  orbits; lines dim where the body hides them
+  orbits; a maneuver node and the path after it; lines dim where the body
+  hides them
 - Attitude ball (navball): sky and ground about the local horizon, the
   compass points, prograde and retrograde markers, heading and pitch.
   Stability assist (**T**) holds the attitude, or (**F**) points prograde,
-  retrograde or along the course correction (maneuver)
+  retrograde or along the maneuver node's burn
 - Chase camera round the vessel (right mouse, scroll); **V** switches to the
   free camera
 - Vessel HUD: situation (landed, flying, sub-orbital, orbiting, flyby,
   escaping) and the body, throttle, propellant, stage, thrust to weight,
   delta-v left, surface / orbital / vertical speed, apoapsis and periapsis,
-  SAS mode, parachute; notices as things happen (staging, a new sphere of
+  SAS mode, parachute, the maneuver node's countdown, when to brake to
+  land, the hottest part's temperature; notices as things happen (staging, a new sphere of
   influence, the parachute opening, landing); Revert to launch in the pause
   menu
 - Giants and small bodies start in orbit; everywhere else on the ground
@@ -469,8 +505,8 @@ or build your own rocket in the part editor, on the pad.
 - Build on the launch pad (pause menu > Build vessel): the rocket stands
   there and changes as you edit; right mouse turns the view
 - Parts on the left by kind (command, tanks, engines, separators,
-  parachutes, structure: 19 at 1.25 m and 2.5 m, with adapters, a nose
-  cone, a radial separator and a 1.25 m booster engine; tooltips with mass,
+  parachutes, structure: 21 at 1.25 m and 2.5 m, with adapters, a nose
+  cone, heat shields, a radial separator and a 1.25 m booster engine; tooltips with mass,
   propellant, thrust and Isp); a click adds one below the selected part, or
   into the selected radial group
 - The stack on the right: select a part (it lights up) to move it, remove
@@ -483,7 +519,7 @@ or build your own rocket in the part editor, on the pad.
   The copies are counted in mass, thrust, drag and inertia, each burns its
   own tanks, they light with the core and drop off (as debris) when their
   separator fires; their thrust stays on the axis. Pathfinder Heavy (built
-  in) is Pathfinder with two: 204 t at liftoff, ~10.8 km/s
+  in) is Pathfinder with two: 205 t at liftoff, ~10.6 km/s
 - The numbers per stage: delta-v in vacuum and at the launch body's surface,
   thrust to weight there, burn time (each stage from its firing to the next
   burnout: boosters and core burning together, then the core alone); what stops it flying (no command part,
@@ -520,7 +556,7 @@ or build your own rocket in the part editor, on the pad.
 - A disk cache (`data/cache/`) of terrain chunks, keyed by their inputs and
   the generators' source code: chunks stream in ~70% faster on a second
   visit; oldest entries pruned past 2 GB
-- 586 unit tests
+- 600 unit tests
 
 ## Getting Started
 
@@ -574,8 +610,8 @@ planet streams in over the first few seconds.
 | **A** / **D** | Yaw left / right |
 | **Q** / **E** | Roll |
 | **T** | Stability assist on / off |
-| **F** | Stability assist mode: hold attitude, prograde, retrograde, maneuver (the course correction to the map's target) |
-| **M** | Map view (right mouse turns it, scroll zooms; choose a target in its navigation panel) |
+| **F** | Stability assist mode: hold attitude, prograde, retrograde, maneuver (along the planned burn) |
+| **M** | Map view (right mouse turns it, scroll zooms; choose a target in its navigation panel, plan burns in its maneuver panel) |
 | Right mouse + move, scroll | Swing the camera round the vessel; closer / farther |
 | **V** | Free camera: hold right mouse, **W A S D** move, **Space** up, **Shift** down (along the ground, around the planet from orbit; speed grows with altitude) |
 | **.** / **,** | Time warp faster / slower |

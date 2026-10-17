@@ -122,6 +122,15 @@ def test_pressure_formatting():
     assert format.pressure(0.006) == "600 Pa"
 
 
+def test_countdown_formatting():
+
+    assert format.countdown(45.2) == "45 s"
+    assert format.countdown(185.0) == "3:05"
+    assert format.countdown(3_723.0) == "1:02:03"
+    assert format.countdown(4 * 86_400 + 3_723.0) == "4 d 1:02:03"
+    assert format.countdown(float("inf")) == "-"
+
+
 def test_body_facts():
 
     facts = dict(format.body_facts(BodyComponent(surface_gravity=9.81, rotation_hours=-5832.0, surface_pressure_bar=0.0)))

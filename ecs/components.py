@@ -225,6 +225,10 @@ class VesselComponent:
     plume_entities: list = field(default_factory=list)
     canopy_entities: list = field(default_factory=list)
 
+    # The planned burn (vessel/maneuver.py ManeuverNode), or
+    # None.
+    node: object = None
+
 
 # A spent stage, falling on its own (no pilot) until it hits
 # the ground or is left far behind. body: as VesselComponent

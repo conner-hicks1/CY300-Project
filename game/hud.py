@@ -1,3 +1,5 @@
+import math
+
 from imgui_bundle import imgui
 
 from game import format
@@ -18,6 +20,9 @@ PANEL_FLAGS = (
 )
 
 WARP_COLOR = (1.0, 0.82, 0.3, 1.0)
+GOOD_COLOR = (0.5, 1.0, 0.6, 1.0)
+WARN_COLOR = (1.0, 0.82, 0.3, 1.0)
+BAD_COLOR = (1.0, 0.45, 0.35, 1.0)
 
 SITUATION_COLORS = {
     "Landed": (0.6, 0.85, 0.6, 1.0),
@@ -90,7 +95,8 @@ class FlightHud:
         fps: float | None = None,
         vessel=None,
         navball=None,
-        maneuver: float | None = None
+        maneuver: tuple[float, float, float] | None = None,
+        braking=None
     ):
         """
         vessel: the vessel's readout (systems/vessel_system.py
@@ -116,7 +122,7 @@ class FlightHud:
 
         if vessel is not None:
 
-            self._draw_vessel(vessel, (x + width * 0.5, y + height - 10.0), maneuver)
+            self._draw_vessel(vessel, (x + width * 0.5, y + height - 10.0), maneuver, braking)
 
             if navball is not None and not vessel.destroyed:
 
@@ -140,7 +146,9 @@ class FlightHud:
 
             if vessel.destroyed:
                 self._draw_banner(
-                    f"{vessel.name} hit the ground at {vessel.impact_speed:,.0f} m/s and was destroyed.",
+                    f"{vessel.name} burned up coming in: its {vessel.burned_up.lower()} overheated."
+                    if vessel.burned_up
+                    else f"{vessel.name} hit the ground at {vessel.impact_speed:,.0f} m/s and was destroyed.",
                     "Esc > Revert to launch",
                     (x + width * 0.5, y + height * 0.3)
                 )
@@ -289,8 +297,13 @@ class FlightHud:
     def _draw_vessel(
         vessel,
         position,
-        maneuver: float | None = None
+        maneuver: tuple[float, float, float] | None = None,
+        braking=None
     ):
+        """
+        maneuver: the node's (m/s left, s until its burn
+        starts, burn s); braking: vessel/maneuver.py Braking.
+        """
 
         imgui.set_next_window_pos(position, imgui.Cond_.always, (0.5, 1.0))
         imgui.set_next_window_bg_alpha(0.55)
@@ -360,7 +373,43 @@ class FlightHud:
                 imgui.text_colored(WARP_COLOR, "SAS off (T)")
 
             if maneuver is not None:
-                imgui.text_colored((0.5, 1.0, 0.6, 1.0), f"Maneuver {maneuver:,.0f} m/s")
+
+                left, start_in, burn = maneuver
+
+                imgui.text_colored(GOOD_COLOR, f"Maneuver {left:,.1f} m/s")
+
+                if start_in > 0.0:
+                    imgui.text_colored(WARN_COLOR if start_in < 30.0 else GOOD_COLOR, f"  burn in {format.countdown(start_in)}")
+                else:
+                    imgui.text_colored(WARN_COLOR, f"  burn now ({format.countdown(burn)})")
+
+            if braking is not None and math.isfinite(braking.start_in):
+
+                urgent = braking.start_in < 10.0
+
+                imgui.text_colored(
+                    BAD_COLOR if urgent else WARN_COLOR,
+                    f"Brake in {format.countdown(braking.start_in)}" if braking.start_in > 0.5 else "BRAKE NOW"
+                )
+
+                imgui.text_disabled(f"  at {format.distance(braking.height)}; ground in {format.countdown(braking.impact_in)}")
+
+            elif braking is not None:
+
+                imgui.text_colored(BAD_COLOR, "Engines cannot stop the fall")
+
+            heat = vessel.heat
+
+            if heat is not None and heat[0] > 0.35 * heat[1]:
+
+                share = heat[0] / heat[1]
+
+                imgui.text_colored(
+                    BAD_COLOR if share > 0.85 else WARN_COLOR if share > 0.6 else (0.85, 0.85, 0.85, 1.0),
+                    f"Heat {heat[0]:,.0f} / {heat[1]:,.0f} K"
+                )
+
+                imgui.text_disabled(f"  {heat[2]}")
 
             if vessel.parachute == "armed":
                 imgui.text_colored(WARP_COLOR, "Parachute armed")

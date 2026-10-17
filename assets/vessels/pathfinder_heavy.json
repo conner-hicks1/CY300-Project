@@ -12,6 +12,9 @@
       "part": "capsule"
     },
     {
+      "part": "heat_shield_2m5"
+    },
+    {
       "part": "decoupler_2m5",
       "stage": 3
     },

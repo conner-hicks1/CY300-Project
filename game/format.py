@@ -44,6 +44,32 @@ def duration(
     return f"{hours:.1f} h" if hours < 48.0 else f"{hours / 24.0:.1f} days"
 
 
+def countdown(
+    seconds: float
+) -> str:
+    """Seconds as a clock: 45 s, 3:05, 1:02:03, 4 d 1:02:03."""
+
+    if seconds != seconds or seconds == float("inf"):
+        return "-"
+
+    total = int(round(abs(seconds)))
+
+    days, rest = divmod(total, 86_400)
+    hours, rest = divmod(rest, 3_600)
+    minutes, secs = divmod(rest, 60)
+
+    if days:
+        return f"{days:,} d {hours}:{minutes:02d}:{secs:02d}"
+
+    if hours:
+        return f"{hours}:{minutes:02d}:{secs:02d}"
+
+    if minutes:
+        return f"{minutes}:{secs:02d}"
+
+    return f"{secs} s"
+
+
 def body_facts(
     component: BodyComponent
 ) -> list[tuple[str, str]]:

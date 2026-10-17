@@ -1,13 +1,13 @@
 import math
 
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import numpy as np
 
 from math3d import quaternion
 
-from vessel import kepler
+from vessel import heating, kepler
 from vessel.vessel import BODY_DRAG_COEFFICIENT, Vessel
 
 
@@ -34,6 +34,9 @@ from vessel.vessel import BODY_DRAG_COEFFICIENT, Vessel
 #             part's crash speed) or destroyed; a landed
 #             vessel turns with the body until the engines
 #             lift it
+#   heat      fast through the air, the leading part's skin
+#             heats (vessel/heating.py); past its limit the
+#             vessel burns up
 #
 # Coasting outside the air without thrust, the orbit is
 # followed exactly instead (vessel/kepler.py): any time
@@ -60,6 +63,14 @@ class VesselState:
     # Speed it hit the ground at, when destroyed (m/s).
     impact_speed: float = 0.0
 
+    # Destroyed by heating: the part that burned up's name.
+    burned_up: str = ""
+
+    # The thrust's velocity change so far (m/s, inertial;
+    # gravity and drag not counted): what a maneuver node's
+    # burn has done.
+    thrust_dv: np.ndarray = field(default_factory=lambda: np.zeros(3))
+
     def copy(self) -> "VesselState":
 
         return VesselState(
@@ -69,7 +80,9 @@ class VesselState:
             self.angular_velocity.copy(),
             self.landed,
             self.destroyed,
-            self.impact_speed
+            self.impact_speed,
+            self.burned_up,
+            self.thrust_dv.copy()
         )
 
     @property
@@ -123,6 +136,9 @@ class Environment:
 
     # Radius above which there is no air worth counting.
     air_top: float = 0.0
+
+    # The air's temperature (K) at a radius (m); None: no air.
+    temperature: Callable[[float], float] | None = None
 
 
 # =========================================================
@@ -202,7 +218,11 @@ def step(
 
     mass = vessel.mass
 
-    acceleration = gravity(environment, state.position) + state.up * (thrust / mass)
+    push = state.up * (thrust / mass)
+
+    acceleration = gravity(environment, state.position) + push
+
+    state.thrust_dv = state.thrust_dv + push * dt
 
     if density > VACUUM_DENSITY:
 
@@ -211,6 +231,17 @@ def step(
         vessel.open_parachutes(pressure, speed, dt)
 
         acceleration -= 0.5 * density * speed * air_velocity * vessel.drag_area() / mass
+
+    ambient = environment.temperature(radius) if environment.temperature is not None and density > VACUUM_DENSITY else heating.SPACE_TEMPERATURE
+
+    burned = heating.heat(vessel, state.up, air_velocity, density if density > VACUUM_DENSITY else 0.0, ambient, dt)
+
+    if burned is not None:
+
+        state.destroyed = True
+        state.burned_up = burned.part.name
+
+        return
 
     vessel.burn(dt, pressure)
 
@@ -250,6 +281,27 @@ def coast(
 
     # Still spinning, if it was.
     _spin(state, dt)
+
+
+def steer(
+    vessel: Vessel,
+    state: VesselState,
+    controls: Controls,
+    dt: float
+):
+    """Coasting: the pilot's (and SAS's) turning, in space (no air), without moving it."""
+
+    _turn(vessel, state, controls, 0.0, dt, state.velocity)
+
+
+def cool(
+    vessel: Vessel,
+    state: VesselState,
+    dt: float
+):
+    """Coasting in space: the skins radiate their heat away."""
+
+    heating.heat(vessel, state.up, np.zeros(3), 0.0, heating.SPACE_TEMPERATURE, dt)
 
 
 def _turn(

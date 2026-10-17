@@ -517,6 +517,13 @@ class DesignDraft:
         if self.entries and self.entries[0].part.kind == "decoupler":
             found.append("A separator at the very top drops nothing useful.")
 
+        # Meant to come home (a parachute), with nothing to take
+        # the heat of coming in from orbit.
+        if any(entry.part.kind == "parachute" for entry in self.entries) and not any(
+            entry.part.max_temperature >= 2_500.0 for entry in self.entries
+        ):
+            found.append("No heat shield: coming back from orbit, the capsule burns up (put one under it).")
+
         return found
 
     # -----------------------------------------------------
