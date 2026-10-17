@@ -218,10 +218,10 @@ class VesselComponent:
     body: Entity
     controls: object
 
-    # Child entities drawing the parts (top down), the
-    # exhaust plume of each burning engine, and the canopy of
-    # each open parachute.
-    part_entities: list = field(default_factory=list)
+    # Child entities drawing the parts (id(PartState) ->
+    # one per copy), the exhaust plume of each burning
+    # engine copy, and the canopy of each open parachute.
+    part_entities: dict = field(default_factory=dict)
     plume_entities: list = field(default_factory=list)
     canopy_entities: list = field(default_factory=list)
 

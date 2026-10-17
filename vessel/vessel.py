@@ -23,19 +23,29 @@ PARACHUTE_OPENING = 3.0
 # A Vessel's Parts
 # =========================================================
 #
-# The stack as it flies: which parts are still attached,
+# The vessel as it flies: which parts are still attached,
 # how much propellant each tank holds, which engines burn,
 # and what that adds up to (mass, center of mass, thrust,
 # moments of inertia). Physics is in vessel/physics.py.
 #
-# Stages fire in order with Space: an engine ignites at
-# its stage; a separator fires at its stage and drops
-# everything below it. Separators also split the
-# propellant: engines burn only the tanks of their own
-# section (between separators), all of them evenly.
+# The core stack runs along the vessel's axis. Radial
+# groups hang on the side of a core part, `count` copies
+# evenly round it (side boosters): one PartState stands for
+# all the copies (they are identical and fly identically,
+# so thrust stays on the axis). Parts are listed top down,
+# each core part followed by its radial groups' parts.
 #
-# Positions along the stack are heights above the bottom of
-# the lowest attached part (the vessel's origin).
+# Stages fire in order with Space: an engine ignites at its
+# stage; a core separator drops everything below it (radial
+# groups on what it drops go too); a radial separator drops
+# its group. Separators split the propellant: an engine
+# burns only the tanks of its own section, all evenly: the
+# core between separators, or each radial copy its own
+# group's tanks.
+#
+# Positions are heights above the bottom of the lowest core
+# part (the vessel's origin); radial copies stand `distance`
+# m off the axis.
 
 
 @dataclass(slots=True)
@@ -54,6 +64,26 @@ class PartState:
     armed: bool = False
     deployed: float = 0.0
 
+    # Radial parts: how many copies, which group (None: the
+    # core stack), the group's height above the bottom of
+    # the part it hangs on, and how far off the axis it
+    # stands (set by restacking).
+    count: int = 1
+    group: int | None = None
+    offset: float = 0.0
+    distance: float = 0.0
+
+    # Where it is in the design: (core index,) or (core
+    # index, group, part) or (core index, group, "separator").
+    source: tuple = ()
+
+    @property
+    def radial(
+        self
+    ) -> bool:
+
+        return self.group is not None
+
 
 @dataclass(frozen=True, slots=True)
 class StageStats:
@@ -61,12 +91,12 @@ class StageStats:
 
     stage: int
     start_mass: float               # kg when it fires
-    end_mass: float                 # kg when its propellant is gone
+    end_mass: float                 # kg when it stops burning (next burnout)
     delta_v_vacuum: float           # m/s
     delta_v_surface: float          # m/s at the launch body's surface pressure
     twr_surface: float              # thrust / weight at its start, on the launch body's surface
     burn_time: float                # s at full throttle
-    engines: int
+    engines: int                    # engine copies burning
 
 
 @dataclass(slots=True)
@@ -91,28 +121,106 @@ class Vessel:
         design: VesselDesign
     ) -> "Vessel":
 
-        vessel = cls(
-            design.name,
-            [PartState(entry.part, entry.stage, propellant=entry.part.propellant) for entry in design.stack]
-        )
+        parts = []
+
+        group = 0
+
+        for index, entry in enumerate(design.stack):
+
+            parts.append(PartState(entry.part, entry.stage, propellant=entry.part.propellant, source=(index,)))
+
+            for number, radial in enumerate(entry.radial):
+
+                if radial.decoupler is not None:
+                    parts.append(PartState(
+                        radial.decoupler.part,
+                        radial.decoupler.stage,
+                        count=radial.symmetry,
+                        group=group,
+                        offset=radial.offset,
+                        source=(index, number, "separator")
+                    ))
+
+                for position, member in enumerate(radial.stack):
+                    parts.append(PartState(
+                        member.part,
+                        member.stage,
+                        propellant=member.part.propellant,
+                        count=radial.symmetry,
+                        group=group,
+                        offset=radial.offset,
+                        source=(index, number, position)
+                    ))
+
+                group += 1
+
+        vessel = cls(design.name, parts)
 
         vessel._restack()
 
         return vessel
 
     def _restack(self):
+        """Heights of every part (and radial copies' distance off the axis) from the stack as it is now."""
 
         height = 0.0
 
         for state in reversed(self.parts):
 
-            state.bottom = height
+            if not state.radial:
 
-            height += state.part.height
+                state.bottom = height
+
+                height += state.part.height
+
+        # Radial groups: on the core part listed before them.
+        groups: dict[int, tuple[PartState, list[PartState]]] = {}
+
+        parent = None
+
+        for state in self.parts:
+
+            if not state.radial:
+                parent = state
+            elif parent is not None:
+                groups.setdefault(state.group, (parent, []))[1].append(state)
+
+        for parent, members in groups.values():
+
+            stacked = [member for member in members if member.part.kind != "decoupler"]
+            separators = [member for member in members if member.part.kind == "decoupler"]
+
+            reach = max((member.part.radius for member in stacked), default=0.0)
+
+            distance = parent.part.radius + reach
+
+            level = parent.bottom + (members[0].offset if members else 0.0)
+
+            for member in reversed(stacked):
+
+                member.bottom = level
+                member.distance = distance
+
+                level += member.part.height
+
+            span = level - parent.bottom - (members[0].offset if members else 0.0)
+
+            for separator in separators:
+
+                # Between the core and the group, halfway up.
+                separator.bottom = parent.bottom + separator.offset + 0.5 * (span - separator.part.height)
+                separator.distance = parent.part.radius + separator.part.radius
 
     # -----------------------------------------------------
     # Sums
     # -----------------------------------------------------
+
+    @property
+    def core(
+        self
+    ) -> list[PartState]:
+
+        return [state for state in self.parts if not state.radial]
 
     @property
     def mass(
@@ -120,32 +228,40 @@ class Vessel:
     ) -> float:
         """kg, with propellant."""
 
-        return sum(state.part.mass + state.propellant for state in self.parts)
+        return sum((state.part.mass + state.propellant) * state.count for state in self.parts)
 
     @property
     def height(
         self
     ) -> float:
+        """The core stack's (m)."""
 
-        return sum(state.part.height for state in self.parts)
+        return sum(state.part.height for state in self.core)
 
     @property
     def radius(
         self
     ) -> float:
+        """Farthest any part reaches from the axis (m)."""
 
-        return max(state.part.radius for state in self.parts)
+        return max(
+            (state.distance + state.part.radius if state.radial else state.part.radius for state in self.parts),
+            default=0.0
+        )
 
     @property
     def center_of_mass(
         self
     ) -> float:
-        """Height above the origin (m)."""
+        """Height above the origin (m): symmetric copies keep it on the axis."""
 
         total = self.mass
 
+        if total <= 0.0:
+            return 0.0
+
         return sum(
-            (state.part.mass + state.propellant) * (state.bottom + state.part.height * 0.5)
+            (state.part.mass + state.propellant) * state.count * (state.bottom + state.part.height * 0.5)
             for state in self.parts
         ) / total
 
@@ -155,7 +271,8 @@ class Vessel:
     ) -> tuple[float, float]:
         """
         (pitch / yaw about the center of mass, roll), kg m^2:
-        each part a solid cylinder of its own mass.
+        each part a solid cylinder of its own mass; radial
+        copies also by their distance off the axis.
         """
 
         com = self.center_of_mass
@@ -170,8 +287,22 @@ class Vessel:
 
             offset = state.bottom + length * 0.5 - com
 
-            pitch += mass * (3.0 * radius * radius + length * length) / 12.0 + mass * offset * offset
-            roll += 0.5 * mass * radius * radius
+            own_pitch = mass * (3.0 * radius * radius + length * length) / 12.0 + mass * offset * offset
+            own_roll = 0.5 * mass * radius * radius
+
+            if state.radial:
+
+                d2 = state.distance * state.distance
+
+                # A ring of copies: half its d^2 about either
+                # pitch axis, all of it about the roll axis.
+                pitch += state.count * (own_pitch + 0.5 * mass * d2)
+                roll += state.count * (own_roll + mass * d2)
+
+            else:
+
+                pitch += own_pitch
+                roll += own_roll
 
         return pitch, roll
 
@@ -180,22 +311,24 @@ class Vessel:
         self
     ) -> float:
 
-        return sum(state.propellant for state in self.parts)
+        return sum(state.propellant * state.count for state in self.parts)
 
     @property
     def propellant_capacity(
         self
     ) -> float:
 
-        return sum(state.part.propellant for state in self.parts)
+        return sum(state.part.propellant * state.count for state in self.parts)
 
     @property
     def crash_speed(
         self
     ) -> float:
-        """What the bottom part survives hitting the ground at (m/s)."""
+        """What the bottom core part survives hitting the ground at (m/s)."""
 
-        return self.parts[-1].part.crash_speed
+        core = self.core
+
+        return core[-1].part.crash_speed if core else 8.0
 
     @property
     def stages_left(
@@ -213,10 +346,15 @@ class Vessel:
     def _section_of(
         self,
         index: int
-    ) -> int:
-        """Separators passed from the top down to this part."""
+    ) -> tuple:
+        """The core's separators passed from the top down; or the part's radial group."""
 
-        return sum(1 for state in self.parts[:index] if state.part.kind == "decoupler")
+        state = self.parts[index]
+
+        if state.radial:
+            return ("radial", state.group)
+
+        return ("core", sum(1 for other in self.parts[:index] if other.part.kind == "decoupler" and not other.radial))
 
     def _section_tanks(
         self,
@@ -234,7 +372,7 @@ class Vessel:
     def burning_engines(
         self
     ) -> list[tuple[int, PartState]]:
-        """Ignited engines with propellant to burn."""
+        """Ignited engines with propellant to burn (one entry for all a radial group's copies)."""
 
         return [
             (index, state)
@@ -247,21 +385,30 @@ class Vessel:
     def section_propellant(
         self
     ) -> tuple[float, float]:
-        """(left, capacity) kg in the tanks the burning (or next) engines draw on."""
+        """(left, capacity) kg in the tanks the burning (or next) engines draw on, every copy counted."""
 
         engines = self.burning_engines()
 
         if engines:
-            index = engines[0][0]
+            indices = [index for index, _ in engines]
         else:
-            index = max(
-                (i for i, state in enumerate(self.parts) if state.part.engine is not None),
-                default=len(self.parts) - 1
-            )
+            indices = [
+                max(
+                    (i for i, state in enumerate(self.parts) if state.part.engine is not None and not state.radial),
+                    default=len(self.parts) - 1
+                )
+            ] if self.parts else []
 
-        tanks = self._section_tanks(index)
+        tanks = {}
 
-        return sum(t.propellant for t in tanks), sum(t.part.propellant for t in tanks)
+        for index in indices:
+            for tank in self._section_tanks(index):
+                tanks[id(tank)] = tank
+
+        return (
+            sum(tank.propellant * tank.count for tank in tanks.values()),
+            sum(tank.part.propellant * tank.count for tank in tanks.values())
+        )
 
     @staticmethod
     def isp(
@@ -276,23 +423,31 @@ class Vessel:
 
         return max(engine.isp_vacuum + (engine.isp_sea_level - engine.isp_vacuum) * share, 1.0)
 
+    @staticmethod
+    def _flow(
+        state: PartState
+    ) -> float:
+        """One copy's propellant flow at full throttle (kg/s)."""
+
+        engine = state.part.engine
+
+        return engine.thrust_vacuum / (engine.isp_vacuum * G0)
+
     def thrust(
         self,
         pressure_bar: float = 0.0
     ) -> tuple[float, float]:
         """
-        (thrust N, propellant flow kg/s) at the throttle.
-        The flow is fixed by the engine; the push it gives
-        falls with the outside pressure (Isp).
+        (thrust N, propellant flow kg/s) at the throttle,
+        every copy counted. The flow is fixed by the engine;
+        the push it gives falls with the outside pressure.
         """
 
         thrust = flow = 0.0
 
         for _, state in self.burning_engines():
 
-            engine = state.part.engine
-
-            mass_flow = engine.thrust_vacuum / (engine.isp_vacuum * G0) * self.throttle
+            mass_flow = self._flow(state) * self.throttle * state.count
 
             flow += mass_flow
             thrust += mass_flow * self.isp(state, pressure_bar) * G0
@@ -324,19 +479,15 @@ class Vessel:
         mass).
         """
 
-        torque = sum(state.part.reaction_wheel_torque for state in self.parts)
+        torque = sum(state.part.reaction_wheel_torque * state.count for state in self.parts)
 
         com = self.center_of_mass
 
         for _, state in self.burning_engines():
 
-            engine = state.part.engine
+            push = self._flow(state) * self.throttle * self.isp(state, pressure_bar) * G0 * state.count
 
-            mass_flow = engine.thrust_vacuum / (engine.isp_vacuum * G0) * self.throttle
-
-            push = mass_flow * self.isp(state, pressure_bar) * G0
-
-            torque += push * math.sin(math.radians(engine.gimbal)) * max(com - state.bottom, 0.0)
+            torque += push * math.sin(math.radians(state.part.engine.gimbal)) * max(com - state.bottom, 0.0)
 
         return torque
 
@@ -345,13 +496,15 @@ class Vessel:
         dt: float,
         pressure_bar: float = 0.0
     ):
-        """Drain `dt` seconds of the engines' propellant from their sections' tanks, evenly."""
+        """
+        Drain `dt` seconds of the engines' propellant from
+        their sections' tanks, evenly (per copy: each radial
+        copy feeds its own engine).
+        """
 
         for index, state in self.burning_engines():
 
-            engine = state.part.engine
-
-            need = engine.thrust_vacuum / (engine.isp_vacuum * G0) * self.throttle * dt
+            need = self._flow(state) * self.throttle * dt
 
             tanks = [tank for tank in self._section_tanks(index) if tank.propellant > 0.0]
 
@@ -379,9 +532,10 @@ class Vessel:
         self
     ) -> int | None:
         """
-        Fire the next stage: ignite its engines, fire its
-        separators (dropping everything below each). Returns
-        the stage fired, None when none are left.
+        Fire the next stage: ignite its engines, arm its
+        parachutes, fire its separators (a core one drops
+        everything below it, a radial one its group).
+        Returns the stage fired, None when none are left.
         """
 
         stages = sorted({state.stage for state in self.parts if state.stage is not None and state.stage >= self.next_stage})
@@ -393,21 +547,40 @@ class Vessel:
 
         self.next_stage = stage + 1
 
-        # The highest separator of the stage drops all below.
+        dropped = []
+
+        # The highest core separator of the stage drops all
+        # below (radial groups on those parts with them).
         cut = next(
             (
                 index
                 for index, state in enumerate(self.parts)
-                if state.stage == stage and state.part.kind == "decoupler"
+                if state.stage == stage and state.part.kind == "decoupler" and not state.radial
             ),
             None
         )
 
         if cut is not None:
 
-            self.dropped.extend(self.parts[cut:])
+            dropped.extend(self.parts[cut:])
 
             self.parts = self.parts[:cut]
+
+        groups = {
+            state.group
+            for state in self.parts
+            if state.radial and state.stage == stage and state.part.kind == "decoupler"
+        }
+
+        if groups:
+
+            dropped.extend(state for state in self.parts if state.group in groups)
+
+            self.parts = [state for state in self.parts if state.group not in groups]
+
+        if dropped:
+
+            self.dropped.extend(dropped)
 
             self._restack()
 
@@ -446,16 +619,35 @@ class Vessel:
     def drag_area(
         self
     ) -> float:
-        """Drag coefficient x area (m^2): the stack nose-first, plus open parachutes."""
+        """
+        Drag coefficient x area (m^2): the core nose-first,
+        each radial copy's own front, plus open parachutes.
+        """
 
-        area = BODY_DRAG_COEFFICIENT * math.pi * self.radius ** 2
+        core = max((state.part.radius for state in self.core), default=0.0)
+
+        front = math.pi * core ** 2
+
+        widest: dict[int, tuple[float, int]] = {}
+
+        for state in self.parts:
+
+            if state.radial:
+
+                radius, count = widest.get(state.group, (0.0, state.count))
+
+                widest[state.group] = (max(radius, state.part.radius), count)
+
+        front += sum(math.pi * radius ** 2 * count for radius, count in widest.values())
+
+        area = BODY_DRAG_COEFFICIENT * front
 
         for state in self.parts:
 
             chute = state.part.parachute
 
             if chute is not None and state.deployed > 0.0:
-                area += chute.drag_coefficient * chute.area * state.deployed
+                area += chute.drag_coefficient * chute.area * state.deployed * state.count
 
         return area
 
@@ -466,6 +658,10 @@ class Vessel:
 
         return [state for state in self.parts if state.part.parachute is not None]
 
+    # -----------------------------------------------------
+    # Delta-v
+    # -----------------------------------------------------
+
     def _copy(
         self
     ) -> "Vessel":
@@ -473,10 +669,65 @@ class Vessel:
 
         return Vessel(
             self.name,
-            [PartState(s.part, s.stage, s.propellant, s.ignited, s.bottom, s.armed, s.deployed) for s in self.parts],
+            [
+                PartState(
+                    s.part, s.stage, s.propellant, s.ignited, s.bottom, s.armed, s.deployed,
+                    s.count, s.group, s.offset, s.distance, s.source
+                )
+                for s in self.parts
+            ],
             self.next_stage,
             1.0
         )
+
+    def _burn_to_burnout(
+        self,
+        surface_pressure: float
+    ) -> tuple[float, float, float] | None:
+        """
+        Full throttle until the first burning section runs
+        dry: (delta-v in vacuum, at the surface pressure,
+        seconds). None when nothing burns.
+        """
+
+        engines = self.burning_engines()
+
+        if not engines:
+            return None
+
+        # Each section's flow (per copy) and propellant left
+        # (per copy): the first to run out ends the burn.
+        sections: dict[tuple, list[float]] = {}
+
+        for index, state in engines:
+
+            key = self._section_of(index)
+
+            if key not in sections:
+                sections[key] = [0.0, sum(tank.propellant for tank in self._section_tanks(index))]
+
+            sections[key][0] += self._flow(state)
+
+        time = min(left / flow for flow, left in sections.values() if flow > 0.0)
+
+        vacuum, flow = self.thrust(0.0)
+        surface, _ = self.thrust(surface_pressure)
+
+        start = self.mass
+        end = start - flow * time
+
+        ratio = math.log(start / end) if end > 0.0 else 0.0
+
+        self.burn(time)
+
+        # (Floating-point dregs: the section that ran out is
+        # empty.)
+        for index, _ in engines:
+            for tank in self._section_tanks(index):
+                if tank.propellant < 1e-6:
+                    tank.propellant = 0.0
+
+        return vacuum / flow * ratio, surface / flow * ratio, time
 
     def stage_stats(
         self,
@@ -487,53 +738,71 @@ class Vessel:
         Every stage still to fire, in order: what it weighs,
         its delta-v in vacuum and at the surface pressure,
         its thrust to weight on the surface (gravity m/s^2),
-        how long it burns. Stages that only separate or arm
-        parachutes have no delta-v.
+        how long it burns: from its firing until the next
+        engine runs dry (when the next stage would fire).
+        Engines still burning after the last stage add to it.
+        Stages that only separate or arm parachutes, with
+        nothing burning, have no delta-v.
         """
 
         copy = self._copy()
 
         stats = []
 
-        for _ in range(len(copy.parts) + 8):
+        for _ in range(len(copy.parts) + 16):
 
             fired = copy.stage()
 
             if fired is None:
                 break
 
-            engines = copy.burning_engines()
-
             start = copy.mass
 
-            if not engines:
+            surface_thrust = copy.thrust(surface_pressure)[0]
+
+            engines = sum(state.count for _, state in copy.burning_engines())
+
+            burned = copy._burn_to_burnout(surface_pressure)
+
+            if burned is None:
 
                 stats.append(StageStats(fired, start, start, 0.0, 0.0, 0.0, 0.0, 0))
 
                 continue
 
-            vacuum, flow = copy.thrust(0.0)
-            surface, _ = copy.thrust(surface_pressure)
-
-            left, _ = copy.section_propellant()
-
-            end = start - left
-
-            ratio = math.log(start / end) if end > 0.0 else 0.0
+            vacuum, surface, time = burned
 
             stats.append(StageStats(
                 stage=fired,
                 start_mass=start,
-                end_mass=end,
-                delta_v_vacuum=vacuum / flow * ratio,
-                delta_v_surface=surface / flow * ratio,
-                twr_surface=surface / (start * gravity),
-                burn_time=left / flow if flow > 0.0 else 0.0,
-                engines=len(engines)
+                end_mass=copy.mass,
+                delta_v_vacuum=vacuum,
+                delta_v_surface=surface,
+                twr_surface=surface_thrust / (start * gravity),
+                burn_time=time,
+                engines=engines
             ))
 
-            for tank in copy._section_tanks(engines[0][0]):
-                tank.propellant = 0.0
+        # Engines still burning after the last stage: theirs.
+        while stats:
+
+            burned = copy._burn_to_burnout(surface_pressure)
+
+            if burned is None:
+                break
+
+            last = stats[-1]
+
+            stats[-1] = StageStats(
+                last.stage,
+                last.start_mass,
+                copy.mass,
+                last.delta_v_vacuum + burned[0],
+                last.delta_v_surface + burned[1],
+                last.twr_surface,
+                last.burn_time + burned[2],
+                last.engines
+            )
 
         return stats
 
@@ -542,35 +811,25 @@ class Vessel:
         pressure_bar: float = 0.0
     ) -> float:
         """
-        m/s the vessel has left, stage by stage (each burns
-        its own section's propellant, then drops it).
+        m/s the vessel has left: what burns now, then stage by
+        stage (vacuum unless a pressure is given).
         """
 
-        # Work on a copy so nothing changes.
         copy = self._copy()
 
         total = 0.0
 
-        for _ in range(len(copy.parts) + 1):
+        # What is burning already, to its burnouts first.
+        while True:
 
-            engines = copy.burning_engines()
+            burned = copy._burn_to_burnout(pressure_bar)
 
-            if engines:
-
-                thrust, flow = copy.thrust(pressure_bar)
-
-                isp = thrust / (flow * G0)
-
-                start = copy.mass
-
-                left, _ = copy.section_propellant()
-
-                total += isp * G0 * math.log(start / (start - left))
-
-                for tank in copy._section_tanks(engines[0][0]):
-                    tank.propellant = 0.0
-
-            if copy.stage() is None:
+            if burned is None:
                 break
+
+            total += burned[1] if pressure_bar else burned[0]
+
+        for stage in copy.stage_stats(pressure_bar):
+            total += stage.delta_v_surface if pressure_bar else stage.delta_v_vacuum
 
         return total

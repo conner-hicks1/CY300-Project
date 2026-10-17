@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from imgui_bundle import imgui
 
 from vessel.design import (
+    SEPARATOR,
     DesignDraft,
+    DraftGroup,
     SavedDesign,
     list_designs,
     open_design,
@@ -25,15 +27,19 @@ from vessel.vessel import Vessel
 #                   below the selected one (or at the bottom)
 #   Vessel (right)  the stack from the top down: select a
 #                   part to move it, remove it or change its
-#                   stage; automatic staging; the numbers that
+#                   stage; on a core part, attach a radial
+#                   group (side boosters: 2, 3, 4 or 6
+#                   copies round it, with a separator), then
+#                   add parts into it; automatic staging; the
+#                   numbers that
 #                   matter per stage (delta-v in vacuum and at
 #                   this body's surface, thrust to weight here,
 #                   burn time); what stops it flying; save,
 #                   open, launch
 #
-# Vessels are single stacks (the physics flies one). Opened
-# from the pause menu; Launch puts the design on the pad,
-# Cancel puts back the one before.
+# Opened from the pause menu; Launch puts the design on the
+# pad, Cancel puts back the one before. Selections are the
+# draft's paths (vessel/design.py).
 
 KIND_TITLES = (
     ("command", "Command"),
@@ -111,8 +117,8 @@ class PartEditor:
 
         self.draft = DesignDraft()
 
-        # The stack row selected (None: none).
-        self.selected: int | None = None
+        # The selected path (vessel/design.py; None: none).
+        self.selected: tuple | None = None
 
         self.body = LaunchBody("Earth", 1.01325, 9.80665)
 
@@ -186,11 +192,14 @@ class PartEditor:
 
         imgui.begin("Parts", None, WINDOW_FLAGS)
 
-        imgui.text_disabled(
-            "Click to add below the selected part."
-            if self.selected is not None
-            else "Click to add at the bottom."
-        )
+        if self.selected is None:
+            hint = "Click to add at the bottom."
+        elif len(self.selected) == 1:
+            hint = "Click to add below the selected part."
+        else:
+            hint = "Click to add into the selected radial group."
+
+        imgui.text_disabled(hint)
 
         for kind, title in KIND_TITLES:
 
@@ -215,13 +224,27 @@ class PartEditor:
         part: PartDefinition
     ):
 
-        index = self.selected + 1 if self.selected is not None else len(self.draft.entries)
+        path = self.draft.add_after(self._valid(self.selected), part)
 
-        self.selected = self.draft.insert(index, part)
+        if path is None:
+
+            self._message = "That group already has a separator."
+
+            return
+
+        self.selected = path
 
         self.draft.auto_stage()
 
         self._edited()
+
+    def _valid(
+        self,
+        path: tuple | None
+    ) -> tuple | None:
+        """The selection, if it still points at something."""
+
+        return path if path is not None and self.draft.get(path) is not None else None
 
     def _draw_vessel(
         self,
@@ -260,17 +283,25 @@ class PartEditor:
 
         if imgui.begin_child("stack", (0.0, 230.0), imgui.ChildFlags_.borders.value):
 
-            for index, entry in enumerate(draft.entries):
+            for path, depth in draft.rows():
 
-                stage = f"stage {entry.stage}" if entry.stage is not None else ""
+                item = draft.get(path)
 
-                clicked, _ = imgui.selectable(
-                    f"{index + 1:2d}. {entry.part.name}##row{index}",
-                    self.selected == index
-                )
+                if isinstance(item, DraftGroup):
+                    label = f"x{item.symmetry} radial group" + (f", {item.offset:.1f} m up" if item.offset else "")
+                    stage = ""
+                else:
+                    label = item.part.name
+                    stage = f"stage {item.stage}" if item.stage is not None else ""
+
+                number = f"{path[0] + 1:2d}. " if depth == 0 else ""
+
+                indent = "      " * depth
+
+                clicked, _ = imgui.selectable(f"{indent}{number}{label}##row{path}", self.selected == path)
 
                 if clicked:
-                    self.selected = None if self.selected == index else index
+                    self.selected = None if self.selected == path else path
                     self.changed = True
 
                 if stage:
@@ -282,47 +313,55 @@ class PartEditor:
 
         imgui.end_child()
 
-        selected = self.selected if self.selected is not None and self.selected < len(draft.entries) else None
+        selected = self._valid(self.selected)
 
-        imgui.begin_disabled(selected is None)
+        item = draft.get(selected) if selected is not None else None
 
-        if imgui.button("Up") and selected is not None:
+        movable = selected is not None and (len(selected) == 1 or (len(selected) == 3 and selected[2] != SEPARATOR))
+
+        imgui.begin_disabled(not movable)
+
+        if imgui.button("Up") and movable:
             self.selected = draft.move(selected, -1)
             self._edited()
 
         imgui.same_line()
 
-        if imgui.button("Down") and selected is not None:
+        if imgui.button("Down") and movable:
             self.selected = draft.move(selected, 1)
             self._edited()
 
+        imgui.end_disabled()
+
         imgui.same_line()
+
+        imgui.begin_disabled(selected is None)
 
         if imgui.button("Remove") and selected is not None:
 
             draft.remove(selected)
 
-            self.selected = min(selected, len(draft.entries) - 1) if draft.entries else None
+            self.selected = self._valid(selected[:-1]) if len(selected) > 1 else None
 
             self._edited()
 
-        staged = selected is not None and draft.entries[selected].stage is not None
+        imgui.end_disabled()
+
+        staged = item is not None and not isinstance(item, DraftGroup) and item.stage is not None
 
         imgui.same_line()
 
         imgui.begin_disabled(not staged)
 
         if imgui.button("Stage -") and staged:
-            draft.set_stage(selected, draft.entries[selected].stage - 1)
+            draft.set_stage(selected, item.stage - 1)
             self._edited()
 
         imgui.same_line()
 
         if imgui.button("Stage +") and staged:
-            draft.set_stage(selected, draft.entries[selected].stage + 1)
+            draft.set_stage(selected, item.stage + 1)
             self._edited()
-
-        imgui.end_disabled()
 
         imgui.end_disabled()
 
@@ -332,7 +371,60 @@ class PartEditor:
             draft.auto_stage()
             self._edited()
 
-        imgui.set_item_tooltip("Bottom engines first, then each separator with the engines above it, parachutes last.")
+        imgui.set_item_tooltip(
+            "From the bottom up: each section's engines (with the radial groups on it) and the separator\n"
+            "below it; the radial separators the stage after; parachutes last."
+        )
+
+        # -------------------------------------------------
+        # Radial groups
+        # -------------------------------------------------
+
+        if selected is not None and len(selected) == 1:
+
+            imgui.text_disabled("Attach side parts here:")
+
+            for symmetry in (2, 3, 4, 6):
+
+                imgui.same_line()
+
+                if imgui.small_button(f"x{symmetry}"):
+
+                    separator = self.parts.get("decoupler_radial")
+
+                    self.selected = draft.attach_group(selected[0], symmetry, separator)
+
+                    draft.auto_stage()
+
+                    self._edited()
+
+            imgui.set_item_tooltip("A radial group round this part, with a radial separator; then add parts into it.")
+
+        elif selected is not None:
+
+            group = draft.get(selected[:2])
+
+            imgui.text_disabled(f"Radial group on {draft.get(selected[:1]).part.name}:")
+
+            imgui.text("Copies")
+
+            for symmetry in (2, 3, 4, 6):
+
+                imgui.same_line()
+
+                if imgui.radio_button(f"x{symmetry}##sym", group.symmetry == symmetry):
+                    draft.set_symmetry(selected, symmetry)
+                    self._edited()
+
+            parent = draft.get(selected[:1]).part
+
+            changed, offset = imgui.slider_float("Height on it", group.offset, 0.0, max(parent.height, 0.1), "%.1f m")
+
+            if changed:
+                draft.set_offset(selected, offset)
+                self._edited()
+
+            imgui.set_item_tooltip("How far above the bottom of the part the group's bottom is.")
 
     def _draw_stats(self):
 

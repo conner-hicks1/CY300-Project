@@ -652,3 +652,129 @@ def test_sas_points_prograde_and_retrograde(pathfinder):
         assert np.dot(state.up, heading) > math.cos(math.radians(2.0)), mode
 
         assert np.linalg.norm(state.angular_velocity) < 0.01
+
+
+# =========================================================
+# Side Boosters
+# =========================================================
+
+@pytest.fixture
+def heavy(parts):
+
+    return Vessel.from_design(load_design("pathfinder_heavy", parts))
+
+
+def test_boosters_count_twice_and_stand_off_the_axis(heavy, pathfinder):
+
+    boosters = [state for state in heavy.parts if state.radial and state.part.kind != "decoupler"]
+
+    assert {state.count for state in boosters} == {2}
+
+    # 2 x (40 + 2 x 650 + 900 + 2 x 10,000) + 2 x 60 (separators).
+    assert heavy.mass == pytest.approx(pathfinder.mass + 2 * (40 + 1300 + 900 + 20_000) + 2 * 60)
+
+    # Core radius + booster radius, off the axis.
+    assert boosters[0].distance == pytest.approx(1.25 + 0.625)
+
+    # Hung on the lowest tank: the booster engine's bottom at its bottom.
+    lowest_tank = heavy.core[-2]
+
+    assert boosters[-1].bottom == pytest.approx(lowest_tank.bottom)
+
+    # Symmetric: thrust on the axis, but more drag and inertia.
+    assert heavy.drag_area() > pathfinder.drag_area()
+    assert heavy.moments_of_inertia[1] > pathfinder.moments_of_inertia[1]
+
+
+def test_boosters_light_with_the_core_and_burn_their_own_tanks(heavy):
+
+    heavy.stage()
+    heavy.throttle = 1.0
+
+    engines = heavy.burning_engines()
+
+    assert len(engines) == 2
+
+    thrust, _ = heavy.thrust(0.0)
+
+    assert thrust == pytest.approx(2_200_000.0 + 2 * 420_000.0)
+
+    core_tank = heavy.core[-2]
+    booster_tank = next(state for state in heavy.parts if state.radial and state.part.kind == "tank")
+
+    heavy.burn(10.0)
+
+    # Each copy feeds its own engine: 10 s at 138.1 kg/s
+    # from its two tanks.
+    flow = 420_000.0 / (310.0 * G0)
+
+    assert booster_tank.propellant == pytest.approx(10_000.0 - flow * 10.0 / 2.0)
+
+    # The core burns only the core's tanks.
+    assert core_tank.propellant < 40_000.0
+
+
+def test_radial_separator_drops_the_boosters_only(heavy):
+
+    heavy.stage()
+    heavy.throttle = 1.0
+
+    core_before = len(heavy.core)
+    height_before = heavy.height
+
+    assert heavy.stage() == 1
+
+    assert not any(state.radial for state in heavy.parts)
+    assert len(heavy.core) == core_before and heavy.height == height_before
+
+    assert len(heavy.dropped) == 5 and all(state.radial for state in heavy.dropped)
+
+    # The core's engine still burns.
+    assert [state.part.id for _, state in heavy.burning_engines()] == ["engine_booster"]
+
+
+def test_dropping_the_core_section_takes_its_boosters(heavy):
+
+    for _ in range(3):
+        heavy.stage()
+
+    # Stage 2 dropped the lower core with everything on it.
+    assert not any(state.radial for state in heavy.parts)
+    assert heavy.parts[-1].part.id == "engine_vacuum"
+
+
+def test_booster_delta_v_by_stage(heavy, pathfinder):
+
+    stats = heavy.stage_stats(1.01325, 9.80665)
+
+    assert [stage.stage for stage in stats] == [0, 1, 2, 3, 4]
+
+    # Liftoff: core and both boosters, until the boosters run dry.
+    assert stats[0].engines == 3
+    assert stats[0].burn_time == pytest.approx(20_000.0 / (420_000.0 / (310.0 * G0)), rel=1e-6)
+
+    # The core burns on after they drop.
+    assert stats[1].engines == 1 and stats[1].delta_v_vacuum > 0.0
+
+    # Boosters add delta-v and liftoff thrust.
+    assert heavy.delta_v() > pathfinder.delta_v() + 300.0
+    assert stats[0].twr_surface > pathfinder.stage_stats(1.01325, 9.80665)[0].twr_surface
+
+    assert sum(stage.delta_v_vacuum for stage in stats) == pytest.approx(heavy.delta_v(), rel=1e-9)
+
+
+def test_bad_radial_groups(parts):
+
+    with pytest.raises(PartError, match="symmetry"):
+        parse_design({"parts": [{"part": "capsule", "radial": [{"symmetry": 5, "parts": [{"part": "tank_1m25_short"}]}]}]}, "x", parts)
+
+    with pytest.raises(PartError, match="needs parts"):
+        parse_design({"parts": [{"part": "capsule", "radial": [{"symmetry": 2, "parts": []}]}]}, "x", parts)
+
+    with pytest.raises(PartError, match="must be a stage separator"):
+        parse_design({"parts": [{"part": "capsule", "radial": [{"symmetry": 2, "decoupler": {"part": "tank_1m25_short"}, "parts": [{"part": "tank_1m25_short"}]}]}]}, "x", parts)
+
+    with pytest.raises(PartError, match="cannot carry radial"):
+        parse_design({"parts": [{"part": "capsule", "radial": [{"symmetry": 2, "parts": [
+            {"part": "tank_1m25_short", "radial": [{"symmetry": 2, "parts": [{"part": "tank_1m25_short"}]}]}
+        ]}]}]}, "x", parts)

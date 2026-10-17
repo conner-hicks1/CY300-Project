@@ -203,3 +203,107 @@ def test_slug():
 
     assert slug("Pathfinder Mk II") == "pathfinder_mk_ii"
     assert slug("***") == "vessel"
+
+
+# =========================================================
+# Radial Groups
+# =========================================================
+
+def booster_draft(parts):
+
+    draft = DesignDraft("Twin")
+
+    for part in ("probe_core", "tank_2m5_long", "engine_booster"):
+        draft.insert(99, parts[part])
+
+    group = draft.attach_group(1, 2, parts["decoupler_radial"])
+
+    path = draft.add_after(group, parts["nose_cone_1m25"])
+    path = draft.add_after(path, parts["tank_1m25_xl"])
+    draft.add_after(path, parts["engine_medium"])
+
+    draft.auto_stage()
+
+    return draft
+
+
+def test_attach_and_fill_a_group(parts):
+
+    draft = booster_draft(parts)
+
+    group = draft.get((1, 0))
+
+    assert group.symmetry == 2 and group.decoupler.part.id == "decoupler_radial"
+    assert [entry.part.id for entry in group.entries] == ["nose_cone_1m25", "tank_1m25_xl", "engine_medium"]
+
+    # Rows: core, the group, its separator and parts.
+    assert [path for path, _ in draft.rows()] == [
+        (0,), (1,), (1, 0), (1, 0, "separator"), (1, 0, 0), (1, 0, 1), (1, 0, 2), (2,)
+    ]
+
+    # A second separator is refused; reordering stays in the group.
+    assert draft.add_after((1, 0), parts["decoupler_radial"]) is None
+    assert draft.move((1, 0, 2), -1) == (1, 0, 1)
+    assert draft.get((1, 0, 1)).part.id == "engine_medium"
+
+    draft.set_symmetry((1, 0), 4)
+    draft.set_offset((1, 0), -3.0)
+
+    assert group.symmetry == 4 and group.offset == 0.0
+
+
+def test_auto_stage_lights_boosters_with_the_core(parts):
+
+    draft = booster_draft(parts)
+
+    assert draft.get((2,)).stage == 0
+    assert draft.get((1, 0, 2)).stage == 0
+    assert draft.get((1, 0, "separator")).stage == 1
+
+    assert draft.problems() == []
+
+
+def test_empty_group_and_missing_separator(parts):
+
+    draft = booster_draft(parts)
+
+    draft.attach_group(1, 3, None)
+
+    assert any("no parts" in problem for problem in draft.problems())
+
+    draft.add_after((1, 1), parts["tank_1m25_short"])
+
+    assert draft.problems() == []
+    assert any("no separator" in warning for warning in draft.warnings())
+
+    draft.remove((1, 1))
+
+    assert len(draft.get((1,)).radial) == 1
+
+
+def test_radial_round_trip(tmp_path, parts):
+
+    draft = booster_draft(parts)
+
+    design = draft.to_design(parts)
+
+    assert design.stack[1].radial[0].symmetry == 2
+
+    vessel = Vessel.from_design(design)
+
+    assert sum(1 for state in vessel.parts if state.radial) == 4
+
+    path = save_draft(draft, tmp_path)
+
+    reopened = open_design(next(d for d in list_designs(tmp_path, tmp_path / "none")), parts)
+
+    assert reopened.to_json() == draft.to_json()
+
+    # The built-in Heavy opens, and auto staging keeps its stages.
+    heavy = DesignDraft.from_design(load_design("pathfinder_heavy", parts))
+
+    before = heavy.to_json()
+
+    heavy.auto_stage()
+
+    assert heavy.to_json() == before

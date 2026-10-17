@@ -118,6 +118,29 @@ class VesselReadout:
     parachute: str                  # "", "armed", "open"
 
 
+def copy_positions(
+    state
+) -> list[tuple[float, float, float]]:
+    """
+    Where a part's copies stand in the vessel's frame: the
+    core's on the axis; a radial group's evenly round it,
+    the first on +X (to the sides as the camera first sees
+    a vessel on the pad).
+    """
+
+    if not state.radial:
+        return [(0.0, state.bottom, 0.0)]
+
+    return [
+        (
+            state.distance * math.cos(2.0 * math.pi * k / state.count),
+            state.bottom,
+            state.distance * math.sin(2.0 * math.pi * k / state.count)
+        )
+        for k in range(state.count)
+    ]
+
+
 class VesselSystem:
 
     # =====================================================
@@ -339,9 +362,13 @@ class VesselSystem:
     def highlight(
         self,
         scene: Scene,
-        index: int | None
+        selection: tuple | None
     ):
-        """Light up one part (the editor's selection; None: none)."""
+        """
+        Light up the editor's selection: a part by its place
+        in the design (PartState.source), or a whole radial
+        group by (core index, group); None: nothing.
+        """
 
         found = self.find(scene)
 
@@ -350,25 +377,32 @@ class VesselSystem:
 
         _, component = found
 
-        for position, (state, child) in enumerate(zip(component.vessel.parts, component.part_entities)):
+        for state in component.vessel.parts:
 
             part = state.part
 
-            renderer = scene.try_get_component(child, MeshRendererComponent)
+            lit = selection is not None and (
+                state.source == tuple(selection)
+                or (len(selection) == 2 and state.source[:2] == tuple(selection))
+            )
 
-            if renderer is None:
-                continue
+            for child in component.part_entities.get(id(state), []):
 
-            if position == index:
-                renderer.material = self._material(
-                    f"vessel/{part.id}/selected",
-                    tuple(min(1.0, c * 0.6 + 0.4) for c in part.color),
-                    part.metallic,
-                    part.roughness,
-                    emissive=(0.35, 0.22, 0.05)
-                )
-            else:
-                renderer.material = self._material(f"vessel/{part.id}", part.color, part.metallic, part.roughness)
+                renderer = scene.try_get_component(child, MeshRendererComponent)
+
+                if renderer is None:
+                    continue
+
+                if lit:
+                    renderer.material = self._material(
+                        f"vessel/{part.id}/selected",
+                        tuple(min(1.0, c * 0.6 + 0.4) for c in part.color),
+                        part.metallic,
+                        part.roughness,
+                        emissive=(0.35, 0.22, 0.05)
+                    )
+                else:
+                    renderer.material = self._material(f"vessel/{part.id}", part.color, part.metallic, part.roughness)
 
     # =====================================================
     # Queries
@@ -1186,24 +1220,32 @@ class VesselSystem:
         component: VesselComponent
     ):
 
+        component.part_entities = {}
+
         for state in component.vessel.parts:
 
             part = state.part
 
-            child = scene.create_entity()
+            copies = []
 
-            scene.add_component(child, NameComponent(part.name))
-            scene.add_component(child, HierarchyComponent(entity))
-            scene.add_component(child, TransformComponent(transform=Transform(position=(0.0, state.bottom, 0.0))))
-            scene.add_component(
-                child,
-                MeshRendererComponent(
-                    mesh=self._frustum(part.radius_top, part.radius_bottom, part.height),
-                    material=self._material(f"vessel/{part.id}", part.color, part.metallic, part.roughness)
+            for position in copy_positions(state):
+
+                child = scene.create_entity()
+
+                scene.add_component(child, NameComponent(part.name))
+                scene.add_component(child, HierarchyComponent(entity))
+                scene.add_component(child, TransformComponent(transform=Transform(position=position)))
+                scene.add_component(
+                    child,
+                    MeshRendererComponent(
+                        mesh=self._frustum(part.radius_top, part.radius_bottom, part.height),
+                        material=self._material(f"vessel/{part.id}", part.color, part.metallic, part.roughness)
+                    )
                 )
-            )
 
-            component.part_entities.append(child)
+                copies.append(child)
+
+            component.part_entities[id(state)] = copies
 
     def _restack_parts(
         self,
@@ -1211,11 +1253,11 @@ class VesselSystem:
         component: VesselComponent
     ):
 
-        for state, child in zip(component.vessel.parts, component.part_entities):
+        for state in component.vessel.parts:
 
-            transform = scene.get_component(child, TransformComponent).transform
+            for child, position in zip(component.part_entities.get(id(state), []), copy_positions(state)):
 
-            transform.position = (0.0, state.bottom, 0.0)
+                scene.get_component(child, TransformComponent).transform.position = position
 
     def _drop_parts(
         self,
@@ -1236,13 +1278,15 @@ class VesselSystem:
 
         vessel.dropped.clear()
 
-        count = len(dropped)
+        dropped_entities = [
+            child
+            for part in dropped
+            for child in component.part_entities.pop(id(part), [])
+        ]
 
-        dropped_entities = component.part_entities[-count:]
-
-        del component.part_entities[-count:]
-
-        lift = sum(part.part.height for part in dropped)
+        # (Only the core's height moves the origin: dropped
+        # side boosters leave the stack as it was.)
+        lift = sum(part.part.height for part in dropped if not part.radial)
 
         up = state.up
 
@@ -1288,7 +1332,9 @@ class VesselSystem:
         component: VesselComponent
     ):
 
-        for child in component.part_entities + component.plume_entities + component.canopy_entities:
+        parts = [child for copies in component.part_entities.values() for child in copies]
+
+        for child in parts + component.plume_entities + component.canopy_entities:
             scene.destroy_entity(child)
 
         component.part_entities.clear()
@@ -1307,7 +1353,15 @@ class VesselSystem:
 
         vessel = component.vessel
 
-        engines = [] if component.state.destroyed or vessel.throttle <= 0.0 else vessel.burning_engines()
+        engines = (
+            []
+            if component.state.destroyed or vessel.throttle <= 0.0
+            else [
+                (state, position)
+                for _, state in vessel.burning_engines()
+                for position in copy_positions(state)
+            ]
+        )
 
         while len(component.plume_entities) > len(engines):
             scene.destroy_entity(component.plume_entities.pop())
@@ -1344,15 +1398,15 @@ class VesselSystem:
 
             component.plume_entities.append(child)
 
-        for (_, engine), child in zip(engines, component.plume_entities):
+        for (engine, (x, _, z)), child in zip(engines, component.plume_entities):
 
-            length = self.PLUME_LENGTH * (0.3 + 0.7 * vessel.throttle) * (1.0 + 0.5 * thin)
+            length = self.PLUME_LENGTH * (0.3 + 0.7 * vessel.throttle) * (1.0 + 0.5 * thin) * min(1.0, engine.part.radius_bottom / 0.9)
 
             nozzle = engine.part.radius_bottom * 0.85
 
             transform = scene.get_component(child, TransformComponent).transform
 
-            transform.position = (0.0, engine.bottom - length, 0.0)
+            transform.position = (x, engine.bottom - length, z)
             transform.scale = (nozzle * widen, length, nozzle * widen)
 
             # (Narrow or spreading, as the air is now.)
@@ -1390,6 +1444,9 @@ class VesselSystem:
             component.canopy_entities.append(child)
 
         for chute, child in zip(chutes, component.canopy_entities):
+
+            if chute.radial:
+                continue
 
             full = math.sqrt(chute.part.parachute.area / math.pi)
 

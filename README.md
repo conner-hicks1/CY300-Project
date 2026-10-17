@@ -445,20 +445,29 @@ parachutes home; or build your own rocket in the part editor, on the pad.
 - Build on the launch pad (pause menu > Build vessel): the rocket stands
   there and changes as you edit; right mouse turns the view
 - Parts on the left by kind (command, tanks, engines, separators,
-  parachutes, structure: 16 at 1.25 m and 2.5 m, with adapters and a nose
-  cone; tooltips with mass, propellant, thrust and Isp); a click adds one
-  below the selected part
+  parachutes, structure: 19 at 1.25 m and 2.5 m, with adapters, a nose
+  cone, a radial separator and a 1.25 m booster engine; tooltips with mass,
+  propellant, thrust and Isp); a click adds one below the selected part, or
+  into the selected radial group
 - The stack on the right: select a part (it lights up) to move it, remove
-  it or change its stage; automatic staging (bottom engines first, then each
-  separator with the engines above it, parachutes last)
+  it or change its stage; automatic staging (from the bottom up, each
+  section's engines with the side boosters hung on it, the boosters'
+  separators the stage after, parachutes last)
+- Side boosters and other radial parts: on any core part attach a radial
+  group of 2, 3, 4 or 6 copies round it, with a radial separator, then add
+  parts into it (a nose cone, tanks, an engine); set its height on the part.
+  The copies are counted in mass, thrust, drag and inertia, each burns its
+  own tanks, they light with the core and drop off (as debris) when their
+  separator fires; their thrust stays on the axis. Pathfinder Heavy (built
+  in) is Pathfinder with two: 204 t at liftoff, ~10.8 km/s
 - The numbers per stage: delta-v in vacuum and at the launch body's surface,
-  thrust to weight there, burn time; what stops it flying (no command part,
+  thrust to weight there, burn time (each stage from its firing to the next
+  burnout: boosters and core burning together, then the core alone); what stops it flying (no command part,
   an unstaged engine) and what would fly badly (an engine with no tank in
   its section, a first stage that cannot lift off)
 - Save and open designs (yours in `data/vessels/`, the built-in ones in
   `assets/vessels/`); Launch puts it on the pad, Cancel (or Esc) puts back
   the one before
-- Single stacks for now: the physics flies one stack
 
 **Game shell**
 
@@ -487,7 +496,7 @@ parachutes home; or build your own rocket in the part editor, on the pad.
 - A disk cache (`data/cache/`) of terrain chunks, keyed by their inputs and
   the generators' source code: chunks stream in ~70% faster on a second
   visit; oldest entries pruned past 2 GB
-- 564 unit tests
+- 574 unit tests
 
 ## Getting Started
 

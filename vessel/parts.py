@@ -69,10 +69,27 @@ class PartDefinition:
 
 
 @dataclass(frozen=True, slots=True)
+class RadialGroup:
+    """
+    Parts on the side of a stack part, `symmetry` copies
+    evenly round it: a little stack of their own (top down),
+    its bottom `offset` m above the bottom of the part it
+    hangs on; a radial separator, if any, drops every copy
+    when its stage fires.
+    """
+
+    symmetry: int
+    offset: float
+    decoupler: "StackEntry | None"
+    stack: tuple["StackEntry", ...]
+
+
+@dataclass(frozen=True, slots=True)
 class StackEntry:
 
     part: PartDefinition
     stage: int | None               # fires (engine, separator) at this stage
+    radial: tuple[RadialGroup, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -204,6 +221,79 @@ def load_parts(
     return parts
 
 
+SYMMETRIES = (1, 2, 3, 4, 6, 8)
+
+
+def _parse_entry(
+    entry: dict,
+    where: str,
+    parts: dict[str, PartDefinition],
+    radial_allowed: bool
+) -> StackEntry:
+
+    if not isinstance(entry, dict):
+        raise PartError(f"{where}: must be an object")
+
+    part = parts.get(entry.get("part"))
+
+    if part is None:
+        raise PartError(f"{where} '{entry.get('part')}' is not in the catalog")
+
+    stage = entry.get("stage")
+
+    if stage is not None and (isinstance(stage, bool) or not isinstance(stage, int) or stage < 0):
+        raise PartError(f"{where}: stage must be a whole number >= 0")
+
+    if stage is not None and part.kind not in ("engine", "decoupler", "parachute"):
+        raise PartError(f"{where} ({part.id}) has nothing to fire at a stage")
+
+    groups = []
+
+    for number, raw in enumerate(entry.get("radial", []) or []):
+
+        if not radial_allowed:
+            raise PartError(f"{where}: radial parts cannot carry radial parts of their own")
+
+        place = f"{where} radial group {number}"
+
+        if not isinstance(raw, dict):
+            raise PartError(f"{place}: must be an object")
+
+        symmetry = raw.get("symmetry", 2)
+
+        if symmetry not in SYMMETRIES:
+            raise PartError(f"{place}: symmetry must be one of {', '.join(map(str, SYMMETRIES))}")
+
+        offset = raw.get("offset", 0.0)
+
+        if isinstance(offset, bool) or not isinstance(offset, (int, float)):
+            raise PartError(f"{place}: offset must be a number (m)")
+
+        decoupler = None
+
+        if raw.get("decoupler") is not None:
+
+            decoupler = _parse_entry(raw["decoupler"], f"{place} separator", parts, radial_allowed=False)
+
+            if decoupler.part.kind != "decoupler":
+                raise PartError(f"{place}: its separator must be a stage separator")
+
+        members = tuple(
+            _parse_entry(member, f"{place} part {i}", parts, radial_allowed=False)
+            for i, member in enumerate(raw.get("parts", []))
+        )
+
+        if not members:
+            raise PartError(f"{place}: needs parts")
+
+        if any(member.part.kind == "decoupler" for member in members):
+            raise PartError(f"{place}: separators go in its 'decoupler', not its parts")
+
+        groups.append(RadialGroup(int(symmetry), float(offset), decoupler, members))
+
+    return StackEntry(part, stage, tuple(groups))
+
+
 def parse_design(
     data: dict,
     design_id: str,
@@ -217,24 +307,10 @@ def parse_design(
     if not isinstance(raw_stack, list) or not raw_stack:
         raise PartError(f"{where}: needs a list of parts")
 
-    stack = []
-
-    for index, entry in enumerate(raw_stack):
-
-        part = parts.get(entry.get("part"))
-
-        if part is None:
-            raise PartError(f"{where}: part {index} '{entry.get('part')}' is not in the catalog")
-
-        stage = entry.get("stage")
-
-        if stage is not None and (isinstance(stage, bool) or not isinstance(stage, int) or stage < 0):
-            raise PartError(f"{where}: part {index} stage must be a whole number >= 0")
-
-        if stage is not None and part.kind not in ("engine", "decoupler", "parachute"):
-            raise PartError(f"{where}: part {index} ({part.id}) has nothing to fire at a stage")
-
-        stack.append(StackEntry(part, stage))
+    stack = [
+        _parse_entry(entry, f"{where}: part {index}", parts, radial_allowed=True)
+        for index, entry in enumerate(raw_stack)
+    ]
 
     if not any(entry.part.kind == "command" for entry in stack):
         raise PartError(f"{where}: needs a command part")
