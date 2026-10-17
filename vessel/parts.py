@@ -16,7 +16,7 @@ from pathlib import Path
 PARTS_PATH = Path("assets/parts/parts.json")
 VESSELS_DIRECTORY = Path("assets/vessels")
 
-KINDS = ("command", "tank", "engine", "decoupler", "parachute")
+KINDS = ("command", "tank", "engine", "decoupler", "parachute", "structure")
 
 
 class PartError(ValueError):

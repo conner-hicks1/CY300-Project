@@ -8,7 +8,7 @@ maps) under physically based atmospheres, on real orbits with a real clock.
 You fly a two-stage rocket off any body: real-scale parts, gravity, thrust,
 drag in the real air, staging, orbits followed exactly under time warp,
 patched conics to the Moon and back, a map of your orbit, and a capsule that
-parachutes home. Building your own vessels comes next.
+parachutes home; or build your own rocket in the part editor, on the pad.
 
 ![The procedural planet, seen from the surface](docs/images/scene.png)
 
@@ -440,6 +440,26 @@ parachutes home. Building your own vessels comes next.
   menu
 - Giants and small bodies start in orbit; everywhere else on the ground
 
+**Part editor**
+
+- Build on the launch pad (pause menu > Build vessel): the rocket stands
+  there and changes as you edit; right mouse turns the view
+- Parts on the left by kind (command, tanks, engines, separators,
+  parachutes, structure: 16 at 1.25 m and 2.5 m, with adapters and a nose
+  cone; tooltips with mass, propellant, thrust and Isp); a click adds one
+  below the selected part
+- The stack on the right: select a part (it lights up) to move it, remove
+  it or change its stage; automatic staging (bottom engines first, then each
+  separator with the engines above it, parachutes last)
+- The numbers per stage: delta-v in vacuum and at the launch body's surface,
+  thrust to weight there, burn time; what stops it flying (no command part,
+  an unstaged engine) and what would fly badly (an engine with no tank in
+  its section, a first stage that cannot lift off)
+- Save and open designs (yours in `data/vessels/`, the built-in ones in
+  `assets/vessels/`); Launch puts it on the pad, Cancel (or Esc) puts back
+  the one before
+- Single stacks for now: the physics flies one stack
+
 **Game shell**
 
 - Flight HUD over the view: the date and time warp at the top; at the
@@ -448,7 +468,7 @@ parachutes home. Building your own vessels comes next.
   temperature outside, latitude / longitude and local time
 - Time warp in steps from real time to 1,000,000x (**,** and **.**; **/**
   back to real time)
-- Pause menu (**Esc**, stops the clock): Revert to launch, Travel to any
+- Pause menu (**Esc**, stops the clock): Revert to launch, Build vessel, Travel to any
   body, Camera (follow the vessel or fly free; surface, low orbit, the whole
   body in view), Graphics quality (Low / Medium / High, Medium by default:
   the scene's resolution, 70% / 85% / 100% scaled up at the end, since the
@@ -467,7 +487,7 @@ parachutes home. Building your own vessels comes next.
 - A disk cache (`data/cache/`) of terrain chunks, keyed by their inputs and
   the generators' source code: chunks stream in ~70% faster on a second
   visit; oldest entries pruned past 2 GB
-- 556 unit tests
+- 564 unit tests
 
 ## Getting Started
 
@@ -539,11 +559,11 @@ planet streams in over the first few seconds.
 | `main.py`, `application.py` | Entry point, main loop, building a body's scene |
 | `core/` | Window, input, events, timer, logging, profiler, job system, disk cache |
 | `ecs/` | Entity registry and components |
-| `vessel/` | Parts and vessel designs, staging, propellant and parachutes, flight physics, Kepler orbits, patched conics |
+| `vessel/` | Parts and vessel designs (and drafts being edited, saved designs), staging, propellant and parachutes, flight physics, Kepler orbits, patched conics |
 | `systems/` | Transform, camera controller, orbits and clock, vessels, planet streaming and render systems |
 | `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping, impact craters, dunes, surface climate, terrain, chunk building, level of detail, body shapes, orbits and spin, solar time, real maps |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, clouds, rings, eclipses, bloom |
-| `game/` | Flight HUD and readout, attitude ball, map view, piloting keys, chase camera, pause menu, time warp, graphics quality presets |
+| `game/` | Flight HUD and readout, attitude ball, map view, part editor, piloting keys, chase camera, pause menu, time warp, graphics quality presets |
 | `scene/` | Scene container and (de)serialization (for save games) |
 | `resources/` | Handle-based resource managers |
 | `math3d/` | Transforms, camera, matrix helpers |

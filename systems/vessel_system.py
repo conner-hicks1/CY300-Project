@@ -196,6 +196,10 @@ class VesselSystem:
         # Prediction).
         self._prediction = None
 
+        # Where the vessel was launched from: (body, start),
+        # for the part editor to rebuild it there.
+        self._launch: tuple | None = None
+
     # =====================================================
     # Spawning
     # =====================================================
@@ -210,6 +214,8 @@ class VesselSystem:
     ) -> Entity:
 
         vessel = Vessel.from_design(design)
+
+        self._launch = (body, start)
 
         # A new scene: its entities may reuse old ones' ids.
         self._bodies.clear()
@@ -300,9 +306,81 @@ class VesselSystem:
 
         return entity
 
+    def rebuild(
+        self,
+        scene: Scene,
+        design: VesselDesign | None,
+        orbit_system
+    ) -> Entity | None:
+        """
+        A different vessel where the last one was launched
+        from (the part editor): the old one and its debris
+        go. design None or empty: none at all.
+        """
+
+        found = self.find(scene)
+
+        if found is not None:
+            self._destroy_tree(scene, found[0])
+
+        for entity, _ in list(scene.registry.view_with(DebrisComponent)):
+            self._destroy_tree(scene, entity)
+
+        if self._launch is None or design is None or not design.stack:
+            return None
+
+        body, start = self._launch
+
+        if body not in orbit_system.states:
+            return None
+
+        return self.spawn(scene, design, body, start, orbit_system)
+
+    def highlight(
+        self,
+        scene: Scene,
+        index: int | None
+    ):
+        """Light up one part (the editor's selection; None: none)."""
+
+        found = self.find(scene)
+
+        if found is None:
+            return
+
+        _, component = found
+
+        for position, (state, child) in enumerate(zip(component.vessel.parts, component.part_entities)):
+
+            part = state.part
+
+            renderer = scene.try_get_component(child, MeshRendererComponent)
+
+            if renderer is None:
+                continue
+
+            if position == index:
+                renderer.material = self._material(
+                    f"vessel/{part.id}/selected",
+                    tuple(min(1.0, c * 0.6 + 0.4) for c in part.color),
+                    part.metallic,
+                    part.roughness,
+                    emissive=(0.35, 0.22, 0.05)
+                )
+            else:
+                renderer.material = self._material(f"vessel/{part.id}", part.color, part.metallic, part.roughness)
+
     # =====================================================
     # Queries
     # =====================================================
+
+    @property
+    def launch_body(
+        self
+    ) -> Entity | None:
+        """The body the vessel was launched from (None: none yet)."""
+
+        return self._launch[0] if self._launch is not None else None
 
     @property
     def ground_accuracy(

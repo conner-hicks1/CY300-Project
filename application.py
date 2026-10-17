@@ -55,6 +55,7 @@ from game.chase_camera import ChaseCamera
 from game.flight import FlightContext, frame_body, go_to_orbit, go_to_surface, read_flight
 from game.hud import FlightHud
 from game.map_view import MapView, ScreenProjection
+from game.part_editor import EditorActions, LaunchBody, PartEditor
 from game.pause_menu import Destination, MenuActions, PauseMenu
 from game.quality import DEFAULT_QUALITY, apply_quality, current_quality
 from game.time_warp import TimeWarp
@@ -96,6 +97,7 @@ from systems.transform_system import TransformSystem
 from systems.vessel_system import LaunchSite, OrbitStart, VesselSystem
 
 from vessel import kepler
+from vessel.design import DesignDraft
 from vessel.parts import load_design, load_parts
 
 from scene.scene import Scene
@@ -399,7 +401,16 @@ class Application:
             self.handles["lit"]
         )
 
-        self.vessel_design = load_design("pathfinder", load_parts())
+        self.parts = load_parts()
+
+        self.vessel_design = load_design("pathfinder", self.parts)
+
+        self.part_editor = PartEditor(self.parts)
+
+        # The design to put back if the editor is cancelled,
+        # and the height the view was last fitted to.
+        self._design_before_edit = None
+        self._edited_height = 0.0
 
         apply_quality(self.render_system.settings, DEFAULT_QUALITY)
 
@@ -1043,7 +1054,9 @@ class Application:
 
         self._handle_keys()
 
-        paused = self.pause_menu.open
+        building = self.part_editor.open
+
+        paused = self.pause_menu.open or building
 
         self._pilot(dt, paused)
 
@@ -1127,7 +1140,13 @@ class Application:
 
         with profiler.scope("Camera"):
 
-            if self.map_view.open and self.vessel_system.find(self.scene) is not None:
+            if building:
+
+                self._update_editor()
+
+                self._chase(paused=self.pause_menu.open)
+
+            elif self.map_view.open and self.vessel_system.find(self.scene) is not None:
 
                 self._map_camera(paused)
 
@@ -1466,6 +1485,87 @@ class Application:
             body_radius.get(reference, 0.0)
         )
 
+    # -----------------------------------------------------
+    # The Part Editor
+    # -----------------------------------------------------
+
+    def start_editing(self):
+        """Build on the launch pad: the current design, there, to edit."""
+
+        launch = self.vessel_system.launch_body
+
+        if launch is None:
+            return
+
+        body = self.scene.try_get_component(launch, BodyComponent)
+
+        self._design_before_edit = self.vessel_design
+        self._edited_height = 0.0
+
+        self.free_camera = False
+        self.map_view.open = False
+        self.time_warp.stop()
+
+        self.part_editor.start(
+            DesignDraft.from_design(self.vessel_design),
+            LaunchBody(
+                self.vessel_system.body_name(self.scene, launch),
+                body.surface_pressure_bar if body is not None else 0.0,
+                body.surface_gravity if body is not None else 9.80665
+            )
+        )
+
+    def _update_editor(self):
+        """The rocket on the pad follows the draft; the selected part lights up."""
+
+        editor = self.part_editor
+
+        if not editor.changed:
+            return
+
+        editor.changed = False
+
+        draft = editor.draft
+
+        self.vessel_system.rebuild(
+            self.scene,
+            draft.preview() if draft.entries else None,
+            self.orbit_system
+        )
+
+        self.vessel_system.highlight(self.scene, editor.selected)
+
+        found = self.vessel_system.find(self.scene)
+
+        height = found[1].vessel.height if found is not None else 0.0
+
+        # The whole stack in view, refitted when it grows or
+        # shrinks (a zoom of your own stays otherwise).
+        if abs(height - self._edited_height) > 0.5:
+
+            self.chase_camera.distance = max(height * 1.8, 15.0)
+
+            self._edited_height = height
+
+    def _launch_design(
+        self,
+        design
+    ):
+
+        self.vessel_design = design
+
+        self.vessel_system.rebuild(self.scene, design, self.orbit_system)
+
+        self.hud.notify(f"{design.name} on the pad: Z for full throttle, Space to launch")
+
+    def _cancel_editing(self):
+
+        if self._design_before_edit is not None:
+
+            self.vessel_design = self._design_before_edit
+
+            self.vessel_system.rebuild(self.scene, self.vessel_design, self.orbit_system)
+
     def revert(self):
         """Back to the launch: the same body, from the start."""
 
@@ -1483,6 +1583,17 @@ class Application:
             return
 
         menu = self.pause_menu
+
+        if self.part_editor.open:
+
+            # Esc leaves the editor as Cancel does.
+            if Input.is_key_pressed(Key.ESCAPE):
+
+                self.part_editor.open = False
+
+                self._cancel_editing()
+
+            return
 
         if Input.is_key_pressed(Key.ESCAPE):
 
@@ -1589,9 +1700,14 @@ class Application:
             self.free_camera = not self.free_camera
             self.pause_menu.close()
 
+        def build():
+            self.pause_menu.close()
+            self.start_editing()
+
         return MenuActions(
             resume=self.pause_menu.close,
             revert=revert,
+            build=build,
             toggle_camera=toggle_camera,
             travel=travel,
             to_surface=camera_move(to_surface),
@@ -1666,6 +1782,17 @@ class Application:
                 self.imgui_layer.end_frame()
 
     def _draw_ui(self):
+
+        if self.part_editor.open:
+
+            self.part_editor.draw(
+                EditorActions(
+                    launch=self._launch_design,
+                    cancel=self._cancel_editing
+                )
+            )
+
+            return
 
         found = self.vessel_system.find(self.scene)
 

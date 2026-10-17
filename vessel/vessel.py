@@ -55,6 +55,20 @@ class PartState:
     deployed: float = 0.0
 
 
+@dataclass(frozen=True, slots=True)
+class StageStats:
+    """One stage as the editor shows it (vessel.stage_stats)."""
+
+    stage: int
+    start_mass: float               # kg when it fires
+    end_mass: float                 # kg when its propellant is gone
+    delta_v_vacuum: float           # m/s
+    delta_v_surface: float          # m/s at the launch body's surface pressure
+    twr_surface: float              # thrust / weight at its start, on the launch body's surface
+    burn_time: float                # s at full throttle
+    engines: int
+
+
 @dataclass(slots=True)
 class Vessel:
 
@@ -452,6 +466,77 @@ class Vessel:
 
         return [state for state in self.parts if state.part.parachute is not None]
 
+    def _copy(
+        self
+    ) -> "Vessel":
+        """A working copy (nothing done to it changes this one)."""
+
+        return Vessel(
+            self.name,
+            [PartState(s.part, s.stage, s.propellant, s.ignited, s.bottom, s.armed, s.deployed) for s in self.parts],
+            self.next_stage,
+            1.0
+        )
+
+    def stage_stats(
+        self,
+        surface_pressure: float = 0.0,
+        gravity: float = 9.80665
+    ) -> list[StageStats]:
+        """
+        Every stage still to fire, in order: what it weighs,
+        its delta-v in vacuum and at the surface pressure,
+        its thrust to weight on the surface (gravity m/s^2),
+        how long it burns. Stages that only separate or arm
+        parachutes have no delta-v.
+        """
+
+        copy = self._copy()
+
+        stats = []
+
+        for _ in range(len(copy.parts) + 8):
+
+            fired = copy.stage()
+
+            if fired is None:
+                break
+
+            engines = copy.burning_engines()
+
+            start = copy.mass
+
+            if not engines:
+
+                stats.append(StageStats(fired, start, start, 0.0, 0.0, 0.0, 0.0, 0))
+
+                continue
+
+            vacuum, flow = copy.thrust(0.0)
+            surface, _ = copy.thrust(surface_pressure)
+
+            left, _ = copy.section_propellant()
+
+            end = start - left
+
+            ratio = math.log(start / end) if end > 0.0 else 0.0
+
+            stats.append(StageStats(
+                stage=fired,
+                start_mass=start,
+                end_mass=end,
+                delta_v_vacuum=vacuum / flow * ratio,
+                delta_v_surface=surface / flow * ratio,
+                twr_surface=surface / (start * gravity),
+                burn_time=left / flow if flow > 0.0 else 0.0,
+                engines=len(engines)
+            ))
+
+            for tank in copy._section_tanks(engines[0][0]):
+                tank.propellant = 0.0
+
+        return stats
+
     def delta_v(
         self,
         pressure_bar: float = 0.0
@@ -462,12 +547,7 @@ class Vessel:
         """
 
         # Work on a copy so nothing changes.
-        copy = Vessel(
-            self.name,
-            [PartState(s.part, s.stage, s.propellant, s.ignited, s.bottom, s.armed, s.deployed) for s in self.parts],
-            self.next_stage,
-            1.0
-        )
+        copy = self._copy()
 
         total = 0.0
 

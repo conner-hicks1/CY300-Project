@@ -14,6 +14,7 @@ from game.quality import QUALITY_NAMES
 # it. Pages:
 #
 #   Revert    back to the launch, the vessel as new
+#   Build     the part editor (game/part_editor.py)
 #   Travel    go to any body of the solar system: a fresh
 #             start on its surface (or in orbit over a giant
 #             or a small body)
@@ -30,6 +31,7 @@ class MenuActions:
 
     resume: Callable[[], None]
     revert: Callable[[], None]
+    build: Callable[[], None]
     toggle_camera: Callable[[], None]
     travel: Callable[[str], None]
     to_surface: Callable[[], None]
@@ -191,6 +193,11 @@ class PauseMenu:
 
         if vessel and imgui.button("Revert to launch", (BUTTON_WIDTH, 0)):
             actions.revert()
+
+        if imgui.button("Build vessel...", (BUTTON_WIDTH, 0)):
+            actions.build()
+
+        imgui.set_item_tooltip("The part editor, on the launch pad.")
 
         for label, page in (
             ("Travel...", self.TRAVEL),
