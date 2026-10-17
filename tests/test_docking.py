@@ -292,3 +292,24 @@ def test_thrusters_burn_propellant(parts):
     ship.draw_propellant(float("inf"))
 
     assert np.linalg.norm(rcs_push(ship, state, Controls(translate=np.array([1.0, 0.0, 0.0])), 1.0)) == 0.0
+
+
+def test_an_undocked_module_keeps_its_staging(parts):
+
+    core = station(parts)
+    ship = ferry(parts)
+
+    before = ship.next_stage
+    lit = [state.ignited for state in ship.parts]
+
+    side = next(port for port in docking.free_ports(core) if port.end == "side")
+
+    joined = docking.attach_side(core, side, ship, "top")
+
+    detached = docking.detach_side(joined)
+
+    assert detached.guest.next_stage == before
+    assert [state.ignited for state in detached.guest.parts] == lit
+
+    # Its upper engine burns again as it did.
+    assert detached.guest.burning_engines()

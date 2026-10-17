@@ -113,7 +113,7 @@ from systems.vessel_system import LaunchSite, OrbitStart, Suggestion, VesselSyst
 from programme import fleet
 from programme.career import CAREER_PATH, RECOVERY, Career, load_campaign, today_of
 
-from science.record import PROGRESS_PATH, ScienceRecord
+from science.record import PROGRESS_PATH, SANDBOX_PROGRESS_PATH, ScienceRecord
 from science.survey import direction_of as survey_direction
 from science.sites import load_sites
 
@@ -155,6 +155,9 @@ class Application:
     # =====================================================
 
     def __init__(self):
+
+        # A sandbox (initialize): no career.
+        self.sandbox = False
 
         # -------------------------------------------------
         # Lifecycle
@@ -293,13 +296,18 @@ class Application:
     def initialize(
         self,
         body: str | None = None,
-        dev: bool = False
+        dev: bool = False,
+        sandbox: bool = False
     ):
         """
         body: where to start (a profile id in assets/bodies/;
-            Earth by default).
+            Earth by default; a career always starts at home).
         dev: start with the developer tools open (F3).
+        sandbox: no funds, missions or calendar to keep: launch
+            anything free, travel anywhere; its own saves.
         """
+
+        self.sandbox = sandbox
 
         engine_assert(
             not self._initialized,
@@ -459,7 +467,9 @@ class Application:
 
         # Science: the sites, the player's record (saved), the
         # panel (K).
-        self.science_system = ScienceSystem(load_sites(), ScienceRecord.load(PROGRESS_PATH), PROGRESS_PATH)
+        science_path = SANDBOX_PROGRESS_PATH if sandbox else PROGRESS_PATH
+
+        self.science_system = ScienceSystem(load_sites(), ScienceRecord.load(science_path), science_path)
         self.science_panel = SciencePanel()
 
         # The link home (systems/comms_system.py), this frame;
@@ -472,12 +482,16 @@ class Application:
         # panel (P).
         campaign = load_campaign()
 
-        self.programme_system = ProgrammeSystem(campaign, Career.load(campaign, CAREER_PATH), CAREER_PATH)
+        if sandbox:
+            self.programme_system = ProgrammeSystem(campaign, Career(funds=0.0), None, sandbox=True)
+        else:
+            self.programme_system = ProgrammeSystem(campaign, Career.load(campaign, CAREER_PATH), CAREER_PATH)
+
         self.programme_panel = ProgrammePanel()
 
         # Vessels left in flight (programme/fleet.py): saved,
         # brought into every scene; the list (L).
-        self.fleet_path = fleet.FLEET_PATH
+        self.fleet_path = fleet.SANDBOX_FLEET_PATH if sandbox else fleet.FLEET_PATH
         self._fleet_records = fleet.load(self.fleet_path)
         self._fleet_restored = False
         self._fleet_saved = 0.0
@@ -506,7 +520,10 @@ class Application:
 
         apply_quality(self.render_system.settings, DEFAULT_QUALITY)
 
-        self.travel_to(body or self.START_BODY)
+        if body and body != self.START_BODY and not sandbox:
+            Logger.warning("[Application] A career starts at home (%s); --sandbox to start at %s.", self.START_BODY, body)
+
+        self.travel_to((body or self.START_BODY) if sandbox else self.START_BODY)
 
         # Resolve world matrices before the first frame, so
         # everything has valid data even if update() is
@@ -592,6 +609,50 @@ class Application:
         self._fleet_restored = True
 
         Logger.info("[Application] Traveled to %s.", self.scene.name)
+
+    # A recovered vessel stays this long (s, real) before it
+    # is taken away.
+    RECOVERY_PAUSE = 3.0
+
+    def _take_recovered(self):
+        """Recovered vessels go (their flight is over); the flown one's place: a fresh rocket on the pad."""
+
+        programme = self.programme_system
+
+        now = time.monotonic()
+
+        waiting = []
+
+        for entity, when in programme.recovered:
+
+            component = self.scene.try_get_component(entity, VesselComponent)
+
+            # Gone, or off again (it pays again to fly).
+            if component is None or not component.state.landed or component.paid:
+                continue
+
+            if now - when < self.RECOVERY_PAUSE:
+
+                waiting.append((entity, when))
+
+                continue
+
+            found = self.vessel_system.find(self.scene)
+
+            if found is not None and found[0] == entity:
+
+                # (Rebuild takes the unpaid one off the pad.)
+                self.vessel_system.rebuild(self.scene, self.vessel_design, self.orbit_system)
+
+                self.chase_camera = ChaseCamera()
+
+                self.hud.notify(f"{self.vessel_design.name} on the pad")
+
+            else:
+
+                self.vessel_system.remove(self.scene, entity)
+
+        programme.recovered = waiting
 
     def save_fleet(self):
 
@@ -1205,9 +1266,12 @@ class Application:
         # the body launched from is home, mapped already.
         self.science_system.register_bodies(scene, body_id)
 
-        # Mid-morning where the camera stands; the system
-        # placed around this body.
-        clock.time = self._time_of_day(planet_entity, spawn_direction, clock.time, 10.5)
+        # Mid-morning where the camera stands, for a new game
+        # (or a sandbox); a career's calendar goes on as it is
+        # (a revert there must not skip ahead: a solar day on
+        # Venus is 117 Earth days).
+        if self.sandbox or self.programme_system.career.clock <= seconds_since_j2000(self.START_DATE):
+            clock.time = self._time_of_day(planet_entity, spawn_direction, clock.time, 10.5)
 
         self.orbit_system.anchor_to(scene, planet_entity)
 
@@ -1517,6 +1581,8 @@ class Application:
                 self.hud.notify(news)
 
             self.programme_system.news.clear()
+
+            self._take_recovered()
 
         self.hud.tick(dt)
 
@@ -3589,7 +3655,8 @@ class Application:
             context.name() if context.body is not None else "",
             current_quality(self.render_system.settings),
             free_camera=self.free_camera,
-            vessel=found is not None
+            vessel=found is not None,
+            travel=self.sandbox
         )
 
         if not self.dev_tools:

@@ -61,12 +61,20 @@ class ProgrammeSystem:
         self,
         campaign: Campaign,
         career: Career,
-        path=None
+        path=None,
+        sandbox: bool = False
     ):
 
         self.campaign = campaign
         self.career = career
         self.path = path
+
+        # A sandbox: launches free, no budget, no missions.
+        self.sandbox = sandbox
+
+        # Vessels recovered (landed home): (entity, real time),
+        # for the game to take away shortly.
+        self.recovered: list = []
 
         self._last_check = 0.0
         self._last_save = time.monotonic()
@@ -96,6 +104,12 @@ class ProgrammeSystem:
         """Before the first stage: pay for the vessel. False when the funds are short."""
 
         if component.paid:
+            return True
+
+        if self.sandbox:
+
+            component.paid = True
+
             return True
 
         cost = component.vessel.cost
@@ -135,7 +149,7 @@ class ProgrammeSystem:
 
         today = today_of(date_of(app.orbit_system.time))
 
-        income = career.pay_budget(self.campaign, today)
+        income = 0.0 if self.sandbox else career.pay_budget(self.campaign, today)
 
         if income > 0.0:
             self.news.append(f"Budget: +${income:,.1f}M")
@@ -162,7 +176,7 @@ class ProgrammeSystem:
 
         landed_home = flight is not None and "landed" in events and flight.body == flight.home
 
-        if landed_home or now - self._last_check > self.CHECK_INTERVAL:
+        if not self.sandbox and (landed_home or now - self._last_check > self.CHECK_INTERVAL):
 
             self._last_check = now
 
@@ -170,12 +184,17 @@ class ProgrammeSystem:
 
         if landed_home and found is not None and found[1].paid:
 
-            refund = career.recover(found[1].vessel.cost)
+            if not self.sandbox:
 
-            self.news.append(f"Recovered: +${refund:,.1f}M")
+                refund = career.recover(found[1].vessel.cost)
+
+                self.news.append(f"Recovered: +${refund:,.1f}M")
 
             found[1].paid = False
             found[1].landed_on = set()
+
+            # (Taken away in a moment: its flight is over.)
+            self.recovered.append((found[0], now))
 
             self._changed()
 

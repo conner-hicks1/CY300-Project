@@ -27,6 +27,12 @@ def parse_arguments(argv=None):
     )
 
     parser.add_argument(
+        "--sandbox",
+        action="store_true",
+        help="Sandbox: launch anything free, travel anywhere, no missions (its own saves)."
+    )
+
+    parser.add_argument(
         "--dev",
         action="store_true",
         help="Start with the developer tools open (F3 toggles)."
@@ -117,7 +123,8 @@ def main():
 
         application.initialize(
             body=arguments.body,
-            dev=arguments.dev
+            dev=arguments.dev,
+            sandbox=arguments.sandbox
         )
 
         if arguments.no_vsync:

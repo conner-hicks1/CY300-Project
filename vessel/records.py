@@ -43,6 +43,7 @@ def vessel_to_json(
                 "anchor": list(state.anchor),
                 "occupied": list(state.occupied),
                 "held_stage": state.held_stage,
+                "held_next": state.held_next,
             }
             for state in vessel.parts
         ],
@@ -79,6 +80,7 @@ def vessel_from_json(
             anchor=tuple(raw.get("anchor", ())),
             occupied=tuple(raw.get("occupied", ())),
             held_stage=raw.get("held_stage"),
+            held_next=raw.get("held_next"),
         ))
 
     vessel = Vessel(str(data.get("name", "Vessel")), states, int(data.get("next_stage", 0)))

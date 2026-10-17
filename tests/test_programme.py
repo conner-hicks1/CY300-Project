@@ -261,3 +261,26 @@ def test_filling_the_tanks():
     assert fill_tanks(vessel, 10.0) == 0.0
 
     assert parts["isru_plant"].isru.rate_ice > parts["isru_plant"].isru.rate_air > 0.0
+
+
+def test_a_sandbox_launches_free(parts=None):
+
+    from types import SimpleNamespace
+
+    from systems.programme_system import ProgrammeSystem
+
+    vessel = Vessel.from_design(load_design("pathfinder", load_parts()))
+
+    sandbox = ProgrammeSystem(load_campaign(), Career(funds=0.0), None, sandbox=True)
+
+    component = SimpleNamespace(paid=False, vessel=vessel)
+
+    assert sandbox.pay_launch(component) and component.paid
+    assert sandbox.career.funds == 0.0 and not sandbox.news
+
+    # A career with nothing in the bank: no launch.
+    career = ProgrammeSystem(load_campaign(), Career(funds=0.0), None)
+
+    poor = SimpleNamespace(paid=False, vessel=vessel)
+
+    assert not career.pay_launch(poor) and not poor.paid and career.news

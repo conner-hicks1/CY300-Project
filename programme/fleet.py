@@ -31,6 +31,7 @@ from vessel.records import (
 # the pad, unpaid) is not kept.
 
 FLEET_PATH = Path("data/programme/fleet.json")
+SANDBOX_FLEET_PATH = Path("data/programme/sandbox_fleet.json")
 
 
 def body_profiles(

@@ -107,6 +107,9 @@ class PauseMenu:
 
         self._destinations = destinations
 
+        # Travel open (a sandbox).
+        self._travel = True
+
     def toggle(self):
 
         if self.open:
@@ -141,11 +144,15 @@ class PauseMenu:
         body: str,
         quality: str | None,
         free_camera: bool = False,
-        vessel: bool = False
+        vessel: bool = False,
+        travel: bool = True
     ):
+        """travel: whether Travel is open (a sandbox; a career flies there)."""
 
         if not self.open:
             return
+
+        self._travel = travel
 
         viewport = imgui.get_main_viewport()
 
@@ -214,8 +221,17 @@ class PauseMenu:
             ("Controls", self.CONTROLS),
         ):
 
+            closed = page == self.TRAVEL and not self._travel
+
+            imgui.begin_disabled(closed)
+
             if imgui.button(label, (BUTTON_WIDTH, 0)):
                 self.page = page
+
+            imgui.end_disabled()
+
+            if closed:
+                imgui.set_item_tooltip("A career flies there; travel anywhere in a sandbox (--sandbox).")
 
         imgui.separator()
 

@@ -163,8 +163,8 @@ def attach_side(
         state.outward = sign
         state.anchor = (port.state.group, port.copy)
         state.held_stage = state.stage
+        state.held_next = guest.next_stage
         state.stage = None
-        state.ignited = False
 
     parts = list(host.parts)
 
@@ -232,6 +232,8 @@ def detach_side(
 
     guest_parts = order if sign < 0 else list(reversed(order))
 
+    next_stage = order[0].held_next
+
     for state in guest_parts:
 
         state.group = None
@@ -242,6 +244,7 @@ def detach_side(
         state.distance = 0.0
         state.stage = state.held_stage
         state.held_stage = None
+        state.held_next = None
 
     # Its docked port comes free.
     docked = guest_parts[0] if sign < 0 else guest_parts[-1]
@@ -251,12 +254,8 @@ def detach_side(
     host_parts = [state for index, state in enumerate(vessel.parts) if index not in set(indices)]
 
     host = Vessel(_named(host_parts, vessel.name), host_parts, vessel.next_stage, 0.0)
-    guest = Vessel(_named(guest_parts, f"{vessel.name} (undocked)"), guest_parts, 0, 0.0)
-
-    # (Its stages from the first still to fire.)
-    pending = [state.stage for state in guest_parts if state.stage is not None]
-
-    guest.next_stage = min(pending) if pending else 0
+    # (Its stages go on where they were.)
+    guest = Vessel(_named(guest_parts, f"{vessel.name} (undocked)"), guest_parts, next_stage or 0, 0.0)
 
     host._restack()
     guest._restack()

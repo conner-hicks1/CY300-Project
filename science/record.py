@@ -30,6 +30,7 @@ from science.survey import SurveyMask
 # data/science/progress.json.
 
 PROGRESS_PATH = Path("data/science/progress.json")
+SANDBOX_PROGRESS_PATH = Path("data/science/sandbox_progress.json")
 
 SITUATIONS = ("landed", "flying", "space_low", "space_high")
 

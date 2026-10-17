@@ -97,13 +97,15 @@ class PartState:
     # end is. angle: where round the core its group's first
     # copy stands (deg). anchor: a docked module's side port,
     # (its group, the copy). occupied: a side port's copies
-    # with a module docked. held_stage: a docked module's own
-    # stage, kept until undocked.
+    # with a module docked. held_stage, held_next: a docked
+    # module's own stage and its next to fire, kept until
+    # undocked.
     outward: int = 0
     angle: float = 0.0
     anchor: tuple = ()
     occupied: tuple = ()
     held_stage: int | None = None
+    held_next: int | None = None
 
     @property
     def radial(
@@ -783,7 +785,7 @@ class Vessel:
                 PartState(
                     s.part, s.stage, s.propellant, s.ignited, s.bottom, s.armed, s.deployed,
                     s.count, s.group, s.offset, s.distance, s.source, s.temperature, s.flipped, s.joined, s.origin,
-                    s.outward, s.angle, s.anchor, s.occupied, s.held_stage
+                    s.outward, s.angle, s.anchor, s.occupied, s.held_stage, s.held_next
                 )
                 for s in self.parts
             ],
