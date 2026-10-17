@@ -727,7 +727,7 @@ build your own rocket in the part editor, on the pad.
   temperature outside, latitude / longitude and local time
 - Time warp in steps from real time to 10,000,000x (**,** and **.**; **/**
   back to real time)
-- Pause menu (**Esc**, stops the clock): Revert to launch, Build vessel, Travel to any
+- Pause menu (**Esc**, stops the clock): Revert to launch, Build vessel, Travel to any (in a sandbox)
   body, Camera (follow the vessel or fly free; surface, low orbit, the whole
   body in view), Graphics quality (Low / Medium / High, Medium by default:
   the scene's resolution, 70% / 85% / 100% scaled up at the end, since the
@@ -781,7 +781,8 @@ planet streams in over the first few seconds.
 
 | Option | Meaning |
 | --- | --- |
-| `--body ID` | Start at another body (`moon`, `mars`, `titan`... any file in `assets/bodies/`) |
+| `--sandbox` | Sandbox: launches free, no budget or missions, travel to any body from the pause menu; its own science and fleet saves (a career always starts at home, and its calendar never jumps) |
+| `--body ID` | In a sandbox, start at another body (`moon`, `mars`, `titan`... any file in `assets/bodies/`) |
 | `--dev` | Start with the developer tools open (**F3** toggles) |
 | `--hide-ui` | Start with the HUD hidden (**F2** toggles) |
 | `--no-vsync` | Uncapped frame rate (for measuring performance) |
@@ -823,7 +824,8 @@ planet streams in over the first few seconds.
 
 | Path | Contents |
 | --- | --- |
-| `main.py`, `application.py` | Entry point, main loop, building a body's scene |
+| `main.py`, `application.py` | Entry point, main loop, building a body's scene, keys, the HUD and menus |
+| `controllers/` | The application's parts, apart for size: the map and navigation, maneuver nodes, piloting through the link and the flight computer, science, the programme's panel, the fleet, docking, the part editor |
 | `core/` | Window, input, events, timer, logging, profiler, job system, disk cache |
 | `ecs/` | Entity registry and components |
 | `vessel/` | Parts and vessel designs (and drafts being edited, saved designs), staging, propellant and parachutes, flight physics, heating, Kepler orbits, patched conics, transfers, maneuver nodes, flight computer sequences, vessels in flight as JSON, docking |
