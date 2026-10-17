@@ -118,7 +118,7 @@ from science.survey import direction_of as survey_direction
 from science.sites import load_sites
 
 from vessel import kepler
-from vessel import maneuver
+from vessel import docking, maneuver
 from vessel.physics import Controls
 from vessel.sequence import FlightComputer, save_program
 from vessel.maneuver import ManeuverNode
@@ -487,6 +487,11 @@ class Application:
         # go back to on Cancel).
         self._flying_before_edit = None
 
+        # Docking automatically with this vessel (B), or None;
+        # the approach as last guided (for the HUD).
+        self._docking = None
+        self._docking_command = None
+
         # A probe's controls as the pilot has sent them (the
         # vessel gets them a light time later): (vessel id,
         # throttle holder, Controls, last sent snapshot).
@@ -565,6 +570,7 @@ class Application:
         self._site = None
         self._sent = None
         self._other_orbits = {}
+        self._docking = None
         self.hud.notices.clear()
 
         self._last_camera_position = None
@@ -631,6 +637,155 @@ class Application:
             self.hud.notify(f"Flying {found[1].vessel.name}")
 
         return True
+
+    # Auto-docking starts within this of the target (m).
+    DOCKING_RANGE = 2_000.0
+
+    def _toggle_docking(self):
+        """B: dock with the targeted vessel automatically (again: stop)."""
+
+        if self._docking is not None:
+
+            self._docking = None
+
+            found = self.vessel_system.find(self.scene)
+
+            if found is not None:
+                found[1].controls.translate = np.zeros(3)
+
+            self.hud.notify("Auto-docking off")
+
+            return
+
+        target = self.map_view.target
+
+        found = self.vessel_system.find(self.scene)
+
+        if not (isinstance(target, tuple) and target and target[0] == "vessel") or found is None:
+
+            self.hud.notify("Target a vessel to dock with first (Vessels: L)")
+
+            return
+
+        pair = self.vessel_system.docking_pair(self.scene, found[1], target[1])
+
+        if pair is None:
+
+            self.hud.notify("No free docking ports to join (one at an end of each stack)")
+
+            return
+
+        if found[1].vessel.rcs_thrust <= 0.0:
+
+            self.hud.notify("No translation thrusters (RCS) aboard")
+
+            return
+
+        distance = float(np.linalg.norm(pair[1][0] - pair[3][0]))
+
+        if distance > self.DOCKING_RANGE:
+
+            self.hud.notify(f"Too far to dock: {readable.distance(distance)} (within {readable.distance(self.DOCKING_RANGE)})")
+
+            return
+
+        self._docking = target[1]
+
+        self.hud.notify("Auto-docking: the nose turns, the thrusters bring it in")
+
+    def _update_docking(
+        self,
+        paused: bool
+    ):
+        """Each frame: the approach to the targeted vessel's port (the HUD's line; auto-docking flies it); docked when they touch."""
+
+        self._docking_command = None
+
+        found = self.vessel_system.find(self.scene)
+
+        target = self.map_view.target
+
+        if found is None or not (isinstance(target, tuple) and target and target[0] == "vessel"):
+
+            self._docking = None
+
+            return
+
+        entity, component = found
+
+        pair = self.vessel_system.docking_pair(self.scene, component, target[1])
+
+        if pair is None:
+
+            self._docking = None
+
+            return
+
+        own, own_point, theirs, their_point, other = pair
+
+        if float(np.linalg.norm(own_point[0] - their_point[0])) > 5.0 * self.DOCKING_RANGE:
+            return
+
+        command = docking.docking_command(
+            own_point,
+            component.state.velocity,
+            component.state.orientation,
+            own.end,
+            their_point,
+            other.state.velocity,
+            component.vessel.rcs_thrust / component.vessel.mass
+        )
+
+        self._docking_command = command
+
+        if docking.can_capture(own_point, component.state.velocity, their_point, other.state.velocity):
+
+            name = other.vessel.name
+
+            self.vessel_system.dock(self.scene, entity, own.end, target[1], theirs.end, self.orbit_system)
+
+            component.controls.translate = np.zeros(3)
+
+            self._docking = None
+            self.map_view.target = None
+
+            self.hud.notify(f"Docked with {name}")
+
+            return
+
+        if self._docking != target[1] or paused:
+            return
+
+        controls = component.controls
+
+        controls.sas = True
+        controls.sas_mode = "maneuver"
+        controls.maneuver = command.up
+
+        component.vessel.throttle = 0.0
+
+        # (Translating only once pointing near enough.)
+        controls.translate = command.translate if command.misalignment < 10.0 else np.zeros(3)
+
+    def undock(self):
+        """Split the flown vessel at its last docking joint."""
+
+        found = self.vessel_system.find(self.scene)
+
+        if found is None:
+            return
+
+        other = self.vessel_system.undock(self.scene, found[0], self.orbit_system)
+
+        if other is None:
+
+            self.hud.notify("Nothing docked to undock")
+
+            return
+
+        name = self.scene.get_component(other, VesselComponent).vessel.name
+
+        self.hud.notify(f"Undocked: {name} drifts away")
 
     def _cycle_vessel(
         self,
@@ -1246,6 +1401,8 @@ class Application:
 
         self._pilot(dt, paused)
 
+        self._update_docking(paused)
+
         # The clock runs at the warp's rate (no faster than
         # the vessel allows); the menu stops it.
         self.time_warp.paused = paused
@@ -1253,7 +1410,9 @@ class Application:
         if self.time_warp.limit(
             min(
                 self.vessel_system.max_warp(self.scene, self.orbit_system, self.planet_system),
-                self._computer_warp()
+                self._computer_warp(),
+                # (Docking: in real time.)
+                1.0 if self._docking is not None else math.inf
             )
         ):
             Logger.info("[Application] Time warp held to %s.", self.time_warp.label())
@@ -1467,7 +1626,7 @@ class Application:
         _, throttle, controls, last = sent
 
         def snapshot():
-            return (controls.pitch, controls.yaw, controls.roll, controls.sas, controls.sas_mode, throttle.throttle)
+            return (controls.pitch, controls.yaw, controls.roll, controls.sas, controls.sas_mode, throttle.throttle, tuple(controls.translate))
 
         # Nothing on the way: what is sent is what it has (and
         # what its computer set: not to be sent back over it).
@@ -1477,6 +1636,8 @@ class Application:
 
             for name in ("pitch", "yaw", "roll", "sas", "sas_mode"):
                 setattr(controls, name, getattr(component.controls, name))
+
+            controls.translate = np.array(component.controls.translate, dtype=np.float64)
 
             last = snapshot()
 
@@ -1622,11 +1783,12 @@ class Application:
 
         if kind == "controls":
 
-            pitch, yaw, roll, sas, sas_mode, throttle = payload
+            pitch, yaw, roll, sas, sas_mode, throttle, translate = payload
 
             controls = component.controls
 
             controls.pitch, controls.yaw, controls.roll = pitch, yaw, roll
+            controls.translate = np.array(translate, dtype=np.float64)
             controls.sas, controls.sas_mode = sas, sas_mode
 
             component.vessel.throttle = throttle
@@ -1742,7 +1904,8 @@ class Application:
                 targeted=self.map_view.target == ("vessel", entity),
                 crewed=crew_of(component.vessel) > 0,
                 propellant=component.vessel.propellant,
-                capacity=component.vessel.propellant_capacity
+                capacity=component.vessel.propellant_capacity,
+                docked=docking.modules(component.vessel)
             ))
 
         if found is not None:
@@ -1773,6 +1936,10 @@ class Application:
                 self.vessel_system.remove(self.scene, action[1])
 
                 self.hud.notify("Mission ended")
+
+            elif action[0] == "undock":
+
+                self.undock()
 
             elif action[0] == "transfer" and found is not None:
 
@@ -1858,6 +2025,24 @@ class Application:
             ))
 
         self.programme_panel.draw(info)
+
+    def _docking_line(self) -> tuple[str, str] | None:
+        """For the HUD: the approach to the target's port, or None."""
+
+        command = self._docking_command
+
+        if command is None:
+            return None
+
+        text = (
+            f"Dock: {readable.distance(command.distance)}, closing {command.closing:+.2f} m/s, "
+            f"{command.misalignment:.0f} deg off, {command.lateral:.1f} m off axis"
+        )
+
+        if self._docking is not None:
+            return text + "  (auto, B: stop)", "good"
+
+        return text + "  (B: auto-dock)", "warn"
 
     def _link_line(
         self,
@@ -3176,6 +3361,9 @@ class Application:
         if Input.is_key_pressed(Key.L):
             self.vessels_panel.toggle()
 
+        if Input.is_key_pressed(Key.B) and self.vessel_system.find(self.scene) is not None:
+            self._toggle_docking()
+
         if Input.is_key_pressed(Key.LEFT_BRACKET):
             self._cycle_vessel(-1)
 
@@ -3376,6 +3564,7 @@ class Application:
             maneuver=self._node_readout(found[1]) if found is not None else None,
             braking=self.vessel_system.braking(self.scene, self.orbit_system, self.planet_system),
             link=self._link_line(found[1]) if found is not None else None,
+            docking=self._docking_line(),
             navball=self.vessel_system.navball_frame(self.scene, self.orbit_system, self.planet_system)
         )
 

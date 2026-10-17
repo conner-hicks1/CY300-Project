@@ -1,3 +1,5 @@
+import numpy as np
+
 from core.input import Input
 from core.key_codes import Key
 
@@ -19,6 +21,8 @@ from vessel.physics import SAS_MODES
 #   F               its mode: hold the attitude, point
 #                   prograde, point retrograde
 #   Space           next stage
+#   arrows, H / N   translate (RCS, docking): forward / back,
+#                   left / right; along the stack fore / aft
 #
 # Commands are relative to the vessel: at launch "forward"
 # is east, the way a rocket turns to reach orbit.
@@ -63,6 +67,9 @@ def read_pilot(
     controls.yaw = axis(Key.D, Key.A)
     controls.roll = axis(Key.Q, Key.E)
 
+    # Forward is the vessel's -Z (as pitching forward).
+    controls.translate = np.array([axis(Key.LEFT, Key.RIGHT), axis(Key.N, Key.H), axis(Key.UP, Key.DOWN)])
+
     if Input.is_key_pressed(Key.T):
         controls.sas = not controls.sas
 
@@ -80,3 +87,4 @@ def release(
     """No steering (the pilot is busy: menu open, free camera)."""
 
     controls.pitch = controls.yaw = controls.roll = 0.0
+    controls.translate = np.zeros(3)

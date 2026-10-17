@@ -10,6 +10,7 @@ from programme.career import Campaign, Career, Flight, today_of
 from programme.resources import production, resources_at
 
 from vessel import soi
+from vessel.docking import modules
 from vessel.transfer import find_window
 
 from systems.comms_system import crew
@@ -205,7 +206,8 @@ class ProgrammeSystem:
             crewed=crew(component.vessel) > 0,
             site=app.current_site or "",
             home=science.body_id(app.scene, home) if home is not None else "",
-            landed_on=frozenset(component.landed_on)
+            landed_on=frozenset(component.landed_on),
+            docked=modules(component.vessel)
         )
 
     def _check(

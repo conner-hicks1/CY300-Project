@@ -88,6 +88,8 @@ class PartDefinition:
     antenna_range: float = 0.0      # m it reaches home from (systems/comms_system.py)
     cost: float = 0.0               # $ millions (programme/career.py)
     isru: IsruSpec | None = None
+    docking: bool = False           # a docking port (vessel/docking.py)
+    rcs_thrust: float = 0.0         # N of translation thrust each way (docking)
 
     @property
     def radius(
@@ -269,7 +271,9 @@ def parse_part(
         crew=int(_number(data, "crew", where, default=0.0)),
         antenna_range=_number(data, "antenna_range", where, default=0.0),
         cost=_number(data, "cost", where, default=0.0),
-        isru=isru
+        isru=isru,
+        docking=bool(data.get("docking", False)),
+        rcs_thrust=_number(data, "rcs_thrust", where, default=0.0)
     )
 
 

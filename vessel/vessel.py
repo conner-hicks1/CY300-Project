@@ -80,6 +80,16 @@ class PartState:
     # Its skin's temperature (K; vessel/heating.py).
     temperature: float = 290.0
 
+    # Docking (vessel/docking.py): turned over in the stack
+    # (a docked vessel's, upside down: an engine so does not
+    # fire), and a port joined to another.
+    flipped: bool = False
+    joined: bool = False
+
+    # The vessel it came with, docked into another (its name
+    # back when undocked; "" never docked).
+    origin: str = ""
+
     @property
     def radial(
         self
@@ -310,6 +320,14 @@ class Vessel:
         return pitch, roll
 
     @property
+    def rcs_thrust(
+        self
+    ) -> float:
+        """N of translation thrust each way (docking)."""
+
+        return sum(state.part.rcs_thrust * state.count for state in self.parts)
+
+    @property
     def cost(
         self
     ) -> float:
@@ -390,6 +408,7 @@ class Vessel:
             for index, state in enumerate(self.parts)
             if state.ignited
             and state.part.engine is not None
+            and not state.flipped
             and any(tank.propellant > 0.0 for tank in self._section_tanks(index))
         ]
 
@@ -683,7 +702,7 @@ class Vessel:
             [
                 PartState(
                     s.part, s.stage, s.propellant, s.ignited, s.bottom, s.armed, s.deployed,
-                    s.count, s.group, s.offset, s.distance, s.source, s.temperature
+                    s.count, s.group, s.offset, s.distance, s.source, s.temperature, s.flipped, s.joined, s.origin
                 )
                 for s in self.parts
             ],

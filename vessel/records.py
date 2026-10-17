@@ -35,6 +35,9 @@ def vessel_to_json(
                 "offset": state.offset,
                 "source": list(state.source),
                 "temperature": state.temperature,
+                "flipped": state.flipped,
+                "joined": state.joined,
+                "origin": state.origin,
             }
             for state in vessel.parts
         ],
@@ -63,6 +66,9 @@ def vessel_from_json(
             offset=float(raw.get("offset", 0.0)),
             source=tuple(raw.get("source", ())),
             temperature=float(raw.get("temperature", 290.0)),
+            flipped=bool(raw.get("flipped", False)),
+            joined=bool(raw.get("joined", False)),
+            origin=str(raw.get("origin", "")),
         ))
 
     vessel = Vessel(str(data.get("name", "Vessel")), states, int(data.get("next_stage", 0)))

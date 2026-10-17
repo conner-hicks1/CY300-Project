@@ -1,0 +1,70 @@
+{
+  "format": 1,
+  "name": "Station Core",
+  "description": "A habitat module for four with docking ports at both ends, on Pathfinder Heavy's stages: in orbit, drop the upper stage (its last stage) and dock ferries and more modules to it.",
+  "notes": "Parts from the top down. stage: the stage (0 first, Space) that ignites an engine or fires a separator, dropping everything below it. radial: groups of parts round a core part (symmetry copies), with a radial separator.",
+  "parts": [
+    {
+      "part": "docking_port_2m5"
+    },
+    {
+      "part": "habitat_module"
+    },
+    {
+      "part": "docking_port_2m5"
+    },
+    {
+      "part": "decoupler_2m5",
+      "stage": 3
+    },
+    {
+      "part": "tank_2m5_medium"
+    },
+    {
+      "part": "engine_vacuum",
+      "stage": 2
+    },
+    {
+      "part": "decoupler_2m5",
+      "stage": 2
+    },
+    {
+      "part": "tank_2m5_long"
+    },
+    {
+      "part": "tank_2m5_long"
+    },
+    {
+      "part": "tank_2m5_long",
+      "radial": [
+        {
+          "symmetry": 2,
+          "offset": 0.0,
+          "decoupler": {
+            "part": "decoupler_radial",
+            "stage": 1
+          },
+          "parts": [
+            {
+              "part": "nose_cone_1m25"
+            },
+            {
+              "part": "tank_1m25_xl"
+            },
+            {
+              "part": "tank_1m25_xl"
+            },
+            {
+              "part": "engine_medium",
+              "stage": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "part": "engine_booster",
+      "stage": 0
+    }
+  ]
+}

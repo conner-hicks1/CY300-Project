@@ -33,7 +33,7 @@ from pathlib import Path
 MISSIONS_PATH = Path("assets/programme/missions.json")
 CAREER_PATH = Path("data/programme/career.json")
 
-KINDS = ("orbit", "soi", "land", "return", "map", "science", "sample", "isru")
+KINDS = ("orbit", "soi", "land", "return", "map", "science", "sample", "isru", "dock")
 
 # Of the parts' cost, back when landed home.
 RECOVERY = 0.8
@@ -155,6 +155,9 @@ class Flight:
     home: str = ""                  # the launch body's id
     # Bodies landed on this flight (since it left home).
     landed_on: frozenset = frozenset()
+
+    # Vessels docked in one (1: just itself).
+    docked: int = 1
 
 
 @dataclass(slots=True)
@@ -355,6 +358,13 @@ class Career:
                 flight.body == mission.body
                 and flight.situation == "Landed"
                 and (not mission.site or flight.site == mission.site)
+            )
+
+        if kind == "dock":
+            return (
+                flight.docked >= mission.value
+                and flight.situation == "Orbiting"
+                and (not mission.body or flight.body == mission.body)
             )
 
         if kind == "return":

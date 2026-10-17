@@ -1,0 +1,49 @@
+{
+  "format": 1,
+  "name": "Ferry",
+  "description": "Pathfinder with a docking port on top: up to a station with a crew, and home. B docks with the vessel targeted (Vessels, L).",
+  "notes": "Parts from the top down. stage: the stage (0 first, Space) that ignites an engine or fires a separator, dropping everything below it.",
+  "parts": [
+    {
+      "part": "docking_port"
+    },
+    {
+      "part": "parachute_main",
+      "stage": 3
+    },
+    {
+      "part": "capsule"
+    },
+    {
+      "part": "heat_shield_2m5"
+    },
+    {
+      "part": "decoupler_2m5",
+      "stage": 2
+    },
+    {
+      "part": "tank_2m5_medium"
+    },
+    {
+      "part": "engine_vacuum",
+      "stage": 1
+    },
+    {
+      "part": "decoupler_2m5",
+      "stage": 1
+    },
+    {
+      "part": "tank_2m5_long"
+    },
+    {
+      "part": "tank_2m5_long"
+    },
+    {
+      "part": "tank_2m5_long"
+    },
+    {
+      "part": "engine_booster",
+      "stage": 0
+    }
+  ]
+}

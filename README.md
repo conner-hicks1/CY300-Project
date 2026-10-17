@@ -608,7 +608,7 @@ build your own rocket in the part editor, on the pad.
   body it launched from recovers 80% of what came back. The budget comes
   in by the calendar month ($25M, more with reputation): waiting months for
   a window at time warp brings money in, not just time
-- Missions (`assets/programme/missions.json`, 16 of them), each paying
+- Missions (`assets/programme/missions.json`, 18 of them), each paying
   funds and reputation, some waiting on others, some with a real deadline:
   reach orbit; reach, orbit, map and land on the Moon, land at its south
   pole, a crew to the Moon and home before 2031; Venus; Mars by the 2028
@@ -655,15 +655,41 @@ build your own rocket in the part editor, on the pad.
   to other bodies and sessions, each brought up to now on rails when it
   comes back (and the one flown when saved is flown again on starting)
 
+**Docking and stations**
+
+- Docking ports (1.25 m and 2.5 m) at the top or bottom of a stack join two
+  vessels into one (`vessel/docking.py`): the second's parts go on above or
+  below the first's, turned over when the ports face the same way along the
+  stacks (top to top), its stages after the first's; the joined vessel
+  shares propellant between separators (a depot feeding a ship) and a
+  turned-over engine does not fire. Each part remembers the vessel it came
+  with: the joined one is named for the heavier, and undocking (Vessels
+  list) splits it at the last joint, each half with its name back, pushed
+  apart at 0.2 m/s
+- Translation thrusters (RCS: the capsule, probe cores, the habitat):
+  arrows forward / back / left / right, **H** / **N** fore / aft; on rails
+  the orbit stays exact while they push
+- Auto-docking (**B**, with a vessel targeted, within 2 km): the nose turns
+  so the ports face each other, then the thrusters bring it onto the other
+  port's axis and in along it, never faster than they can stop from (a
+  heavy ship with small thrusters comes in slowly), to a capture within
+  1 m, under 0.6 m/s and nearly square. The HUD shows the approach
+  (distance, closing speed, angle, off-axis) whenever a vessel is targeted
+- A habitat module (4 crew), the Ferry (Pathfinder with a port on top) and
+  the Station Core (a habitat between two 2.5 m ports on Pathfinder Heavy's
+  stages); missions to dock two vessels and to build a crewed station of
+  three. Played through: a Ferry 60 m off docked itself to the Station
+  Core's bottom port in about two minutes, and undocked again
+
 **Part editor**
 
 - Build on the launch pad (pause menu > Build vessel): the rocket stands
   there and changes as you edit; right mouse turns the view
 - Parts on the left by kind (command, tanks, engines, separators,
-  parachutes, science, antennas, utility, structure: 27, at 1.25 m and
+  parachutes, science, antennas, utility, structure: 30, at 1.25 m and
   2.5 m, with adapters, a nose cone, heat shields, science instruments,
-  antennas, a propellant plant, a radial separator and a 1.25 m booster
-  engine; tooltips with cost, mass, propellant, thrust and Isp); a click adds one below the selected part, or
+  antennas, a propellant plant, docking ports, a habitat, a radial
+  separator and a 1.25 m booster engine; tooltips with cost, mass, propellant, thrust and Isp); a click adds one below the selected part, or
   into the selected radial group
 - The stack on the right: select a part (it lights up) to move it, remove
   it or change its stage; automatic staging (from the bottom up, each
@@ -712,7 +738,7 @@ build your own rocket in the part editor, on the pad.
 - A disk cache (`data/cache/`) of terrain chunks, keyed by their inputs and
   the generators' source code: chunks stream in ~70% faster on a second
   visit; oldest entries pruned past 2 GB
-- 654 unit tests
+- 661 unit tests
 
 ## Getting Started
 
@@ -775,6 +801,8 @@ planet streams in over the first few seconds.
 | **P** | Space programme |
 | **L** | Vessels in flight |
 | **[** / **]** | Fly the previous / next vessel |
+| **B** | Auto-dock with the targeted vessel |
+| Arrows, **H** / **N** | Translate (RCS): forward / back, left / right, fore / aft |
 | **V** | Free camera: hold right mouse, **W A S D** move, **Space** up, **Shift** down (along the ground, around the planet from orbit; speed grows with altitude) |
 | **.** / **,** | Time warp faster / slower |
 | **/** | Back to real time |
@@ -790,7 +818,7 @@ planet streams in over the first few seconds.
 | `main.py`, `application.py` | Entry point, main loop, building a body's scene |
 | `core/` | Window, input, events, timer, logging, profiler, job system, disk cache |
 | `ecs/` | Entity registry and components |
-| `vessel/` | Parts and vessel designs (and drafts being edited, saved designs), staging, propellant and parachutes, flight physics, heating, Kepler orbits, patched conics, transfers, maneuver nodes, flight computer sequences, vessels in flight as JSON |
+| `vessel/` | Parts and vessel designs (and drafts being edited, saved designs), staging, propellant and parachutes, flight physics, heating, Kepler orbits, patched conics, transfers, maneuver nodes, flight computer sequences, vessels in flight as JSON, docking |
 | `systems/` | Transform, camera controller, orbits and clock, vessels, science, communications, the space programme, planet streaming and render systems |
 | `science/` | Science sites, regions from the real maps, the orbital survey (mapping masks), the science record |
 | `programme/` | The career (funds, budget, missions on the calendar), resources for making propellant, the fleet of vessels in flight |

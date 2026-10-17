@@ -97,7 +97,8 @@ class FlightHud:
         navball=None,
         maneuver: tuple[float, float, float] | None = None,
         braking=None,
-        link: tuple[str, str] | None = None
+        link: tuple[str, str] | None = None,
+        docking: tuple[str, str] | None = None
     ):
         """
         vessel: the vessel's readout (systems/vessel_system.py
@@ -123,7 +124,7 @@ class FlightHud:
 
         if vessel is not None:
 
-            self._draw_vessel(vessel, (x + width * 0.5, y + height - 10.0), maneuver, braking, link)
+            self._draw_vessel(vessel, (x + width * 0.5, y + height - 10.0), maneuver, braking, link, docking)
 
             if navball is not None and not vessel.destroyed:
 
@@ -285,7 +286,8 @@ class FlightHud:
             imgui.text_disabled("Z / X  throttle   |   Space  stage   |   W A S D Q E  steer")
             imgui.text_disabled("T  SAS   |   F  SAS mode   |   M  map   |   V  free camera")
             imgui.text_disabled("R  run experiments   |   K  science   |   C  flight computer   |   P  programme")
-            imgui.text_disabled("L  vessels   |   [ ]  fly the previous / next vessel")
+            imgui.text_disabled("L  vessels   |   [ ]  fly the previous / next vessel   |   B  auto-dock")
+            imgui.text_disabled("arrows  translate   |   H / N  translate fore / aft")
             imgui.text_disabled("Esc  menu   |   , .  time warp   |   right mouse  look around")
         else:
             imgui.text_disabled("Esc  menu   |   , .  time warp   |   hold right mouse  look and fly")
@@ -302,7 +304,8 @@ class FlightHud:
         position,
         maneuver: tuple[float, float, float] | None = None,
         braking=None,
-        link: tuple[str, str] | None = None
+        link: tuple[str, str] | None = None,
+        docking: tuple[str, str] | None = None
     ):
         """
         maneuver: the node's (m/s left, s until its burn
@@ -324,6 +327,12 @@ class FlightHud:
         if link is not None:
 
             text, tone = link
+
+            imgui.text_colored({"good": (0.6, 0.85, 0.6, 1.0), "warn": WARN_COLOR, "bad": BAD_COLOR}[tone], text)
+
+        if docking is not None:
+
+            text, tone = docking
 
             imgui.text_colored({"good": (0.6, 0.85, 0.6, 1.0), "warn": WARN_COLOR, "bad": BAD_COLOR}[tone], text)
 

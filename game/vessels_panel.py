@@ -38,6 +38,7 @@ class VesselRow:
     crewed: bool = False
     propellant: float = 0.0         # kg
     capacity: float = 0.0
+    docked: int = 1                 # vessels docked in one
 
 
 @dataclass(slots=True)
@@ -110,7 +111,7 @@ class VesselsPanel:
 
                 imgui.table_next_column()
 
-                name = row.name + ("  (crew)" if row.crewed else "")
+                name = row.name + ("  (crew)" if row.crewed else "") + (f"  ({row.docked} docked)" if row.docked > 1 else "")
 
                 if row.active:
                     imgui.text_colored(GOOD, f"> {name}")
@@ -131,6 +132,13 @@ class VesselsPanel:
                     imgui.text_disabled("-")
 
                 imgui.table_next_column()
+
+                if row.active and row.docked > 1:
+
+                    if imgui.small_button(f"Undock##undock{row.name}"):
+                        actions.append(("undock",))
+
+                    imgui.same_line()
 
                 if not row.active:
 

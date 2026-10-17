@@ -115,6 +115,17 @@ class Controls:
     # The planned velocity change (m/s, inertial), or None.
     maneuver: np.ndarray | None = None
 
+    # Translation (RCS), -1..1 along the vessel's own X, Y
+    # (the stack), Z: for docking.
+    translate: np.ndarray = field(default_factory=lambda: np.zeros(3))
+
+    @property
+    def translating(
+        self
+    ) -> bool:
+
+        return bool(np.any(np.abs(self.translate) > 1e-6))
+
 
 @dataclass(slots=True)
 class Environment:
@@ -218,7 +229,7 @@ def step(
 
     mass = vessel.mass
 
-    push = state.up * (thrust / mass)
+    push = state.up * (thrust / mass) + rcs_push(vessel, state, controls)
 
     acceleration = gravity(environment, state.position) + push
 
@@ -318,6 +329,26 @@ def motion(
         return state.velocity - surface_velocity(environment, state.position)
 
     return state.velocity
+
+
+def rcs_push(
+    vessel: Vessel,
+    state: VesselState,
+    controls: Controls
+) -> np.ndarray:
+    """The translation thrusters' acceleration (inertial, m/s^2)."""
+
+    if not controls.translating:
+        return np.zeros(3)
+
+    thrust = vessel.rcs_thrust
+
+    if thrust <= 0.0:
+        return np.zeros(3)
+
+    command = np.clip(np.asarray(controls.translate, dtype=np.float64), -1.0, 1.0)
+
+    return quaternion.rotate_vector(state.orientation, command) * (thrust / vessel.mass)
 
 
 def cool(

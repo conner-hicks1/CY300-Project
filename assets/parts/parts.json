@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together). Kinds: command (needed to fly), tank, engine, decoupler (drops what is below it), parachute, structure (adapters, nose cones). max_temperature: K a part's skin stands (default 1400); a heat shield under a capsule stands ~3300 for coming in from orbit or the Moon. experiment: what science a part does (id, name, value, situations: landed / flying / space_low / space_high; needs_air; maps: maps the ground from orbit). crew: people aboard (crewed vessels fly without a link home). antenna_range: m from home the part's antenna still links (built into command parts: ~the Moon). cost: $ millions. isru: a propellant plant: kg a day it makes landed on ice (rate_ice) or in a usable air (rate_air).",
+  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together). Kinds: command (needed to fly), tank, engine, decoupler (drops what is below it), parachute, structure (adapters, nose cones). max_temperature: K a part's skin stands (default 1400); a heat shield under a capsule stands ~3300 for coming in from orbit or the Moon. experiment: what science a part does (id, name, value, situations: landed / flying / space_low / space_high; needs_air; maps: maps the ground from orbit). crew: people aboard (crewed vessels fly without a link home). antenna_range: m from home the part's antenna still links (built into command parts: ~the Moon). cost: $ millions. isru: a propellant plant: kg a day it makes landed on ice (rate_ice) or in a usable air (rate_air). docking: a docking port (at a stack's top or bottom). rcs_thrust: N of translation thrust (docking).",
   "parts": [
     {
       "id": "capsule",
@@ -34,7 +34,8 @@
       },
       "crew": 3,
       "antenna_range": 1000000000.0,
-      "cost": 40.0
+      "cost": 40.0,
+      "rcs_thrust": 2000
     },
     {
       "id": "heat_shield_2m5",
@@ -225,6 +226,46 @@
         "rate_ice": 600,
         "rate_air": 250
       }
+    },
+    {
+      "id": "docking_port",
+      "name": "Docking port",
+      "kind": "utility",
+      "mass": 150,
+      "cost": 3.0,
+      "shape": {
+        "radius_top": 0.55,
+        "radius_bottom": 0.625,
+        "height": 0.35
+      },
+      "color": [
+        0.78,
+        0.8,
+        0.82
+      ],
+      "metallic": 0.7,
+      "roughness": 0.3,
+      "docking": true
+    },
+    {
+      "id": "docking_port_2m5",
+      "name": "Docking port, 2.5 m",
+      "kind": "utility",
+      "mass": 300,
+      "cost": 4.0,
+      "shape": {
+        "radius_top": 1.1,
+        "radius_bottom": 1.25,
+        "height": 0.4
+      },
+      "color": [
+        0.78,
+        0.8,
+        0.82
+      ],
+      "metallic": 0.7,
+      "roughness": 0.3,
+      "docking": true
     },
     {
       "id": "parachute_main",
@@ -418,7 +459,41 @@
         ]
       },
       "antenna_range": 1000000000.0,
-      "cost": 6.0
+      "cost": 6.0,
+      "rcs_thrust": 500
+    },
+    {
+      "id": "habitat_module",
+      "name": "Habitat module",
+      "kind": "command",
+      "mass": 4000,
+      "cost": 70.0,
+      "shape": {
+        "radius_top": 1.25,
+        "radius_bottom": 1.25,
+        "height": 6.0
+      },
+      "color": [
+        0.88,
+        0.88,
+        0.86
+      ],
+      "metallic": 0.3,
+      "roughness": 0.5,
+      "crew": 4,
+      "reaction_wheel_torque": 40000,
+      "rcs_thrust": 2000,
+      "antenna_range": 1000000000.0,
+      "crash_speed": 6,
+      "experiment": {
+        "id": "station_research",
+        "name": "Station research",
+        "value": 8,
+        "situations": [
+          "space_low",
+          "space_high"
+        ]
+      }
     },
     {
       "id": "nose_cone_1m25",

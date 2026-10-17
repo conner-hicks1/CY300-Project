@@ -36,7 +36,7 @@ from resources.resources import Resources
 
 from scene.scene import Scene
 
-from vessel import heating, kepler, maneuver, soi
+from vessel import docking, heating, kepler, maneuver, soi
 from vessel.parts import VesselDesign
 from vessel.physics import (
     Controls,
@@ -46,6 +46,7 @@ from vessel.physics import (
     coast,
     cool,
     land,
+    rcs_push,
     steer,
     step
 )
@@ -210,6 +211,9 @@ class VesselSystem:
 
     PHYSICS_STEP = 0.02
     PHYSICS_WARP = 5.0
+
+    # Translating with RCS on rails: pieces this long (s).
+    RCS_STEP = 0.1
 
     # Most steps in one frame (beyond: bigger steps).
     MAX_STEPS = 200
@@ -390,6 +394,167 @@ class VesselSystem:
         self.place(scene, orbit_system)
 
         return entity
+
+    # =====================================================
+    # Docking
+    # =====================================================
+
+    # Pushed apart undocking (m/s, each).
+    UNDOCK_SPEED = 0.2
+
+    def port_points(
+        self,
+        component: VesselComponent
+    ) -> list[tuple[docking.Port, tuple[np.ndarray, np.ndarray]]]:
+        """A vessel's free ports: (port, (face point, facing)), about its body, inertial."""
+
+        return [
+            (port, docking.port_point(component.vessel, component.state.position, component.state.orientation, port.end))
+            for port in docking.free_ports(component.vessel)
+        ]
+
+    def docking_pair(
+        self,
+        scene: Scene,
+        component: VesselComponent,
+        target_entity: Entity
+    ) -> tuple | None:
+        """
+        The closest pair of free ports between this vessel and
+        the target (same body): (own port, own point, target
+        port, target point, target component), or None.
+        """
+
+        target = scene.try_get_component(target_entity, VesselComponent)
+
+        if target is None or target is component or target.body != component.body or target.state.destroyed:
+            return None
+
+        best = None
+
+        for own, own_point in self.port_points(component):
+
+            for theirs, their_point in self.port_points(target):
+
+                distance = float(np.linalg.norm(own_point[0] - their_point[0]))
+
+                if best is None or distance < best[0]:
+                    best = (distance, own, own_point, theirs, their_point, target)
+
+        return best[1:] if best is not None else None
+
+    def dock(
+        self,
+        scene: Scene,
+        entity: Entity,
+        own_end: str,
+        target_entity: Entity,
+        target_end: str,
+        orbit_system
+    ) -> bool:
+        """Join the target to this vessel at their ports: one vessel (this one), the target's parts in its stack."""
+
+        component = scene.try_get_component(entity, VesselComponent)
+        target = scene.try_get_component(target_entity, VesselComponent)
+
+        if component is None or target is None:
+            return False
+
+        own_mass = component.vessel.mass
+        their_mass = target.vessel.mass
+
+        up = component.state.up
+
+        joined, below, rise = docking.merge(component.vessel, own_end, target.vessel, target_end)
+
+        state = component.state
+
+        # The joined stack's origin: below, at the target's
+        # bottom; both now move as one (momentum kept).
+        state.position = state.position - up * rise
+        state.velocity = (state.velocity * own_mass + target.state.velocity * their_mass) / (own_mass + their_mass)
+        state.angular_velocity = np.zeros(3)
+
+        component.vessel = joined
+        component.science.extend(target.science)
+        component.landed_on |= target.landed_on
+        component.paid = component.paid or target.paid
+
+        self._clear_parts(scene, component)
+        self._build_parts(scene, entity, component)
+
+        self.remove(scene, target_entity)
+
+        self._prediction = None
+        self._planned = None
+
+        self.place(scene, orbit_system)
+
+        Logger.info("[Vessels] Docked: %s is %d vessels in one.", joined.name, docking.modules(joined))
+
+        return True
+
+    def undock(
+        self,
+        scene: Scene,
+        entity: Entity,
+        orbit_system
+    ) -> Entity | None:
+        """Split the vessel at its last joint: the lower half goes its own way (a vessel of its own). Returns it."""
+
+        component = scene.try_get_component(entity, VesselComponent)
+
+        if component is None:
+            return None
+
+        at = docking.joint(component.vessel)
+
+        if at is None:
+            return None
+
+        state = component.state
+
+        up = state.up
+
+        origin = state.position.copy()
+
+        upper, lower, lift, upper_turned, lower_turned = docking.split(component.vessel, at)
+
+        flip = quaternion.from_axis_angle(np.array([1.0, 0.0, 0.0]), 180.0)
+
+        lower_state = state.copy()
+        lower_state.velocity = state.velocity - up * self.UNDOCK_SPEED
+        lower_state.angular_velocity = np.zeros(3)
+
+        if lower_turned:
+
+            # Its old top (the joint) is its bottom now.
+            lower_state.position = origin + up * lift
+            lower_state.orientation = quaternion.normalize(quaternion.multiply(state.orientation, flip))
+
+        state.velocity = state.velocity + up * self.UNDOCK_SPEED
+
+        if upper_turned:
+            state.position = origin + up * (lift + upper.height)
+            state.orientation = quaternion.normalize(quaternion.multiply(state.orientation, flip))
+        else:
+            state.position = origin + up * lift
+
+        component.vessel = upper
+
+        self._clear_parts(scene, component)
+        self._build_parts(scene, entity, component)
+
+        other = self.add_vessel(scene, lower, lower_state, component.body, orbit_system, paid=component.paid)
+
+        self._prediction = None
+        self._planned = None
+
+        self.place(scene, orbit_system)
+
+        Logger.info("[Vessels] Undocked: %s and %s.", upper.name, lower.name)
+
+        return other
 
     def remove(
         self,
@@ -1656,7 +1821,7 @@ class VesselSystem:
 
         node_limit = self._node_warp(component, orbit_system, frame_time)
 
-        if not can_coast(component.vessel, state, environment):
+        if not can_coast(component.vessel, state, environment) or component.controls.translating:
             return min(self.PHYSICS_WARP, node_limit)
 
         limit = node_limit
@@ -1921,6 +2086,26 @@ class VesselSystem:
 
                 floor = max(extent, environment.air_top)
 
+                if shape.periapsis > floor and controls.translating:
+
+                    # Translating (docking): the orbit exactly,
+                    # the thrusters' push in small pieces.
+                    piece = min(remaining, self.RCS_STEP)
+
+                    coast(state, environment, piece)
+
+                    push = rcs_push(vessel, state, controls)
+
+                    state.velocity = state.velocity + push * piece
+                    state.position = state.position + push * (0.5 * piece * piece)
+                    state.thrust_dv = state.thrust_dv + push * piece
+
+                    self._steer(vessel, state, controls, piece, environment)
+
+                    remaining -= piece
+
+                    continue
+
                 if shape.periapsis > floor:
 
                     coast(state, environment, remaining)
@@ -2176,7 +2361,8 @@ class VesselSystem:
                 scene.add_component(
                     child,
                     MeshRendererComponent(
-                        mesh=self._frustum(part.radius_top, part.radius_bottom, part.height),
+                        # (Turned over in a docked stack: drawn so.)
+                        mesh=self._frustum(part.radius_bottom, part.radius_top, part.height) if state.flipped else self._frustum(part.radius_top, part.radius_bottom, part.height),
                         material=self._material(f"vessel/{part.id}", part.color, part.metallic, part.roughness)
                     )
                 )
