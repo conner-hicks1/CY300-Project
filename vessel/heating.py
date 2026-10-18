@@ -121,6 +121,10 @@ def heat(
 
     sine = math.sqrt(max(0.0, 1.0 - cosine * cosine))
 
+    # (For the glow of coming in.)
+    vessel.heat_flux = flux * abs(cosine)
+    vessel.heat_end = "top" if cosine >= 0.0 else "bottom"
+
     burned = None
 
     for state in vessel.parts:

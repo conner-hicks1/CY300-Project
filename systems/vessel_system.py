@@ -10,6 +10,7 @@ from core.logger import Logger
 
 from ecs.components import (
     AtmosphereComponent,
+    GlowComponent,
     BodyComponent,
     DebrisComponent,
     HierarchyComponent,
@@ -25,7 +26,9 @@ from ecs.entity import Entity
 
 from graphics.material import Material
 from graphics.mesh import Mesh
+from graphics.mesh_data import MeshData
 from graphics.mesh_factory import MeshFactory
+from graphics.texture import Texture2D
 
 from math3d import quaternion
 from math3d.transform import Transform
@@ -36,7 +39,7 @@ from resources.resources import Resources
 
 from scene.scene import Scene
 
-from vessel import docking, heating, kepler, maneuver, soi
+from vessel import docking, heating, kepler, looks, maneuver, soi
 from vessel.parts import VesselDesign
 from vessel.physics import (
     Controls,
@@ -163,7 +166,10 @@ def copy_positions(
     """
 
     if not state.radial:
-        return [(0.0, state.bottom, 0.0)]
+
+        # (Turned over in a docked stack: its own bottom at
+        # the top of its place.)
+        return [(0.0, state.bottom + (state.part.height if state.flipped else 0.0), 0.0)]
 
     base = math.radians(state.angle)
 
@@ -187,6 +193,10 @@ def copy_orientations(
     """
 
     if not state.outward:
+
+        if state.flipped:
+            return [quaternion.from_axis_angle(np.array([1.0, 0.0, 0.0]), 180.0)] * max(state.count, 1)
+
         return [np.array([0.0, 0.0, 0.0, 1.0])] * max(state.count, 1)
 
     base = math.radians(state.angle)
@@ -247,8 +257,9 @@ class VesselSystem:
     # Most steps in one frame (beyond: bigger steps).
     MAX_STEPS = 200
 
-    # Plume: length (m) at full throttle.
-    PLUME_LENGTH = 9.0
+    # Plume: length (m) at full throttle (a 2.5 m engine's;
+    # smaller engines', shorter).
+    PLUME_LENGTH = 24.0
 
     # Debris: dropped this far behind (m) or this old (s).
     DEBRIS_RANGE = 25_000.0
@@ -756,30 +767,17 @@ class VesselSystem:
 
         for state in component.vessel.parts:
 
-            part = state.part
-
             lit = selection is not None and (
                 state.source == tuple(selection)
                 or (len(selection) == 2 and state.source[:2] == tuple(selection))
             )
 
-            for child in component.part_entities.get(id(state), []):
+            for child, finish in component.pieces.get(id(state), []):
 
                 renderer = scene.try_get_component(child, MeshRendererComponent)
 
-                if renderer is None:
-                    continue
-
-                if lit:
-                    renderer.material = self._material(
-                        f"vessel/{part.id}/selected",
-                        tuple(min(1.0, c * 0.6 + 0.4) for c in part.color),
-                        part.metallic,
-                        part.roughness,
-                        emissive=(0.35, 0.22, 0.05)
-                    )
-                else:
-                    renderer.material = self._material(f"vessel/{part.id}", part.color, part.metallic, part.roughness)
+                if renderer is not None:
+                    renderer.material = self._finish_material(finish, selected=lit)
 
     # =====================================================
     # Queries
@@ -2110,6 +2108,7 @@ class VesselSystem:
 
         self._update_plumes(scene, entity, component, orbit_system, planet_system)
         self._update_canopies(scene, entity, component)
+        self._update_reentry_glow(scene, entity, component)
 
         self.place(scene, orbit_system)
 
@@ -2355,12 +2354,18 @@ class VesselSystem:
         entity: Entity
     ):
 
-        for child, hierarchy in list(scene.registry.view_with(HierarchyComponent)):
+        children: dict = {}
 
-            if hierarchy.parent == entity:
-                scene.destroy_entity(child)
+        for child, hierarchy in scene.registry.view_with(HierarchyComponent):
+            children.setdefault(hierarchy.parent, []).append(child)
 
-        scene.destroy_entity(entity)
+        doomed = [entity]
+
+        for item in doomed:
+            doomed.extend(children.get(item, ()))
+
+        for item in reversed(doomed):
+            scene.destroy_entity(item)
 
     # =====================================================
     # Placing and Drawing
@@ -2475,12 +2480,16 @@ class VesselSystem:
     ):
 
         component.part_entities = {}
+        component.pieces = {}
 
         for state in component.vessel.parts:
 
             part = state.part
 
             copies = []
+            pieces = []
+
+            shapes = self._part_meshes(part, self._skirt(component.vessel, state))
 
             for position, turned in zip(copy_positions(state), copy_orientations(state)):
 
@@ -2489,18 +2498,119 @@ class VesselSystem:
                 scene.add_component(child, NameComponent(part.name))
                 scene.add_component(child, HierarchyComponent(entity))
                 scene.add_component(child, TransformComponent(transform=Transform(position=position, orientation=turned)))
-                scene.add_component(
-                    child,
-                    MeshRendererComponent(
-                        # (Turned over in a docked stack: drawn so.)
-                        mesh=self._frustum(part.radius_bottom, part.radius_top, part.height) if state.flipped else self._frustum(part.radius_top, part.radius_bottom, part.height),
-                        material=self._material(f"vessel/{part.id}", part.color, part.metallic, part.roughness)
-                    )
-                )
+
+                # The first finish on the copy itself, the others
+                # as its children (one draw each).
+                for index, (finish, mesh) in enumerate(shapes):
+
+                    holder = child
+
+                    if index:
+
+                        holder = scene.create_entity()
+
+                        scene.add_component(holder, NameComponent(f"{part.name} ({finish})"))
+                        scene.add_component(holder, HierarchyComponent(child))
+                        scene.add_component(holder, TransformComponent(transform=Transform()))
+
+                    scene.add_component(holder, MeshRendererComponent(mesh=mesh, material=self._finish_material(finish)))
+
+                    pieces.append((holder, finish))
 
                 copies.append(child)
 
             component.part_entities[id(state)] = copies
+            component.pieces[id(state)] = pieces
+
+    @staticmethod
+    def _skirt(
+        vessel: Vessel,
+        state
+    ) -> float:
+        """A core separator right under an engine: the interstage skirt's height (the engine's); else 0."""
+
+        if state.part.kind != "decoupler" or state.radial or state.flipped:
+            return 0.0
+
+        core = [item for item in vessel.parts if not item.radial]
+
+        index = next((k for k, item in enumerate(core) if item is state), None)
+
+        if not index:
+            return 0.0
+
+        above = core[index - 1]
+
+        return above.part.height if above.part.kind == "engine" and not above.flipped else 0.0
+
+    def _part_meshes(
+        self,
+        part,
+        skirt: float = 0.0
+    ) -> list[tuple[str, Handle]]:
+        """The part's look (vessel/looks.py) as one mesh per finish (cached by part, and skirt)."""
+
+        meshes = []
+
+        for finish, (pieces, colors) in looks.merged(part, skirt).items():
+
+            def build(pieces=pieces, colors=colors):
+
+                datas = [
+                    MeshFactory.lathe_data(
+                        piece.profile,
+                        piece.segments,
+                        piece.tile,
+                        colors=[color] * (len(piece.profile) - 1),
+                        # (An octagon: a face to the front.)
+                        angle_offset=math.pi / piece.segments if piece.segments < 12 else 0.0
+                    )
+                    for piece, color in zip(pieces, colors)
+                ]
+
+                return Mesh.from_data(MeshData.merge(datas))
+
+            meshes.append((finish, self._resources.meshes.load(f"vessel/look/{part.id}/{finish}/{skirt:.2f}", build)))
+
+        return meshes
+
+    def _finish_material(
+        self,
+        finish: str,
+        selected: bool = False
+    ) -> Handle:
+        """A finish's material (shared by every part: vertex colors carry the part's color), lit up when selected."""
+
+        metallic, roughness, surface = looks.FINISHES[finish]
+
+        key = f"vessel/finish/{finish}" + ("/selected" if selected else "")
+
+        def create():
+
+            material = Material(self._lit)
+
+            material.set_vec3("uBaseColor", (1.35, 1.25, 1.0) if selected else (1.0, 1.0, 1.0))
+            material.set_float("uMetallic", metallic)
+            material.set_float("uRoughness", roughness)
+            material.set_vec3("uEmissive", (0.35, 0.22, 0.05) if selected else (0.0, 0.0, 0.0))
+
+            if surface is not None:
+
+                textures = self._resources.textures
+
+                material.set_texture("uBaseColorMap", textures.load(f"vessel/{surface}_albedo", lambda: Texture2D(f"assets/textures/{surface}_albedo.png", srgb=True)))
+                material.set_texture("uNormalMap", textures.load(f"vessel/{surface}_normal", lambda: Texture2D(f"assets/textures/{surface}_normal.png", srgb=False)))
+
+                orm = textures.load(f"vessel/{surface}_orm", lambda: Texture2D(f"assets/textures/{surface}_orm.png", srgb=False))
+
+                material.set_texture("uMetallicRoughnessMap", orm)
+                material.set_texture("uOcclusionMap", orm)
+                material.set_float("uNormalStrength", 1.0)
+                material.set_float("uOcclusionStrength", 1.0)
+
+            return material
+
+        return self._resources.materials.load(key, create)
 
     def _restack_parts(
         self,
@@ -2537,6 +2647,8 @@ class VesselSystem:
         vessel.dropped.clear()
 
         dropped_map = {id(part): component.part_entities.pop(id(part), []) for part in dropped}
+
+        dropped_pieces = {id(part): component.pieces.pop(id(part), []) for part in dropped}
 
         dropped_entities = [child for copies in dropped_map.values() for child in copies]
 
@@ -2584,6 +2696,7 @@ class VesselSystem:
             scene.add_component(child_entity, child)
 
             child.part_entities = dropped_map
+            child.pieces = dropped_pieces
 
             for child_part in dropped_entities:
                 scene.get_component(child_part, HierarchyComponent).parent = child_entity
@@ -2614,7 +2727,7 @@ class VesselSystem:
         else:
 
             for child in dropped_entities:
-                scene.destroy_entity(child)
+                self._destroy_tree(scene, child)
 
         self._restack_parts(scene, component)
 
@@ -2626,12 +2739,44 @@ class VesselSystem:
 
         parts = [child for copies in component.part_entities.values() for child in copies]
 
-        for child in parts + component.plume_entities + component.canopy_entities:
-            scene.destroy_entity(child)
+        for child in parts + component.plume_entities + component.canopy_entities + component.glow_entities:
+            self._destroy_tree(scene, child)
 
         component.part_entities.clear()
+        component.pieces.clear()
         component.plume_entities.clear()
         component.canopy_entities.clear()
+        component.glow_entities.clear()
+
+    # Plumes (unit meshes: the nozzle's radius 1, 1 long,
+    # from the nozzle at 0 down; v along them): a narrowing
+    # flame in thick air, a wide spreading one in vacuum;
+    # inside each a short bright core.
+    PLUME_SHAPES = {
+        "air": ((1.0, 0.0), (0.97, -0.12), (0.8, -0.45), (0.45, -0.8), (0.0, -1.0)),
+        "air_core": ((0.62, 0.0), (0.5, -0.25), (0.22, -0.6), (0.0, -0.75)),
+        "vacuum": ((1.0, 0.0), (1.55, -0.18), (2.3, -0.55), (2.9, -1.0)),
+        "vacuum_core": ((0.7, 0.0), (0.9, -0.25), (1.05, -0.55)),
+    }
+
+    # HDR colors at full throttle (they bloom).
+    PLUME_COLORS = {
+        "air": (9.0, 3.6, 0.9),
+        "air_core": (28.0, 20.0, 11.0),
+        "vacuum": (1.6, 0.9, 0.55),
+        "vacuum_core": (9.0, 7.0, 4.6),
+    }
+
+    def _glow_mesh(
+        self,
+        name: str,
+        profile
+    ) -> Handle:
+
+        return self._resources.meshes.load(
+            f"vessel/glow/{name}",
+            lambda: Mesh.from_data(MeshFactory.lathe_data(profile, 32, None, crease_degrees=80.0))
+        )
 
     def _update_plumes(
         self,
@@ -2641,7 +2786,7 @@ class VesselSystem:
         orbit_system,
         planet_system
     ):
-        """A glowing cone under each burning engine, longer with the throttle, wider in thin air."""
+        """Glowing exhaust under each burning engine: longer with the throttle, spreading as the air thins."""
 
         vessel = component.vessel
 
@@ -2655,8 +2800,11 @@ class VesselSystem:
             ]
         )
 
-        while len(component.plume_entities) > len(engines):
-            scene.destroy_entity(component.plume_entities.pop())
+        # Two glows an engine: the flame, its core.
+        wanted = 2 * len(engines)
+
+        while len(component.plume_entities) > wanted:
+            self._destroy_tree(scene, component.plume_entities.pop())
 
         if not engines:
             return
@@ -2669,40 +2817,123 @@ class VesselSystem:
 
         pressure, _ = environment.air(radius, state.position / radius)
 
-        # Exhaust: a narrowing flame at sea level, spreading
-        # wider than the nozzle as the air thins.
+        # 0 at sea level, 1 in vacuum.
         thin = 1.0 - min(pressure / 1.01325, 1.0)
 
-        mesh = self._frustum(1.0, 0.35, 1.0) if thin < 0.5 else self._frustum(1.0, 1.8, 1.0)
+        kind = "vacuum" if thin > 0.6 else "air"
 
-        widen = 1.0 + 0.6 * thin
-
-        material = self._material("vessel/plume", (0.0, 0.0, 0.0), 0.0, 1.0, emissive=(2.6, 1.3, 0.45))
-
-        while len(component.plume_entities) < len(engines):
+        while len(component.plume_entities) < wanted:
 
             child = scene.create_entity()
 
             scene.add_component(child, NameComponent("Exhaust"))
             scene.add_component(child, HierarchyComponent(entity))
             scene.add_component(child, TransformComponent(transform=Transform()))
-            scene.add_component(child, MeshRendererComponent(mesh=mesh, material=material, casts_shadows=False))
+            scene.add_component(child, GlowComponent(mesh=self._glow_mesh("air", self.PLUME_SHAPES["air"])))
 
             component.plume_entities.append(child)
 
-        for (engine, (x, _, z)), child in zip(engines, component.plume_entities):
+        throttle = vessel.throttle
 
-            length = self.PLUME_LENGTH * (0.3 + 0.7 * vessel.throttle) * (1.0 + 0.5 * thin) * min(1.0, engine.part.radius_bottom / 0.9)
+        for index, (engine, (x, _, z)) in enumerate(engines):
 
-            nozzle = engine.part.radius_bottom * 0.85
+            nozzle = engine.part.radius_bottom * 0.9
+
+            length = self.PLUME_LENGTH * (0.35 + 0.65 * throttle) * (1.0 + 0.6 * thin) * min(1.0, engine.part.radius_bottom / 0.9)
+
+            for layer, name in enumerate((kind, f"{kind}_core")):
+
+                child = component.plume_entities[2 * index + layer]
+
+                glow = scene.get_component(child, GlowComponent)
+
+                glow.mesh = self._glow_mesh(name, self.PLUME_SHAPES[name])
+                glow.color = tuple(c * (0.25 + 0.75 * throttle) for c in self.PLUME_COLORS[name])
+                glow.falloff = 1.2 if layer == 0 else 2.0
+                glow.tail = 1.2 if layer == 0 else 1.6
+
+                transform = scene.get_component(child, TransformComponent).transform
+
+                transform.position = (x, engine.bottom, z)
+                transform.scale = (nozzle, length * (1.0 if layer == 0 else 0.55), nozzle)
+
+    # The glow of coming in: a bow shock round the leading
+    # end and its wake behind (unit: the end's radius 1; the
+    # shock's front at +y, the wake trailing to -y).
+    SHOCK_SHAPE = ((0.0, 0.32), (0.55, 0.24), (1.02, 0.02), (1.3, -0.5), (1.5, -1.4))
+    WAKE_SHAPE = ((1.15, 0.0), (1.0, -1.5), (0.55, -5.0), (0.0, -8.0))
+
+    # Flux (W/m^2) the glow starts at, and where it is at its
+    # brightest.
+    GLOW_START = 1.5e5
+    GLOW_FULL = 3.0e6
+
+    def _update_reentry_glow(
+        self,
+        scene: Scene,
+        entity: Entity,
+        component: VesselComponent
+    ):
+        """Plasma round the end meeting the air, brighter and whiter with the heat flux."""
+
+        vessel = component.vessel
+
+        flux = vessel.heat_flux if not component.state.destroyed else 0.0
+
+        core = vessel.core
+
+        if flux < self.GLOW_START or not core:
+
+            while component.glow_entities:
+                self._destroy_tree(scene, component.glow_entities.pop())
+
+            return
+
+        while len(component.glow_entities) < 2:
+
+            child = scene.create_entity()
+
+            scene.add_component(child, NameComponent("Plasma"))
+            scene.add_component(child, HierarchyComponent(entity))
+            scene.add_component(child, TransformComponent(transform=Transform()))
+            scene.add_component(child, GlowComponent(mesh=self._glow_mesh("shock", self.SHOCK_SHAPE)))
+
+            component.glow_entities.append(child)
+
+        strength = min((flux - self.GLOW_START) / (self.GLOW_FULL - self.GLOW_START), 1.0)
+
+        # Orange, then pink-white as it grows fierce.
+        hot = np.array([1.0, 0.36, 0.1]) * (1.0 - strength) + np.array([1.0, 0.75, 0.95]) * strength
+
+        top = vessel.heat_end == "top"
+
+        end = core[0] if top else core[-1]
+
+        size = max(end.part.radius_top if top else end.part.radius_bottom, end.part.radius * 0.6)
+
+        # Facing the air: up the stack from the top, down it
+        # from the bottom.
+        turned = np.array([0.0, 0.0, 0.0, 1.0]) if top else quaternion.from_axis_angle(np.array([1.0, 0.0, 0.0]), 180.0)
+
+        where = (0.0, vessel.height if top else 0.0, 0.0)
+
+        for child, (name, shape, scale, brightness, falloff) in zip(component.glow_entities, (
+            ("shock", self.SHOCK_SHAPE, 1.0, 6.0 + 30.0 * strength, 0.8),
+            ("wake", self.WAKE_SHAPE, 1.0 + strength, 1.5 + 6.0 * strength, 1.4),
+        )):
+
+            glow = scene.get_component(child, GlowComponent)
+
+            glow.mesh = self._glow_mesh(name, shape)
+            glow.color = tuple(float(c) * brightness for c in hot)
+            glow.falloff = falloff
+            glow.tail = 1.0
 
             transform = scene.get_component(child, TransformComponent).transform
 
-            transform.position = (x, engine.bottom - length, z)
-            transform.scale = (nozzle * widen, length, nozzle * widen)
-
-            # (Narrow or spreading, as the air is now.)
-            scene.get_component(child, MeshRendererComponent).mesh = mesh
+            transform.position = where
+            transform.orientation = turned
+            transform.scale = (size * scale, size * scale, size * scale)
 
     def _update_canopies(
         self,

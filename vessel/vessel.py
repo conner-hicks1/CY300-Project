@@ -141,6 +141,12 @@ class Vessel:
     # 0..1: how hard the burning engines push.
     throttle: float = 0.0
 
+    # Heating now (vessel/heating.py): the flux on the end
+    # meeting the air (W/m^2), and which end ("top",
+    # "bottom"): the glow of coming in.
+    heat_flux: float = 0.0
+    heat_end: str = "bottom"
+
     # Parts dropped by separators, for the renderer (cleared
     # by whoever takes them).
     dropped: list[PartState] = field(default_factory=list)

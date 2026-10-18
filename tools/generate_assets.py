@@ -164,6 +164,154 @@ def generate_tiles(
 
 
 # =========================================================
+# Vessel Surfaces
+# =========================================================
+#
+# Tileable surfaces for rocket parts (vessel/looks.py
+# finishes), each an albedo (a multiplier near white: the
+# part's color comes from its vertices), a normal map and an
+# ORM (R occlusion, G a roughness factor, B metallic 1):
+#
+#   hull     skin panels with seams and rivet rows (two by
+#            two in a tile)
+#   foil     crinkled insulation foil
+#   shield   an ablative heat shield: charred, pitted
+
+def _height_to_normal(
+    height: np.ndarray,
+    strength: float
+) -> np.ndarray:
+
+    size = height.shape[0]
+
+    dh_du = (np.roll(height, -1, axis=1) - np.roll(height, 1, axis=1)) * 0.5 * size
+    dh_dv = -(np.roll(height, -1, axis=0) - np.roll(height, 1, axis=0)) * 0.5 * size
+
+    normal = np.stack((-dh_du / strength, -dh_dv / strength, np.ones_like(height)), axis=-1)
+
+    return normal / np.linalg.norm(normal, axis=-1, keepdims=True)
+
+
+def _save_surface(
+    name: str,
+    albedo: np.ndarray,
+    height: np.ndarray,
+    occlusion: np.ndarray,
+    roughness: np.ndarray,
+    strength: float
+):
+
+    _save_rgb(TEXTURES / f"{name}_albedo.png", albedo)
+    _save_rgb(TEXTURES / f"{name}_normal.png", _height_to_normal(height, strength) * 0.5 + 0.5)
+    _save_rgb(
+        TEXTURES / f"{name}_orm.png",
+        np.stack((np.clip(occlusion, 0.0, 1.0), np.clip(roughness, 0.05, 1.0), np.ones_like(height)), axis=-1)
+    )
+
+
+def generate_hull(
+    size: int = 512
+):
+
+    rng = np.random.default_rng(301)
+
+    coords = (np.arange(size) + 0.5) / size
+
+    u = np.broadcast_to(coords[None, :], (size, size))
+    v = np.broadcast_to(coords[:, None], (size, size))
+
+    # Two panels each way: seams at 0 and 0.5.
+    seam_u = np.minimum(np.abs((u * 2.0) % 1.0), 1.0 - (u * 2.0) % 1.0)
+    seam_v = np.minimum(np.abs((v * 2.0) % 1.0), 1.0 - (v * 2.0) % 1.0)
+
+    seam = np.minimum(seam_u, seam_v)
+
+    groove = 1.0 - np.clip(seam / 0.012, 0.0, 1.0)
+
+    # Rivets along each seam, a row each side.
+    rivet = np.zeros((size, size))
+
+    for offset in (0.03, 0.97):
+
+        along_v = np.abs(((v * 2.0) % 1.0) - offset) < 0.006
+        spots_u = np.abs(((u * 32.0) % 1.0) - 0.5) < 0.18
+
+        rivet = np.maximum(rivet, (along_v & spots_u).astype(float))
+
+        along_u = np.abs(((u * 2.0) % 1.0) - offset) < 0.006
+        spots_v = np.abs(((v * 32.0) % 1.0) - 0.5) < 0.18
+
+        rivet = np.maximum(rivet, (along_u & spots_v).astype(float))
+
+    rivet = _blur(rivet, 1)
+
+    # Each panel a shade apart; faint streaks of wear.
+    panel = rng.uniform(0.93, 1.0, (2, 2))[(v * 2.0).astype(int) % 2, (u * 2.0).astype(int) % 2]
+
+    streaks = _blur(rng.normal(0.0, 1.0, (size, size)), 6)
+    streaks = _blur(streaks, 2) * 0.05
+
+    height = -groove * 0.5 + rivet * 0.35 + streaks * 0.2
+
+    albedo = (panel * (1.0 + streaks) * (1.0 - 0.12 * groove))[..., None] * np.ones(3)
+
+    occlusion = 1.0 - 0.2 * groove
+
+    roughness = 0.9 + streaks * 2.0 + 0.1 * groove
+
+    _save_surface("hull", albedo, height, occlusion, roughness, 6.0)
+
+
+def generate_foil(
+    size: int = 512
+):
+
+    rng = np.random.default_rng(302)
+
+    # Crinkles: sharp ridges of folded noise at two scales.
+    coarse = _blur(rng.normal(0.0, 1.0, (size, size)), 10)
+    fine = _blur(rng.normal(0.0, 1.0, (size, size)), 3)
+
+    coarse /= np.abs(coarse).max()
+    fine /= np.abs(fine).max()
+
+    height = np.abs(coarse) * 0.7 + np.abs(fine) * 0.3
+
+    albedo = (0.85 + 0.15 * (1.0 - height))[..., None] * np.ones(3)
+
+    occlusion = 0.8 + 0.2 * height
+
+    roughness = 0.7 + 0.5 * np.abs(fine)
+
+    _save_surface("foil", albedo, height, occlusion, roughness, 1.2)
+
+
+def generate_shield(
+    size: int = 512
+):
+
+    rng = np.random.default_rng(303)
+
+    char = _blur(rng.normal(0.0, 1.0, (size, size)), 8)
+    char /= np.abs(char).max()
+
+    # Pits: small dark dimples scattered over it.
+    pits = (rng.uniform(0.0, 1.0, (size, size)) > 0.997).astype(float)
+    pits = _blur(pits, 2)
+    pits /= max(pits.max(), 1e-9)
+
+    height = char * 0.3 - pits * 0.8
+
+    albedo = (0.75 + 0.25 * char - 0.4 * pits)[..., None] * np.array([1.0, 0.92, 0.85])
+
+    occlusion = 1.0 - 0.5 * pits
+
+    roughness = np.full((size, size), 1.0) - 0.1 * char
+
+    _save_surface("shield", np.clip(albedo, 0.0, 1.0), height, occlusion, roughness, 2.0)
+
+
+# =========================================================
 # UV Checker
 # =========================================================
 
@@ -509,6 +657,9 @@ def generate_pyramid():
 def main() -> int:
 
     generate_tiles()
+    generate_hull()
+    generate_foil()
+    generate_shield()
     generate_uv_checker()
     generate_torus()
     generate_pyramid()

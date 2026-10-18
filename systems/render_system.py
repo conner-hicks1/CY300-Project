@@ -34,6 +34,7 @@ from ecs.components import (
     BodyComponent,
     CameraComponent,
     DirectionalLightComponent,
+    GlowComponent,
     MeshRendererComponent,
     OrbitComponent,
     PlanetComponent,
@@ -205,6 +206,7 @@ class RenderSystem:
             "post": self._load_engine_shader("post", "fullscreen"),
             "exposure": self._load_engine_shader("exposure", "fullscreen"),
             "rings": self._load_engine_shader("rings"),
+            "glow": self._load_engine_shader("glow"),
             "fxaa": self._load_engine_shader("fxaa", "fullscreen"),
             "bloom_downsample": self._load_engine_shader("bloom_downsample", "fullscreen"),
             "bloom_upsample": self._load_engine_shader("bloom_upsample", "fullscreen"),
@@ -648,6 +650,10 @@ class RenderSystem:
                 with profiler.scope("Rings"):
 
                     self._render_rings()
+
+            with profiler.scope("Glow"):
+
+                self._render_glows(scene.registry)
 
         # -------------------------------------------------
         # 4-6. Bloom, Post, FXAA
@@ -1894,6 +1900,47 @@ class RenderSystem:
             self._scatter_commands,
             time.perf_counter() - self._clock_start
         )
+
+    def _render_glows(
+        self,
+        registry: Registry
+    ):
+        """Glowing gas (GlowComponent): added over the scene, depth-tested, not written, both sides."""
+
+        glows = list(registry.view_with(TransformComponent, GlowComponent))
+
+        if not glows:
+            return
+
+        shader = self._shader("glow")
+
+        shader.bind()
+
+        shader.set_float("uGlowTime", time.perf_counter() - self._clock_start)
+
+        RenderState.set_depth_test(True)
+        RenderState.set_depth_func(GL_GREATER)
+        RenderState.set_face_culling(False)
+        RenderState.set_blending(True)
+
+        glBlendFunc(GL_ONE, GL_ONE)
+        glDepthMask(False)
+
+        meshes = self._resources.meshes
+
+        for _, transform, glow in glows:
+
+            shader.set_vec3("uGlowColor", tuple(glow.color))
+            shader.set_float("uGlowFalloff", glow.falloff)
+            shader.set_float("uGlowTail", glow.tail)
+
+            self._renderer.draw_mesh(meshes.get(glow.mesh), shader, transform.world_matrix)
+
+        glDepthMask(True)
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA)
+
+        RenderState.set_blending(False)
+        RenderState.set_face_culling(True)
 
     def _render_rings(self):
         """

@@ -57,6 +57,22 @@ class MeshData:
     # -----------------------------------------------------
 
     @classmethod
+    def merge(
+        cls,
+        parts: list["MeshData"]
+    ) -> "MeshData":
+        """Several meshes as one (one draw): their vertices after one another, indices offset."""
+
+        engine_assert(bool(parts), "Nothing to merge.")
+
+        offsets = np.cumsum([0] + [len(part.vertices) for part in parts[:-1]])
+
+        return cls(
+            vertices=np.concatenate([part.vertices for part in parts]).astype(np.float32),
+            indices=np.concatenate([part.indices + np.uint32(offset) for part, offset in zip(parts, offsets)]).astype(np.uint32)
+        )
+
+    @classmethod
     def from_attributes(
         cls,
         positions,

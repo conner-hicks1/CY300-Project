@@ -136,6 +136,18 @@ class MeshRendererComponent:
     casts_shadows: bool = True
 
 
+# Light-emitting gas (exhaust, reentry plasma), added over
+# the scene with glow.frag.glsl: color x strength (HDR),
+# how sharply it fades to its edges and along the mesh's v.
+
+@dataclass(slots=True)
+class GlowComponent:
+    mesh: Handle
+    color: tuple = (1.0, 0.6, 0.2)
+    falloff: float = 1.5
+    tail: float = 1.5
+
+
 # =========================================================
 # Camera
 # =========================================================
@@ -224,6 +236,15 @@ class VesselComponent:
     part_entities: dict = field(default_factory=dict)
     plume_entities: list = field(default_factory=list)
     canopy_entities: list = field(default_factory=list)
+
+    # The glow of coming in through the air (a bow shock and
+    # its wake).
+    glow_entities: list = field(default_factory=list)
+
+    # Each part's drawn pieces (vessel/looks.py): id(PartState)
+    # -> [(entity, finish)], the copies themselves and their
+    # children.
+    pieces: dict = field(default_factory=dict)
 
     # The planned burn (vessel/maneuver.py ManeuverNode), or
     # None.

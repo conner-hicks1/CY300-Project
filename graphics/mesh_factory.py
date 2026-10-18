@@ -439,6 +439,123 @@ class MeshFactory:
             indices=indices
         )
 
+    @staticmethod
+    def lathe_data(
+        profile,
+        segments: int = 32,
+        tile: float | None = None,
+        crease_degrees: float = 35.0,
+        colors=None,
+        angle_offset: float = 0.0
+    ) -> MeshData:
+        """
+        A surface of revolution about the Y axis: `profile` is
+        (radius, height) points, turned full circle (rocket
+        parts: tanks, engine bells, nose cones). Normals follow
+        the profile, smooth across gentle bends and creased
+        where it turns sharper than crease_degrees (a ring's
+        edges). Points on the axis (radius 0) close the shape
+        there; a profile drawn upward on the outside faces out,
+        drawn back down (an engine bell's inside) faces in.
+        UVs: u around, v along the profile; with `tile` (m),
+        both in metres / tile (whole repeats around, so the
+        seam matches). colors: one (r, g, b) per profile
+        segment (vertex colors), or None (white). angle_offset:
+        rad, the first column's angle (flat-sided shapes: a
+        face, not an edge, to the front).
+        """
+
+        points = np.asarray(profile, dtype=np.float64)
+
+        engine_assert(len(points) >= 2 and segments >= 3, "A lathe needs two profile points and three segments.")
+
+        angles = angle_offset + np.linspace(0.0, 2.0 * np.pi, segments + 1)
+
+        cos, sin = np.cos(angles), np.sin(angles)
+
+        # Each profile segment's outward normal in (r, y).
+        deltas = np.diff(points, axis=0)
+
+        lengths = np.linalg.norm(deltas, axis=1)
+
+        segment_normals = np.stack((deltas[:, 1], -deltas[:, 0]), axis=1) / np.maximum(lengths, 1e-12)[:, None]
+
+        crease = np.cos(np.radians(crease_degrees))
+
+        widest = max(float(points[:, 0].max()), 1e-6)
+
+        around = max(1, int(round(2.0 * np.pi * widest / tile))) if tile else 1
+
+        arc = np.concatenate(([0.0], np.cumsum(lengths)))
+
+        positions = []
+        normals = []
+        uvs = []
+        vertex_colors = []
+        indices = []
+
+        columns = segments + 1
+
+        count = 0
+
+        for index in range(len(deltas)):
+
+            if lengths[index] <= 1e-12:
+                continue
+
+            # This segment's own two rings: normals blend with a
+            # neighbour only where the bend is gentle.
+            ends = []
+
+            for end, point_index in ((0, index), (1, index + 1)):
+
+                normal = segment_normals[index]
+
+                neighbour = index - 1 if end == 0 else index + 1
+
+                if 0 <= neighbour < len(deltas) and lengths[neighbour] > 1e-12:
+
+                    other = segment_normals[neighbour]
+
+                    if float(normal @ other) >= crease:
+                        normal = normal + other
+                        normal = normal / max(float(np.linalg.norm(normal)), 1e-12)
+
+                ends.append((points[point_index], normal, arc[point_index]))
+
+            for (radius, height), (normal_r, normal_y), along in ends:
+
+                positions.append(np.stack((cos * radius, np.full_like(cos, height), sin * radius), axis=-1))
+                normals.append(np.stack((cos * normal_r, np.full_like(cos, normal_y), sin * normal_r), axis=-1))
+
+                u = angles / (2.0 * np.pi) * around
+                v = np.full_like(cos, along / tile if tile else along / max(arc[-1], 1e-12))
+
+                uvs.append(np.stack((u, v), axis=-1))
+
+                color = colors[index] if colors is not None else (1.0, 1.0, 1.0)
+
+                vertex_colors.append(np.tile(np.asarray(color, dtype=np.float64), (columns, 1)))
+
+            for j in range(segments):
+
+                a, b = count + j, count + j + 1
+                c, d = count + columns + j, count + columns + j + 1
+
+                # Counter-clockwise seen from the normal's side
+                # (drawn upward: outside).
+                indices.extend((a, c, b, b, c, d))
+
+            count += 2 * columns
+
+        return MeshData.from_attributes(
+            positions=np.concatenate(positions),
+            normals=np.concatenate(normals),
+            uvs=np.concatenate(uvs),
+            colors=np.concatenate(vertex_colors),
+            indices=indices
+        )
+
     @classmethod
     def create_frustum(
         cls,
