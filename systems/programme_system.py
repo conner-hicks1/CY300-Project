@@ -6,6 +6,7 @@ from core.logger import Logger
 
 from planet.orbits import date_of
 
+from programme import research
 from programme.career import Campaign, Career, Flight, today_of
 from programme.resources import production, resources_at
 
@@ -62,12 +63,16 @@ class ProgrammeSystem:
         campaign: Campaign,
         career: Career,
         path=None,
-        sandbox: bool = False
+        sandbox: bool = False,
+        tree: research.TechTree | None = None
     ):
 
         self.campaign = campaign
         self.career = career
         self.path = path
+
+        # The tech tree (programme/research.py).
+        self.tree = tree if tree is not None else research.load_tree()
 
         # A sandbox: launches free, no budget, no missions.
         self.sandbox = sandbox
@@ -111,6 +116,14 @@ class ProgrammeSystem:
             component.paid = True
 
             return True
+
+        waiting = self.unresearched(component.vessel)
+
+        if waiting:
+
+            self.news.append(f"Not researched yet: {waiting[0]}" + (f" and {len(waiting) - 1} more" if len(waiting) > 1 else ""))
+
+            return False
 
         cost = component.vessel.cost
 
@@ -390,6 +403,78 @@ class ProgrammeSystem:
     # =====================================================
     # Saving
     # =====================================================
+
+    # =====================================================
+    # Research
+    # =====================================================
+
+    def science_to_spend(
+        self,
+        record
+    ) -> float:
+        """Science earned (science/record.py) less what research took."""
+
+        return max(record.points - self.career.research_spent, 0.0)
+
+    def locked_parts(
+        self
+    ) -> dict:
+        """Part id -> the tech node it waits on (none in a sandbox)."""
+
+        if self.sandbox:
+            return {}
+
+        return research.locked_parts(self.tree, self.career.researched)
+
+    def unresearched(
+        self,
+        vessel
+    ) -> list[str]:
+        """The vessel's parts not researched yet: "Part (Node)" each."""
+
+        locked = self.locked_parts()
+
+        found = []
+
+        for state in vessel.parts:
+
+            node = locked.get(state.part.id)
+
+            if node is not None:
+
+                text = f"{state.part.name} ({node.name})"
+
+                if text not in found:
+                    found.append(text)
+
+        return found
+
+    def research(
+        self,
+        node_id: str,
+        record
+    ) -> str:
+        """Research a node with the science to spend: "" done (with news), else why not."""
+
+        if self.sandbox:
+            return "A sandbox knows everything"
+
+        why = research.research(self.tree, node_id, self.career.researched, self.science_to_spend(record))
+
+        if why:
+            return why
+
+        node = self.tree.node(node_id)
+
+        self.career.research_spent += node.cost
+
+        Logger.info("[Programme] Researched %s (%.0f science).", node.name, node.cost)
+
+        self.news.append(f"Researched {node.name}: {len(node.parts)} new parts")
+
+        self._changed()
+
+        return ""
 
     def _changed(
         self,

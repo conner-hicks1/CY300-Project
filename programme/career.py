@@ -25,6 +25,8 @@ from pathlib import Path
 #                2028 window, bring back samples... each with
 #                what it pays, what must come first, and maybe
 #                a real date it must be done by
+#   research     the tech tree's nodes known (programme/
+#                research.py), and the science spent on them
 #
 # The game reports what happens (a Flight snapshot each
 # frame, events); the career checks the missions and keeps
@@ -178,6 +180,11 @@ class Career:
     # The latest clock time reached (s since J2000): new
     # scenes start from it.
     clock: float = 0.0
+
+    # Tech nodes researched (programme/research.py), and the
+    # science spent on them.
+    researched: set = field(default_factory=set)
+    research_spent: float = 0.0
 
     # Notices for the HUD (taken by the game).
     news: list = field(default_factory=list)
@@ -386,6 +393,8 @@ class Career:
             "paid_through": list(self.paid_through) if self.paid_through else None,
             "made": self.made,
             "clock": self.clock,
+            "researched": sorted(self.researched),
+            "research_spent": self.research_spent,
         }
 
     @classmethod
@@ -402,7 +411,9 @@ class Career:
             outcomes={str(key): str(value) for key, value in data.get("outcomes", {}).items()},
             paid_through=tuple(paid) if paid else None,
             made=float(data.get("made", 0.0)),
-            clock=float(data.get("clock", 0.0))
+            clock=float(data.get("clock", 0.0)),
+            researched={str(item) for item in data.get("researched", [])},
+            research_spent=float(data.get("research_spent", 0.0))
         )
 
     def save(

@@ -84,3 +84,50 @@ def test_the_sandbox_launches_free_and_travels(play):
     game.stage()
 
     assert game.vessel.paid and game.app.programme_system.career.funds == 0.0
+
+
+def test_a_new_career_researches_before_it_flies_a_probe(play):
+    """A new career: Mariner waits on its research; science earned buys it; then it launches, and the career keeps it."""
+
+    import json
+
+    game: Game = play(design="mariner", researched=False)
+
+    programme = game.app.programme_system
+
+    record = game.app.science_system.record
+
+    start = programme.career.funds
+
+    game.step(5)
+
+    game.app.stage_vessel(game.vessel)
+
+    game.step(2)
+
+    assert not game.vessel.paid and programme.career.funds == start
+    assert any("Not researched yet" in notice for notice in game.notices())
+
+    # Science from earlier flights; the nodes Mariner needs,
+    # in the tree's order.
+    record.points = 400.0
+
+    needed = ["side_boosters", "small_rockets", "instruments", "electrics", "probes", "survey", "deep_space"]
+
+    for node_id in needed:
+        assert programme.research(node_id, record) == ""
+
+    spent = sum(programme.tree.node(node_id).cost for node_id in needed)
+
+    assert programme.science_to_spend(record) == pytest.approx(400.0 - spent)
+    assert programme.unresearched(game.vessel.vessel) == []
+
+    game.app.stage_vessel(game.vessel)
+
+    assert game.vessel.paid
+
+    programme.save()
+
+    saved = json.loads(programme.path.read_text(encoding="utf-8"))
+
+    assert set(needed) <= set(saved["researched"]) and saved["research_spent"] == pytest.approx(spent)

@@ -42,8 +42,10 @@ class Game:
         saves: Path,
         body: str = "earth",
         sandbox: bool = False,
-        design: str | None = None
+        design: str | None = None,
+        researched: bool = True
     ):
+        """researched: every tech node known (else only the free ones: a new career's)."""
 
         from application import Application
 
@@ -52,6 +54,12 @@ class Game:
         self.app = Application()
 
         self.app.initialize(body=body, sandbox=sandbox, headless=True, saves=Path(saves))
+
+        if researched:
+
+            programme = self.app.programme_system
+
+            programme.career.researched = {node.id for node in programme.tree.nodes}
 
         self.frame = 0
 

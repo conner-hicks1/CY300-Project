@@ -690,6 +690,20 @@ build your own rocket in the part editor, on the pad.
   as the days pass (time warp included), as fast as its power allows (20
   kW: a big array or two reactors). Refuel on the Moon or Mars and come
   home: a sample return
+- Research (`programme/research.py`, `assets/programme/tech.json`): a
+  tech tree of 12 nodes in five columns, bought with science. Basic
+  rocketry is known from the start (Pathfinder); then side boosters, small
+  rockets, science instruments and electrics (10 to 15 science each);
+  uncrewed probes, orbital survey and docking; deep space communications
+  and space stations; nuclear power and living off the land (90). Each
+  needs the nodes before it and unlocks its parts. The Research window
+  (Programme panel or the part editor: Research...) draws the tree: known
+  nodes green, open ones blue with their cost (amber: not enough science
+  yet; click to research), locked grey, hover for what it brings. Science
+  spent is not lost to the missions that count science banked. In the part
+  editor parts not yet researched are greyed out (the tooltip names the
+  node) and a design with any cannot launch; neither can one on the pad
+  (Space). A sandbox knows everything
 - The part editor shows the design's cost against the funds. Progress is
   saved in `data/programme/career.json`, the calendar with it: a revert or a
   trip elsewhere starts from the latest date reached, never earlier
@@ -900,15 +914,15 @@ planet streams in over the first few seconds.
 | `vessel/` | Parts and vessel designs (and drafts being edited, saved designs), staging, propellant and parachutes, flight physics, heating, Kepler orbits, patched conics, transfers, maneuver nodes, flight computer sequences, vessels in flight as JSON, docking, power |
 | `systems/` | Transform, camera controller, orbits and clock, vessels, power, science, communications, the space programme, planet streaming and render systems |
 | `science/` | Science sites, regions from the real maps, the orbital survey (mapping masks), the science record |
-| `programme/` | The career (funds, budget, missions on the calendar), resources for making propellant, the fleet of vessels in flight |
+| `programme/` | The career (funds, budget, missions on the calendar), the tech tree and research, resources for making propellant, the fleet of vessels in flight |
 | `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping, impact craters, dunes, surface climate, terrain, chunk building, level of detail, body shapes, orbits and spin, solar time, real maps |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, clouds, rings, eclipses, bloom |
-| `game/` | The interface's look (`style.py`), flight HUD and readout, attitude ball, map view, maneuver and science panels, part editor, piloting keys, chase camera, pause menu, time warp, graphics quality presets |
+| `game/` | The interface's look (`style.py`), flight HUD and readout, attitude ball, map view, maneuver, science, programme and research panels, part editor, piloting keys, chase camera, pause menu, time warp, graphics quality presets |
 | `scene/` | Scene container and (de)serialization (for save games) |
 | `resources/` | Handle-based resource managers |
 | `math3d/` | Transforms, camera, matrix helpers |
 | `ui/` | ImGui integration, developer tool windows (render / stats / profiler) |
-| `assets/` | Shaders, textures, body profiles (`bodies/`), parts (`parts/`), vessels (`vessels/`), science sites (`science/`), flight computer programs (`programs/`) and the campaign (`programme/`) |
+| `assets/` | Shaders, textures, body profiles (`bodies/`), parts (`parts/`), vessels (`vessels/`), science sites (`science/`), flight computer programs (`programs/`) and the campaign and tech tree (`programme/`) |
 | `tools/` | Asset generator, micro-benchmarks, real map and star catalog downloaders |
 | `data/` | Downloaded maps and caches (not in the repository) |
 | `tests/` | pytest suite (`tests/fixtures/` holds the OBJ / glTF test models) |

@@ -202,6 +202,12 @@ class PartEditor:
         self._message = ""
         self._designs: list[SavedDesign] = []
 
+        # Parts not researched yet: part id -> the tech node
+        # (programme/research.py) it waits on (the game sets
+        # it; empty: all buildable). Research... sets the flag.
+        self.locked: dict = {}
+        self.research_requested = False
+
     # -----------------------------------------------------
     # Opening
     # -----------------------------------------------------
@@ -274,6 +280,12 @@ class PartEditor:
 
         imgui.text_disabled(hint)
 
+        if imgui.button("Research...", (-1.0, 0.0)):
+            self.research_requested = True
+
+        if self.locked:
+            imgui.set_item_tooltip("The tech tree: research nodes with science to build their parts.")
+
         for kind, title in KIND_TITLES:
 
             members = [part for part in self.parts.values() if part.kind == kind]
@@ -285,10 +297,23 @@ class PartEditor:
 
                 for part in members:
 
+                    node = self.locked.get(part.id)
+
+                    # Not researched: shown, not buildable.
+                    imgui.begin_disabled(node is not None)
+
                     if imgui.button(f"{part.name}##add {part.id}", (-1.0, 0.0)):
                         self._add(part)
 
-                    imgui.set_item_tooltip("\n".join(part_summary(part)))
+                    imgui.end_disabled()
+
+                    summary = part_summary(part)
+
+                    if node is not None:
+                        summary = [f"Research {node.name} ({node.cost:,.0f} science) to build it", ""] + summary
+
+                    if imgui.is_item_hovered(imgui.HoveredFlags_.allow_when_disabled.value):
+                        imgui.set_tooltip("\n".join(summary))
 
         imgui.end()
 
@@ -577,11 +602,31 @@ class PartEditor:
 
         self._draw_power(vessel)
 
-        for problem in draft.problems():
+        for problem in draft.problems() + self._unresearched():
             imgui.text_colored(PROBLEM_COLOR, problem)
 
         for warning in draft.warnings():
             imgui.text_colored(WARNING_COLOR, warning)
+
+    def _unresearched(
+        self
+    ) -> list[str]:
+        """A problem for each part in the draft not researched yet."""
+
+        found = []
+
+        for _, entry, _ in self.draft.all_entries():
+
+            node = self.locked.get(entry.part.id)
+
+            if node is not None:
+
+                text = f"{entry.part.name} is not researched yet ({node.name}, {node.cost:,.0f} science)."
+
+                if text not in found:
+                    found.append(text)
+
+        return found
 
     # Where the Sun's light is measured for the editor: (name,
     # AU).
@@ -695,7 +740,7 @@ class PartEditor:
 
         imgui.separator()
 
-        can_fly = not draft.problems()
+        can_fly = not draft.problems() and not self._unresearched()
 
         imgui.begin_disabled(not can_fly)
 

@@ -1,4 +1,7 @@
 from game.programme_panel import ProgrammeInfo, deadline_text, reward_text
+from game.research_panel import ResearchInfo
+
+from programme import research
 
 from planet.orbits import date_of
 
@@ -9,7 +12,7 @@ from programme.career import RECOVERY, today_of
 # The Application: Programme
 # =========================================================
 #
-# The space programme's panel.
+# The space programme's panel, and the tech tree's.
 #
 # A part of Application (application.py), apart for its
 # size: its methods run on the application (self is it).
@@ -32,7 +35,8 @@ class ProgrammeController:
             budget=career.budget(programme.campaign),
             reputation=career.reputation,
             science=self.science_system.record.points,
-            today=today.strftime("%d %B %Y")
+            today=today.strftime("%d %B %Y"),
+            spend=None if programme.sandbox else programme.science_to_spend(self.science_system.record)
         )
 
         found = self.vessel_system.find(self.scene)
@@ -87,3 +91,52 @@ class ProgrammeController:
             ))
 
         self.programme_panel.draw(info)
+
+        if self.programme_panel.research_requested:
+
+            self.programme_panel.research_requested = False
+
+            self.research_panel.open = True
+
+    def _draw_research(self):
+
+        if self.part_editor.research_requested:
+
+            self.part_editor.research_requested = False
+
+            self.research_panel.open = True
+
+        if not self.research_panel.open:
+            return
+
+        programme = self.programme_system
+
+        tree = programme.tree
+
+        researched = programme.career.researched
+
+        info = ResearchInfo(
+            science=programme.science_to_spend(self.science_system.record),
+            sandbox=programme.sandbox,
+            nodes=[
+                (node, "known" if programme.sandbox else research.state(tree, node, researched))
+                for node in tree.nodes
+            ],
+            depth={node.id: tree.depth(node.id) for node in tree.nodes},
+            part_names={part_id: part.name for part_id, part in self.parts.items()},
+            node_names={node.id: node.name for node in tree.nodes}
+        )
+
+        for action in self.research_panel.draw(info):
+
+            if action[0] == "research":
+
+                why = programme.research(action[1], self.science_system.record)
+
+                if why:
+                    self.hud.notify(why)
+
+            for news in programme.news:
+                self.hud.notify(news)
+
+            programme.news.clear()

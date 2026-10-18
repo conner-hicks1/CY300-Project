@@ -12,7 +12,8 @@ from game.map_view import PANEL_FLAGS
 #
 # P: the space programme (programme/career.py).
 #
-#   funds, the monthly budget, reputation, science
+#   funds, the monthly budget, reputation, science (and
+#   what is left to spend on research: Research...)
 #   this vessel: what it costs, what landing it home brings
 #                back, whether it is paid for
 #   making propellant: what the plant aboard makes here
@@ -40,6 +41,9 @@ class ProgrammeInfo:
     science: float = 0.0
     today: str = ""
 
+    # Science left to spend on research (None: a sandbox).
+    spend: float | None = None
+
     # This vessel: (name, cost, recovery value, paid).
     vessel: tuple | None = None
 
@@ -60,6 +64,9 @@ class ProgrammePanel:
     def __init__(self):
 
         self.open = False
+
+        # Research... clicked (the game opens the tech tree).
+        self.research_requested = False
 
     def toggle(self):
 
@@ -96,6 +103,17 @@ class ProgrammePanel:
         imgui.text_colored(NOTE, f"(+${info.budget:,.1f}M a month)")
 
         imgui.text(f"Reputation {info.reputation:,.0f}   Science {info.science:,.1f}")
+
+        if info.spend is not None:
+
+            imgui.same_line()
+            imgui.text_colored(style.tone("science"), f"({info.spend:,.1f} to spend)")
+
+        if imgui.button("Research..."):
+            self.research_requested = True
+
+        imgui.same_line()
+
         imgui.text_disabled(info.today)
 
         if info.vessel is not None:

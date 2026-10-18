@@ -61,6 +61,7 @@ from game.navball import NavballFrame
 from game.computer_panel import ComputerPanel
 from game.maneuver_panel import ManeuverPanel
 from game.programme_panel import ProgrammePanel
+from game.research_panel import ResearchPanel
 from game.vessels_panel import VesselsPanel
 from game.science_panel import SciencePanel
 from game.map_view import MapView
@@ -519,6 +520,9 @@ class Application(
             self.programme_system = ProgrammeSystem(campaign, Career.load(campaign, career_path), career_path)
 
         self.programme_panel = ProgrammePanel()
+
+        # The tech tree (programme/research.py).
+        self.research_panel = ResearchPanel()
 
         # Vessels left in flight (programme/fleet.py): saved,
         # brought into every scene; the list (L).
@@ -1822,6 +1826,9 @@ class Application(
 
     def _draw_ui(self):
 
+        # What is not researched yet, for the editor.
+        self.part_editor.locked = self.programme_system.locked_parts()
+
         if self.part_editor.open:
 
             self.part_editor.funds = self.programme_system.career.funds
@@ -1832,6 +1839,8 @@ class Application(
                     cancel=self._cancel_editing
                 )
             )
+
+            self._draw_research()
 
             return
 
@@ -1878,6 +1887,8 @@ class Application(
         self._draw_computer()
 
         self._draw_programme()
+
+        self._draw_research()
 
         self._draw_vessels()
 
