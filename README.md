@@ -507,14 +507,22 @@ build your own rocket in the part editor, on the pad.
   reaches, with its closest approach), Ap / Pe with heights, the moons'
   orbits; a maneuver node and the path after it; lines dim where the body
   hides them
-- Attitude ball (navball): sky and ground about the local horizon, the
-  compass points, prograde and retrograde markers, heading and pitch.
+- Attitude ball (navball) beside the vessel panel: sky and ground about the
+  local horizon, the compass points, heading and pitch, and markers for
+  prograde / retrograde, normal / anti-normal, radial in / out, the
+  maneuver node's burn and the target (a vessel or a body; an arrow on the
+  rim points the way when it is behind the ball).
   Stability assist (**T**) holds the attitude, or (**F**) points prograde,
   retrograde or along the maneuver node's burn
 - Chase camera round the vessel (right mouse, scroll); **V** switches to the
   free camera
-- Vessel HUD: situation (landed, flying, sub-orbital, orbiting, flyby,
-  escaping) and the body, throttle, propellant, stage, thrust to weight,
+- One look for every panel (`game/style.py`): shared colors with a meaning
+  (good, warning, bad, funds, science), spacing, rounded translucent panels,
+  bold headings, fixed-width digits so numbers do not jitter, bars and
+  colored state chips
+- Vessel HUD at the bottom centre: the name and a situation chip (landed,
+  flying, sub-orbital, orbiting, flyby, escaping) and the body; Propulsion,
+  Motion and Orbit columns: throttle, propellant, stage, thrust to weight,
   delta-v left, surface / orbital / vertical speed, apoapsis and periapsis,
   SAS mode, parachute, the maneuver node's countdown, when to brake to
   land, the hottest part's temperature; notices as things happen (staging, a new sphere of
@@ -742,7 +750,9 @@ build your own rocket in the part editor, on the pad.
 - Flight HUD over the view: the date and time warp at the top; at the
   bottom the body you are nearest, altitude above ground and sea level
   (depth below a giant's cloud tops), speed, the air's pressure and
-  temperature outside, latitude / longitude and local time
+  temperature outside, latitude / longitude and local time; notices
+  colored by what they say (a mission done, no link, a vessel lost); **F1**
+  lists every key
 - Time warp in steps from real time to 10,000,000x (**,** and **.**; **/**
   back to real time)
 - Pause menu (**Esc**, stops the clock): Revert to launch, Build vessel, Travel to any (in a sandbox)
@@ -834,6 +844,7 @@ planet streams in over the first few seconds.
 | **.** / **,** | Time warp faster / slower |
 | **/** | Back to real time |
 | **Esc** | Pause menu (travel, camera, graphics, controls, quit) |
+| **F1** | List every key on screen |
 | **F2** | Show / hide the HUD |
 | **F3** | Developer tools |
 | **F5** | Reload all shaders (with the developer tools open) |
@@ -852,7 +863,7 @@ planet streams in over the first few seconds.
 | `programme/` | The career (funds, budget, missions on the calendar), resources for making propellant, the fleet of vessels in flight |
 | `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping, impact craters, dunes, surface climate, terrain, chunk building, level of detail, body shapes, orbits and spin, solar time, real maps |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, clouds, rings, eclipses, bloom |
-| `game/` | Flight HUD and readout, attitude ball, map view, maneuver and science panels, part editor, piloting keys, chase camera, pause menu, time warp, graphics quality presets |
+| `game/` | The interface's look (`style.py`), flight HUD and readout, attitude ball, map view, maneuver and science panels, part editor, piloting keys, chase camera, pause menu, time warp, graphics quality presets |
 | `scene/` | Scene container and (de)serialization (for save games) |
 | `resources/` | Handle-based resource managers |
 | `math3d/` | Transforms, camera, matrix helpers |

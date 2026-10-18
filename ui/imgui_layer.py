@@ -9,6 +9,8 @@ from core.assertions import engine_assert
 from core.logger import Logger
 from core.window import Window
 
+from game import style
+
 from graphics.render_state import RenderState
 
 
@@ -79,7 +81,7 @@ class ImGuiLayer:
     # Appearance
     # =====================================================
 
-    FONT_SIZE = 16.0
+    FONT_SIZE = style.FONT_SIZE
 
     @classmethod
     def _load_font(
@@ -88,54 +90,37 @@ class ImGuiLayer:
     ):
         """
         Roboto (shipped with imgui_bundle) instead of the
-        tiny built-in bitmap font. Falls back silently if
-        the file is missing.
+        tiny built-in bitmap font, bold for headings and big
+        numbers, Inconsolata for fixed-width digits
+        (game/style.py FONTS). Falls back silently if the
+        files are missing.
         """
 
-        path = (
-            Path(imgui_bundle.__file__).parent
-            / "assets" / "fonts" / "Roboto" / "Roboto-Regular.ttf"
-        )
+        fonts = Path(imgui_bundle.__file__).parent / "assets" / "fonts"
 
-        if not path.is_file():
+        regular = fonts / "Roboto" / "Roboto-Regular.ttf"
 
-            Logger.warning("[ImGui] UI font not found: %s", path)
+        if not regular.is_file():
+
+            Logger.warning("[ImGui] UI font not found: %s", regular)
 
             return
 
-        io.fonts.add_font_from_file_ttf(str(path), cls.FONT_SIZE)
+        style.FONTS["regular"] = (io.fonts.add_font_from_file_ttf(str(regular), cls.FONT_SIZE), cls.FONT_SIZE)
+
+        for name, file, size in (
+            ("bold", fonts / "Roboto" / "Roboto-Bold.ttf", style.FONT_SIZE),
+            ("large", fonts / "Roboto" / "Roboto-Bold.ttf", style.LARGE_SIZE),
+            ("mono", fonts / "Inconsolata-Medium.ttf", style.FONT_SIZE + 1.0),
+        ):
+
+            if file.is_file():
+                style.FONTS[name] = (io.fonts.add_font_from_file_ttf(str(file), size), size)
 
     @staticmethod
     def _apply_style():
 
-        imgui.style_colors_dark()
-
-        style = imgui.get_style()
-
-        style.window_rounding = 4.0
-        style.frame_rounding = 3.0
-        style.grab_rounding = 3.0
-        style.tab_rounding = 3.0
-        style.popup_rounding = 4.0
-        style.scrollbar_rounding = 6.0
-
-        style.window_padding = (8.0, 8.0)
-        style.frame_padding = (6.0, 4.0)
-        style.item_spacing = (8.0, 5.0)
-
-        style.window_border_size = 0.0
-
-        # Slightly cooler, less saturated accents.
-        accent = (0.26, 0.47, 0.74, 1.0)
-        accent_hover = (0.33, 0.56, 0.86, 1.0)
-
-        style.set_color_(imgui.Col_.header, (0.22, 0.36, 0.56, 0.75))
-        style.set_color_(imgui.Col_.header_hovered, accent_hover)
-        style.set_color_(imgui.Col_.header_active, accent)
-        style.set_color_(imgui.Col_.button, (0.22, 0.36, 0.56, 0.75))
-        style.set_color_(imgui.Col_.button_hovered, accent_hover)
-        style.set_color_(imgui.Col_.button_active, accent)
-        style.set_color_(imgui.Col_.window_bg, (0.10, 0.105, 0.115, 1.0))
+        style.apply()
 
     # =====================================================
     # Frame

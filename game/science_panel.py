@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 
 from imgui_bundle import imgui
 
-from game import format
+from game import format, style
 from game.map_view import PANEL_FLAGS
 
 
@@ -24,10 +24,10 @@ from game.map_view import PANEL_FLAGS
 #
 # Drawing only: clicks come back as actions.
 
-GOOD = (0.5, 1.0, 0.6, 1.0)
-NOTE = (0.75, 0.75, 0.8, 1.0)
-WARN = (1.0, 0.82, 0.3, 1.0)
-SITE = (1.0, 0.85, 0.45, 1.0)
+GOOD = style.tone("good")
+NOTE = style.tone("muted")
+WARN = style.tone("warn")
+SITE = style.tone("money")
 
 
 @dataclass(slots=True)

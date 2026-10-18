@@ -48,13 +48,16 @@ from ecs.components import (
     DirectionalLightComponent,
     HierarchyComponent,
     NameComponent,
-    TransformComponent
+    TransformComponent,
+    VesselComponent
 )
 from ecs.entity import Entity
 
 from game.chase_camera import ChaseCamera
 from game.flight import FlightContext, frame_body, go_to_orbit, go_to_surface, read_flight
+from game import style
 from game.hud import FlightHud
+from game.navball import NavballFrame
 from game.computer_panel import ComputerPanel
 from game.maneuver_panel import ManeuverPanel
 from game.programme_panel import ProgrammePanel
@@ -1553,8 +1556,8 @@ class Application(
 
 
     # Colors for the navigation panel.
-    GOOD = (0.5, 1.0, 0.6, 1.0)
-    NOTE = (0.75, 0.75, 0.8, 1.0)
+    GOOD = style.tone("good")
+    NOTE = style.tone("muted")
 
 
     # -----------------------------------------------------
@@ -1598,6 +1601,9 @@ class Application(
             else:
                 menu.show()
                 self._set_looking(False)
+
+        if Input.is_key_pressed(Key.F1):
+            self.hud.show_controls = not self.hud.show_controls
 
         if Input.is_key_pressed(Key.F2):
             self.hud.visible = not self.hud.visible
@@ -1850,7 +1856,7 @@ class Application(
             braking=self.vessel_system.braking(self.scene, self.orbit_system, self.planet_system),
             link=self._link_line(found[1]) if found is not None else None,
             docking=self._docking_line(),
-            navball=self.vessel_system.navball_frame(self.scene, self.orbit_system, self.planet_system)
+            navball=self._navball() if found is not None else None
         )
 
         self._draw_map()
@@ -1915,6 +1921,54 @@ class Application(
     # =====================================================
     # Screenshot
     # =====================================================
+
+    def _navball(self):
+        """What the attitude ball shows: the attitude, the orbit's directions, the burn left, the way to the target."""
+
+        vessels = self.vessel_system
+
+        frame = vessels.navball_frame(self.scene, self.orbit_system, self.planet_system)
+
+        found = vessels.find(self.scene)
+
+        if frame is None or found is None:
+            return None
+
+        _, component = found
+
+        state = component.state
+
+        orientation, up, north, motion = frame
+
+        target = None
+
+        chosen = self.map_view.target
+
+        here = vessels.position_of(component, self.orbit_system)
+
+        if isinstance(chosen, tuple) and chosen and chosen[0] == "vessel":
+
+            other = self.scene.try_get_component(chosen[1], VesselComponent)
+
+            there = vessels.position_of(other, self.orbit_system) if other is not None else None
+
+            if there is not None and here is not None:
+                target = there - here
+
+        elif chosen is not None and chosen in self.orbit_system.states and here is not None:
+
+            target = np.asarray(self.orbit_system.states[chosen][0], dtype=np.float64) - here
+
+        return NavballFrame(
+            orientation=orientation,
+            up=up,
+            north=north,
+            motion=motion,
+            position=None if state.landed else state.position,
+            velocity=None if state.landed else state.velocity,
+            maneuver=vessels.node_remaining(component),
+            target=target
+        )
 
     def save_screenshot(
         self,

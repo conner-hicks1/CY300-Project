@@ -2,60 +2,77 @@ import math
 
 from imgui_bundle import imgui
 
-from game import format
+from game import format, style
 from game.flight import FlightReadout
 from game.time_warp import TimeWarp
 
 from planet.orbits import date_of
 
 
-PANEL_FLAGS = (
-    imgui.WindowFlags_.no_decoration.value
-    | imgui.WindowFlags_.no_inputs.value
-    | imgui.WindowFlags_.no_docking.value
-    | imgui.WindowFlags_.no_saved_settings.value
-    | imgui.WindowFlags_.no_focus_on_appearing.value
-    | imgui.WindowFlags_.no_nav.value
-    | imgui.WindowFlags_.always_auto_resize.value
-)
-
-WARP_COLOR = (1.0, 0.82, 0.3, 1.0)
-GOOD_COLOR = (0.5, 1.0, 0.6, 1.0)
-WARN_COLOR = (1.0, 0.82, 0.3, 1.0)
-BAD_COLOR = (1.0, 0.45, 0.35, 1.0)
-
-SITUATION_COLORS = {
-    "Landed": (0.6, 0.85, 0.6, 1.0),
-    "Flying": (0.55, 0.75, 1.0, 1.0),
-    "Sub-orbital": (1.0, 0.82, 0.3, 1.0),
-    "Orbiting": (0.5, 1.0, 0.7, 1.0),
-    "Escaping": (1.0, 0.6, 1.0, 1.0),
-    "Flyby": (1.0, 0.6, 1.0, 1.0),
-    "Destroyed": (1.0, 0.45, 0.35, 1.0),
-}
-LOADING_COLOR = (0.95, 0.8, 0.35, 1.0)
-
-
 # =========================================================
 # Flight HUD
 # =========================================================
 #
-# Over the 3D view, nothing to click:
+# Over the 3D view, nothing to click (game/style.py: one
+# look for all of it):
 #
-#   top center    the clock: date and time warp
+#   top center    the clock: date, time, time warp
+#   under it      notices, a few seconds each, colored by
+#                 what they say
+#   top right     "F1 controls"; F1: every key
 #   bottom left   where you are: body, altitude, speed, the
 #                 air outside, position, local time
-#   bottom center the vessel: situation, throttle, stage,
-#                 propellant, thrust to weight, speeds, the
-#                 orbit's apoapsis and periapsis; beside it
-#                 the attitude ball (game/navball.py)
-#   top right     key hints
-#   below clock   notices (a stage separating, a new sphere
-#                 of influence...), a few seconds each
+#   bottom center the vessel: its name and situation, then
+#                 propulsion (throttle, fuel, stage, thrust
+#                 to weight, delta-v, mass), motion (speeds),
+#                 orbit (apoapsis, periapsis), its state as
+#                 chips (SAS, link, parachute), and what needs
+#                 attention (a burn coming, the braking point,
+#                 heat, a docking approach); beside it the
+#                 attitude ball (game/navball.py)
 #
 # F2 hides it (screenshots).
 
 NOTICE_SECONDS = 4.0
+
+# Words that color a notice.
+NOTICE_TONES = (
+    (("lost", "destroyed", "burned up", "missed"), "bad"),
+    (("no link", "not enough", "cannot", "too far", "could not", "nothing"), "warn"),
+    (("mission done", "recovered", "docked", "landed", "science", "transmitted", "budget", "mapped", "done"), "good"),
+)
+
+CONTROLS = (
+    ("Z / X", "throttle full / cut"),
+    ("Shift / Ctrl", "throttle up / down"),
+    ("Space", "next stage"),
+    ("W A S D Q E", "steer"),
+    ("T / F", "SAS on / its mode"),
+    ("arrows, H / N", "translate (RCS)"),
+    ("M", "map"),
+    ("R / K", "experiments / science"),
+    ("C", "flight computer"),
+    ("P", "programme"),
+    ("L, [ ]", "vessels"),
+    ("B", "auto-dock"),
+    (", . /", "time warp"),
+    ("V", "free camera"),
+    ("Esc", "menu"),
+    ("F1 / F2", "these keys / the HUD"),
+)
+
+
+def notice_tone(
+    text: str
+) -> str:
+
+    lowered = text.lower()
+
+    for words, tone in NOTICE_TONES:
+        if any(word in lowered for word in words):
+            return tone
+
+    return "text"
 
 
 class FlightHud:
@@ -63,6 +80,9 @@ class FlightHud:
     def __init__(self):
 
         self.visible = True
+
+        # Every key listed (F1).
+        self.show_controls = False
 
         # (text, seconds left), newest last.
         self.notices: list[list] = []
@@ -74,7 +94,7 @@ class FlightHud:
 
         self.notices.append([text, NOTICE_SECONDS])
 
-        del self.notices[:-3]
+        del self.notices[:-4]
 
     def tick(
         self,
@@ -102,8 +122,8 @@ class FlightHud:
     ):
         """
         vessel: the vessel's readout (systems/vessel_system.py
-        VesselReadout), if flying one. navball: (orientation,
-        up, north, motion) for the attitude ball.
+        VesselReadout), if flying one. navball: a
+        game/navball.py NavballFrame for the attitude ball.
         """
 
         if not self.visible:
@@ -114,46 +134,91 @@ class FlightHud:
         x, y = viewport.work_pos.x, viewport.work_pos.y
         width, height = viewport.work_size.x, viewport.work_size.y
 
-        self._draw_clock(readout, warp, (x + width * 0.5, y + 10.0))
+        margin = style.MARGIN
 
-        self._draw_flight(readout, speed, loading, fps, (x + 10.0, y + height - 10.0))
+        self._draw_clock(readout, warp, (x + width * 0.5, y + margin))
 
-        self._draw_hints((x + width - 10.0, y + 10.0), vessel is not None)
+        self._draw_notices((x + width * 0.5, y + margin + 44.0))
 
-        self._draw_notices((x + width * 0.5, y + 48.0))
+        self._draw_flight(readout, speed, loading, fps, (x + margin, y + height - margin))
 
-        if vessel is not None:
+        try:
+            self._draw_ship(vessel, navball, maneuver, braking, link, docking, x, y, width, height)
+        finally:
+            # The left side, between the navigation and the
+            # location panels: clear of the rest.
+            self._draw_hints((x + width - margin, y + margin), (x + margin, y + height * 0.45))
 
-            self._draw_vessel(vessel, (x + width * 0.5, y + height - 10.0), maneuver, braking, link, docking)
+    def _draw_ship(
+        self,
+        vessel,
+        navball,
+        maneuver,
+        braking,
+        link,
+        docking,
+        x: float,
+        y: float,
+        width: float,
+        height: float
+    ):
 
-            if navball is not None and not vessel.destroyed:
+        margin = style.MARGIN
 
-                from game.navball import attitude, draw_navball
+        if vessel is None:
+            return
 
-                radius = 62.0
+        right, bottom = self._draw_vessel(vessel, (x + width * 0.5, y + height - margin), maneuver, braking, link, docking)
 
-                center = (x + width * 0.5 + 290.0 + radius, y + height - 22.0 - radius)
+        if navball is not None and not vessel.destroyed:
 
-                draw_navball(center, radius, *navball)
+            from game.navball import attitude, draw_navball
 
-                heading, pitch = attitude(*navball[:3])
+            radius = 64.0
 
-                draw = imgui.get_foreground_draw_list()
+            # Beside the vessel panel, its readout under it.
+            center = (right + style.GAP + 14.0 + radius, bottom - 26.0 - radius)
 
-                draw.add_text(
-                    (center[0] - 46.0, center[1] + radius + 4.0),
-                    imgui.get_color_u32((0.9, 0.9, 0.9, 1.0)),
-                    f"HDG {heading:03.0f}  PIT {pitch:+.0f}"
-                )
+            draw_navball(center, radius, navball)
 
-            if vessel.destroyed:
-                self._draw_banner(
-                    f"{vessel.name} burned up coming in: its {vessel.burned_up.lower()} overheated."
-                    if vessel.burned_up
-                    else f"{vessel.name} hit the ground at {vessel.impact_speed:,.0f} m/s and was destroyed.",
-                    "Esc > Revert to launch",
-                    (x + width * 0.5, y + height * 0.3)
-                )
+            heading, pitch = attitude(navball.orientation, navball.up, navball.north)
+
+            draw = imgui.get_foreground_draw_list()
+
+            text = f"HDG {heading:03.0f}   PIT {pitch:+03.0f}"
+
+            where = (center[0] - 52.0, center[1] + radius + 5.0)
+
+            color = imgui.get_color_u32(style.tone("muted"))
+
+            mono = style.FONTS.get("mono")
+
+            # On a dark backing: it reads over bright ground.
+            with style.font("mono"):
+                measured = imgui.calc_text_size(text)
+
+            size = (measured.x, measured.y)
+
+            draw.add_rect_filled(
+                (where[0] - 6.0, where[1] - 1.0),
+                (where[0] + size[0] + 6.0, where[1] + size[1] + 1.0),
+                imgui.get_color_u32(style.PANEL),
+                4.0
+            )
+
+            if mono is not None:
+                draw.add_text(mono[0], mono[1], where, color, text)
+            else:
+                draw.add_text(where, color, text)
+
+        if vessel.destroyed:
+            self._draw_banner(
+                f"{vessel.name} burned up coming in: its {vessel.burned_up.lower()} overheated."
+                if vessel.burned_up
+                else f"{vessel.name} hit the ground at {vessel.impact_speed:,.0f} m/s and was destroyed.",
+                "Esc > Revert to launch",
+                (x + width * 0.5, y + height * 0.3)
+            )
 
     # -----------------------------------------------------
     # Clock
@@ -166,35 +231,42 @@ class FlightHud:
         position
     ):
 
-        imgui.set_next_window_pos(position, imgui.Cond_.always, (0.5, 0.0))
-        imgui.set_next_window_bg_alpha(0.55)
+        with style.panel("##hud clock", position, (0.5, 0.0)):
 
-        imgui.begin("##hud clock", None, PANEL_FLAGS)
+            if readout is not None and readout.time is not None:
 
-        if readout is not None and readout.time is not None:
-            imgui.text(date_of(readout.time).strftime("%Y-%m-%d  %H:%M:%S UTC"))
-            imgui.same_line()
+                moment = date_of(readout.time)
 
-        if warp.paused or warp.warping:
-            imgui.text_colored(WARP_COLOR, warp.label())
-        else:
-            imgui.text_disabled(warp.label())
+                with style.font("bold"):
+                    imgui.text(moment.strftime("%d %b %Y"))
 
-        if not warp.paused and warp.capped:
+                imgui.same_line()
 
-            imgui.same_line()
+                with style.font("mono"):
+                    imgui.text_colored(style.tone("muted"), moment.strftime("%H:%M:%S UTC"))
 
-            imgui.text_disabled("(max)")
+                imgui.same_line()
 
-            imgui.set_item_tooltip(
-                "Faster time warp waits until the vessel is coasting above the air:\n"
-                "under thrust, in the air or close to the ground physics runs at most 5x."
-            )
+            if warp.paused:
+                style.chip("Paused", "warn")
+            elif warp.warping:
+                style.chip(warp.label(), "warn")
+            else:
+                style.chip("Real time", "faint")
 
-        imgui.end()
+            if not warp.paused and warp.capped:
+
+                imgui.same_line()
+
+                imgui.text_colored(style.tone("faint"), "max")
+
+                imgui.set_item_tooltip(
+                    "Faster time warp waits until the vessel is coasting above the air:\n"
+                    "under thrust, in the air or close to the ground physics runs at most 5x."
+                )
 
     # -----------------------------------------------------
-    # Flight
+    # Where you are
     # -----------------------------------------------------
 
     @staticmethod
@@ -206,93 +278,101 @@ class FlightHud:
         position
     ):
 
-        imgui.set_next_window_pos(position, imgui.Cond_.always, (0.0, 1.0))
-        imgui.set_next_window_bg_alpha(0.55)
+        with style.panel("##hud flight", position, (0.0, 1.0)):
 
-        imgui.begin("##hud flight", None, PANEL_FLAGS)
+            if readout is None:
 
-        if readout is None:
+                style.say("No body nearby.", "faint")
 
-            imgui.text_disabled("No body nearby.")
+            else:
 
-        else:
+                with style.font("bold"):
+                    imgui.text(readout.body)
 
-            imgui.text(readout.body)
+                if loading:
+                    style.chip("loading terrain", "warn", same_line=True)
 
-            if loading:
-                imgui.same_line()
-                imgui.text_colored(LOADING_COLOR, "(loading terrain...)")
+                if readout.above_ground is None:
 
-            if readout.above_ground is None:
+                    # Giants: no ground; cloud tops (below them,
+                    # air ever thicker and hotter).
+                    if readout.altitude >= 0.0:
+                        style.row("Altitude", f"{format.distance(readout.altitude)} over clouds")
+                    else:
+                        style.row("Depth", f"{format.distance(-readout.altitude)} in clouds", "warn")
 
-                # Giants: no ground; cloud tops (below them,
-                # air ever thicker and hotter).
-                if readout.altitude >= 0.0:
-                    imgui.text(f"Altitude  {format.distance(readout.altitude)} above the cloud tops")
                 else:
-                    imgui.text(f"Depth     {format.distance(-readout.altitude)} below the cloud tops")
 
-            else:
+                    style.row("Altitude", format.distance(readout.above_ground))
 
-                imgui.text(f"Altitude  {format.distance(readout.above_ground)} above ground")
+                    if abs(readout.above_ground - readout.altitude) > 1.0:
+                        style.row("Sea level", format.distance(readout.altitude), "muted")
 
-                if abs(readout.above_ground - readout.altitude) > 1.0:
-                    imgui.text_disabled(f"          {format.distance(readout.altitude)} above sea level")
+                style.row("Speed", f"{format.distance(speed)}/s")
 
-            imgui.text(f"Speed     {format.distance(speed)}/s")
+                if readout.pressure is not None:
+                    style.row("Air", f"{format.pressure(readout.pressure)}, {readout.temperature:,.0f} C")
+                else:
+                    style.row("Air", "vacuum", "faint")
 
-            if readout.pressure is not None:
-                imgui.text(f"Air       {format.pressure(readout.pressure)}, {readout.temperature:,.0f} C")
-            else:
-                imgui.text_disabled("Air       vacuum")
+                latitude, longitude = readout.latitude, readout.longitude
 
-            latitude, longitude = readout.latitude, readout.longitude
-
-            imgui.text(
-                f"Position  {abs(latitude):.2f} {'N' if latitude >= 0 else 'S'}  "
-                f"{abs(longitude):.2f} {'E' if longitude >= 0 else 'W'}"
-            )
-
-            if readout.local_hour is not None:
-
-                hour = readout.local_hour
-
-                imgui.text(
-                    f"Local     {int(hour):02d}:{int((hour % 1.0) * 60):02d}  "
-                    f"(sun {readout.sun_elevation:+.0f} deg)"
+                style.row(
+                    "Position",
+                    f"{abs(latitude):.2f} {'N' if latitude >= 0 else 'S'}  {abs(longitude):.2f} {'E' if longitude >= 0 else 'W'}"
                 )
 
-        if fps is not None:
-            imgui.text_disabled(f"{fps:5.1f} FPS  ({1000.0 / fps if fps > 0 else 0.0:.1f} ms)")
+                if readout.local_hour is not None:
 
-        imgui.end()
+                    hour = readout.local_hour
+
+                    style.row("Local", f"{int(hour):02d}:{int((hour % 1.0) * 60):02d}  sun {readout.sun_elevation:+.0f} deg")
+
+            if fps is not None:
+                style.row("Frame", f"{fps:5.1f} FPS  {1000.0 / fps if fps > 0 else 0.0:.1f} ms", "faint")
 
     # -----------------------------------------------------
-    # Hints
+    # Keys
     # -----------------------------------------------------
 
-    @staticmethod
     def _draw_hints(
-        position,
-        piloting: bool
+        self,
+        corner,
+        middle
     ):
 
-        imgui.set_next_window_pos(position, imgui.Cond_.always, (1.0, 0.0))
-        imgui.set_next_window_bg_alpha(0.55)
+        if not self.show_controls:
 
-        imgui.begin("##hud hints", None, PANEL_FLAGS)
+            with style.panel("##hud hints", corner, (1.0, 0.0), alpha=0.6):
+                imgui.text_colored(style.tone("faint"), "F1  controls")
 
-        if piloting:
-            imgui.text_disabled("Z / X  throttle   |   Space  stage   |   W A S D Q E  steer")
-            imgui.text_disabled("T  SAS   |   F  SAS mode   |   M  map   |   V  free camera")
-            imgui.text_disabled("R  run experiments   |   K  science   |   C  flight computer   |   P  programme")
-            imgui.text_disabled("L  vessels   |   [ ]  fly the previous / next vessel   |   B  auto-dock")
-            imgui.text_disabled("arrows  translate   |   H / N  translate fore / aft")
-            imgui.text_disabled("Esc  menu   |   , .  time warp   |   right mouse  look around")
-        else:
-            imgui.text_disabled("Esc  menu   |   , .  time warp   |   hold right mouse  look and fly")
+            return
 
-        imgui.end()
+        # Every key, two columns (F1 again to close).
+        with style.panel("##hud hints", middle, (0.0, 0.5), alpha=0.97):
+
+            style.heading("Controls  (F1 to close)")
+
+            half = (len(CONTROLS) + 1) // 2
+
+            if imgui.begin_table("##hud keys", 4, imgui.TableFlags_.sizing_fixed_fit.value):
+
+                for index in range(half):
+
+                    imgui.table_next_row()
+
+                    for keys, what in CONTROLS[index::half]:
+
+                        imgui.table_next_column()
+
+                        with style.font("mono"):
+                            imgui.text_colored(style.tone("accent"), keys)
+
+                        imgui.table_next_column()
+
+                        imgui.text_colored(style.tone("muted"), f"{what}      ")
+
+                imgui.end_table()
 
     # -----------------------------------------------------
     # Vessel
@@ -310,113 +390,135 @@ class FlightHud:
         """
         maneuver: the node's (m/s left, s until its burn
         starts, burn s); braking: vessel/maneuver.py Braking;
-        link: (text, "good" / "warn" / "bad").
+        link, docking: (text, "good" / "warn" / "bad").
+        Returns the panel's right edge and bottom (px).
         """
 
-        imgui.set_next_window_pos(position, imgui.Cond_.always, (0.5, 1.0))
-        imgui.set_next_window_bg_alpha(0.55)
+        with style.panel("##hud vessel", position, (0.5, 1.0)):
 
-        imgui.begin("##hud vessel", None, PANEL_FLAGS)
+            where = imgui.get_window_pos()
+            size = imgui.get_window_size()
 
-        imgui.text(vessel.name)
-        imgui.same_line()
-        imgui.text_colored(SITUATION_COLORS.get(vessel.situation, (0.8, 0.8, 0.8, 1.0)), vessel.situation)
-        imgui.same_line()
-        imgui.text_disabled(f"at {vessel.body}")
+            with style.font("large"):
+                imgui.text(vessel.name)
 
-        if link is not None:
+            imgui.same_line()
 
-            text, tone = link
+            imgui.set_cursor_pos_y(imgui.get_cursor_pos_y() + 3.0)
 
-            imgui.text_colored({"good": (0.6, 0.85, 0.6, 1.0), "warn": WARN_COLOR, "bad": BAD_COLOR}[tone], text)
+            style.chip(vessel.situation, style.SITUATIONS.get(vessel.situation, "muted"))
 
-        if docking is not None:
+            imgui.same_line()
 
-            text, tone = docking
+            imgui.text_colored(style.tone("muted"), f"at {vessel.body}")
 
-            imgui.text_colored({"good": (0.6, 0.85, 0.6, 1.0), "warn": WARN_COLOR, "bad": BAD_COLOR}[tone], text)
+            flags = imgui.TableFlags_.sizing_fixed_fit.value
 
-        if imgui.begin_table("vessel", 2):
+            if imgui.begin_table("vessel", 3, flags):
 
-            imgui.table_setup_column("left", imgui.TableColumnFlags_.width_fixed.value, 210.0)
-            imgui.table_setup_column("right", imgui.TableColumnFlags_.width_fixed.value, 230.0)
+                imgui.table_setup_column("propulsion", imgui.TableColumnFlags_.width_fixed.value, 214.0)
+                imgui.table_setup_column("motion", imgui.TableColumnFlags_.width_fixed.value, 164.0)
+                imgui.table_setup_column("orbit", imgui.TableColumnFlags_.width_fixed.value, 164.0)
 
-            imgui.table_next_row()
-            imgui.table_next_column()
+                imgui.table_next_row()
 
-            imgui.text("Throttle")
-            imgui.same_line(80.0)
-            imgui.progress_bar(vessel.throttle, (120.0, 0.0), f"{vessel.throttle * 100.0:.0f}%")
+                # Propulsion.
+                imgui.table_next_column()
 
-            share = vessel.propellant / vessel.propellant_capacity if vessel.propellant_capacity > 0.0 else 0.0
+                style.heading("Propulsion")
 
-            imgui.text("Fuel")
-            imgui.same_line(80.0)
-            imgui.progress_bar(share, (120.0, 0.0), f"{vessel.propellant / 1000.0:,.1f} t")
+                style.meter("Throttle", vessel.throttle, f"{vessel.throttle * 100.0:.0f}%", "accent", 124.0, 74.0)
 
-            if vessel.stages_left:
-                imgui.text(f"Stage     {vessel.next_stage}  ({vessel.stages_left} left: Space)")
-            else:
-                imgui.text_disabled("Stage     none left")
+                share = vessel.propellant / vessel.propellant_capacity if vessel.propellant_capacity > 0.0 else 0.0
 
-            imgui.text(f"TWR       {vessel.twr:.2f}")
-            imgui.text(f"Delta-v   {vessel.delta_v:,.0f} m/s")
-            imgui.text(f"Mass      {vessel.mass / 1000.0:,.1f} t")
+                style.meter("Fuel", share, f"{vessel.propellant / 1000.0:,.1f} t", "warn" if share < 0.15 else "money", 124.0, 74.0)
 
-            imgui.table_next_column()
-
-            imgui.text(f"Surface   {format.distance(vessel.surface_speed)}/s")
-            imgui.text(f"Orbital   {format.distance(vessel.orbital_speed)}/s")
-            imgui.text(f"Vertical  {vessel.vertical_speed:+,.0f} m/s")
-
-            if vessel.periapsis is None:
-
-                imgui.text_disabled("Apoapsis  -")
-                imgui.text_disabled("Periapsis -")
-
-            else:
-
-                imgui.text(
-                    f"Apoapsis  {format.distance(vessel.apoapsis)}"
-                    if vessel.apoapsis is not None
-                    else "Apoapsis  escaping"
-                )
-
-                if vessel.periapsis < -1.0e5:
-                    imgui.text_disabled("Periapsis below ground")
+                if vessel.stages_left:
+                    style.row("Stage", f"{vessel.next_stage}  ({vessel.stages_left} left)", label_width=74.0)
                 else:
-                    imgui.text(f"Periapsis {format.distance(vessel.periapsis)}")
+                    style.row("Stage", "none left", "faint", label_width=74.0)
 
-            if vessel.sas:
-                imgui.text(f"SAS {vessel.sas_mode} (T, F)")
-            else:
-                imgui.text_colored(WARP_COLOR, "SAS off (T)")
+                weak = 0.0 < vessel.twr < 1.0 and vessel.situation in ("Landed", "Flying")
 
+                style.row("TWR", f"{vessel.twr:.2f}", "warn" if weak else None, label_width=74.0)
+                style.row("Delta-v", f"{vessel.delta_v:,.0f} m/s", label_width=74.0)
+                style.row("Mass", f"{vessel.mass / 1000.0:,.1f} t", label_width=74.0)
+
+                # Motion.
+                imgui.table_next_column()
+
+                style.heading("Motion")
+
+                falling = vessel.vertical_speed < -50.0 and vessel.situation == "Flying"
+
+                style.row("Surface", f"{format.distance(vessel.surface_speed)}/s", label_width=66.0)
+                style.row("Orbital", f"{format.distance(vessel.orbital_speed)}/s", label_width=66.0)
+                style.row("Vertical", f"{vessel.vertical_speed:+,.0f} m/s", "warn" if falling else None, label_width=66.0)
+
+                # Orbit.
+                imgui.table_next_column()
+
+                style.heading("Orbit")
+
+                if vessel.periapsis is None:
+
+                    style.row("Apoapsis", "-", "faint", label_width=78.0)
+                    style.row("Periapsis", "-", "faint", label_width=78.0)
+
+                else:
+
+                    if vessel.apoapsis is not None:
+                        style.row("Apoapsis", format.distance(vessel.apoapsis), label_width=78.0)
+                    else:
+                        style.row("Apoapsis", "escaping", "science", label_width=78.0)
+
+                    if vessel.periapsis < -1.0e5:
+                        style.row("Periapsis", "underground", "warn", label_width=78.0)
+                    else:
+                        style.row("Periapsis", format.distance(vessel.periapsis), "warn" if vessel.periapsis < 0.0 else None, label_width=78.0)
+
+                imgui.end_table()
+
+            # State, as chips.
+            style.chip(f"SAS {vessel.sas_mode}" if vessel.sas else "SAS off", "accent" if vessel.sas else "warn")
+
+            if link is not None:
+
+                text, tone = link
+
+                style.chip(text, tone, same_line=True)
+
+            if vessel.parachute == "armed":
+                style.chip("Parachute armed", "warn", same_line=True)
+            elif vessel.parachute == "open":
+                style.chip("Parachute open", "good", same_line=True)
+
+            # What needs attention.
             if maneuver is not None:
 
                 left, start_in, burn = maneuver
 
-                imgui.text_colored(GOOD_COLOR, f"Maneuver {left:,.1f} m/s")
-
                 if start_in > 0.0:
-                    imgui.text_colored(WARN_COLOR if start_in < 30.0 else GOOD_COLOR, f"  burn in {format.countdown(start_in)}")
+                    style.say(f"Burn {left:,.1f} m/s in {format.countdown(start_in)}", "warn" if start_in < 30.0 else "accent")
                 else:
-                    imgui.text_colored(WARN_COLOR, f"  burn now ({format.countdown(burn)})")
+                    style.say(f"Burn now: {left:,.1f} m/s left ({format.countdown(burn)})", "warn")
 
             if braking is not None and math.isfinite(braking.start_in):
 
                 urgent = braking.start_in < 10.0
 
-                imgui.text_colored(
-                    BAD_COLOR if urgent else WARN_COLOR,
-                    f"Brake in {format.countdown(braking.start_in)}" if braking.start_in > 0.5 else "BRAKE NOW"
+                style.say(
+                    f"Brake in {format.countdown(braking.start_in)} at {format.distance(braking.height)}" if braking.start_in > 0.5 else "BRAKE NOW",
+                    "bad" if urgent else "warn"
                 )
 
-                imgui.text_disabled(f"  at {format.distance(braking.height)}; ground in {format.countdown(braking.impact_in)}")
+                imgui.same_line()
+
+                imgui.text_colored(style.tone("faint"), f"ground in {format.countdown(braking.impact_in)}")
 
             elif braking is not None:
 
-                imgui.text_colored(BAD_COLOR, "Engines cannot stop the fall")
+                style.say("Engines cannot stop the fall", "bad")
 
             heat = vessel.heat
 
@@ -424,21 +526,19 @@ class FlightHud:
 
                 share = heat[0] / heat[1]
 
-                imgui.text_colored(
-                    BAD_COLOR if share > 0.85 else WARN_COLOR if share > 0.6 else (0.85, 0.85, 0.85, 1.0),
-                    f"Heat {heat[0]:,.0f} / {heat[1]:,.0f} K"
-                )
+                style.meter("Heat", share, f"{heat[0]:,.0f} / {heat[1]:,.0f} K  {heat[2]}", "bad" if share > 0.85 else "warn", 300.0, 74.0)
 
-                imgui.text_disabled(f"  {heat[2]}")
+            if docking is not None:
 
-            if vessel.parachute == "armed":
-                imgui.text_colored(WARP_COLOR, "Parachute armed")
-            elif vessel.parachute == "open":
-                imgui.text_colored((0.6, 0.85, 0.6, 1.0), "Parachute open")
+                text, tone = docking
 
-            imgui.end_table()
+                style.say(text, tone)
 
-        imgui.end()
+        return where.x + size.x, where.y + size.y
+
+    # -----------------------------------------------------
+    # Notices
+    # -----------------------------------------------------
 
     def _draw_notices(
         self,
@@ -448,15 +548,13 @@ class FlightHud:
         if not self.notices:
             return
 
-        imgui.set_next_window_pos(position, imgui.Cond_.always, (0.5, 0.0))
-        imgui.set_next_window_bg_alpha(0.45)
+        with style.panel("##hud notices", position, (0.5, 0.0), alpha=0.7):
 
-        imgui.begin("##hud notices", None, PANEL_FLAGS)
+            for text, left in self.notices:
 
-        for text, left in self.notices:
-            imgui.text_colored((1.0, 0.92, 0.6, min(1.0, left)), text)
+                color = style.tone(notice_tone(text))
 
-        imgui.end()
+                imgui.text_colored((color[0], color[1], color[2], min(1.0, left)), text)
 
     @staticmethod
     def _draw_banner(
@@ -465,12 +563,9 @@ class FlightHud:
         position
     ):
 
-        imgui.set_next_window_pos(position, imgui.Cond_.always, (0.5, 0.5))
-        imgui.set_next_window_bg_alpha(0.75)
+        with style.panel("##hud banner", position, (0.5, 0.5), alpha=0.88):
 
-        imgui.begin("##hud banner", None, PANEL_FLAGS)
+            with style.font("large"):
+                imgui.text_colored(style.tone("bad"), message)
 
-        imgui.text_colored((1.0, 0.45, 0.35, 1.0), message)
-        imgui.text_disabled(hint)
-
-        imgui.end()
+            imgui.text_colored(style.tone("muted"), hint)
