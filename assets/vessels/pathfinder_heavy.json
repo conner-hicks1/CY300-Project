@@ -1,7 +1,7 @@
 {
   "format": 1,
   "name": "Pathfinder Heavy",
-  "description": "Pathfinder with two side boosters on its lowest tank: they light with the core at liftoff and drop off when dry.",
+  "description": "Pathfinder with two side boosters on its lowest tank: they light with the core at liftoff and drop off when dry. Two solar wings on the service module (U unfolds them, in space).",
   "notes": "Parts from the top down. stage: the stage (0 first, Space) that ignites an engine or fires a separator, dropping everything below it. radial: groups of parts round a core part (symmetry copies), with a radial separator.",
   "parts": [
     {
@@ -19,7 +19,18 @@
       "stage": 3
     },
     {
-      "part": "tank_2m5_medium"
+      "part": "tank_2m5_medium",
+      "radial": [
+        {
+          "symmetry": 2,
+          "offset": 0.0,
+          "parts": [
+            {
+              "part": "solar_wing"
+            }
+          ]
+        }
+      ]
     },
     {
       "part": "engine_vacuum",

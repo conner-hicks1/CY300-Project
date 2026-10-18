@@ -37,9 +37,9 @@ NOTICE_SECONDS = 4.0
 
 # Words that color a notice.
 NOTICE_TONES = (
-    (("lost", "destroyed", "burned up", "missed"), "bad"),
-    (("no link", "not enough", "cannot", "too far", "could not", "nothing"), "warn"),
-    (("mission done", "recovered", "docked", "landed", "science", "transmitted", "budget", "mapped", "done"), "good"),
+    (("lost", "destroyed", "burned up", "missed", "out of power", "torn off"), "bad"),
+    (("no link", "not enough", "cannot", "too far", "could not", "nothing", "no power"), "warn"),
+    (("mission done", "recovered", "docked", "landed", "science", "transmitted", "budget", "mapped", "done", "power again"), "good"),
 )
 
 CONTROLS = (
@@ -55,11 +55,22 @@ CONTROLS = (
     ("P", "programme"),
     ("L, [ ]", "vessels"),
     ("B", "auto-dock"),
+    ("U", "solar wings"),
     (", . /", "time warp"),
     ("V", "free camera"),
     ("Esc", "menu"),
     ("F1 / F2", "these keys / the HUD"),
 )
+
+
+# The solar wings, as a chip: (text, tone).
+PANEL_CHIPS = {
+    "folded": ("Wings folded", "faint"),
+    "unfolding": ("Wings unfolding", "accent"),
+    "folding": ("Wings folding", "accent"),
+    "out": ("Wings out", "good"),
+    "torn off": ("Wings torn off", "bad"),
+}
 
 
 def notice_tone(
@@ -118,12 +129,14 @@ class FlightHud:
         maneuver: tuple[float, float, float] | None = None,
         braking=None,
         link: tuple[str, str] | None = None,
-        docking: tuple[str, str] | None = None
+        docking: tuple[str, str] | None = None,
+        power=None
     ):
         """
         vessel: the vessel's readout (systems/vessel_system.py
         VesselReadout), if flying one. navball: a
         game/navball.py NavballFrame for the attitude ball.
+        power: its vessel/power.py PowerStatus.
         """
 
         if not self.visible:
@@ -143,7 +156,7 @@ class FlightHud:
         self._draw_flight(readout, speed, loading, fps, (x + margin, y + height - margin))
 
         try:
-            self._draw_ship(vessel, navball, maneuver, braking, link, docking, x, y, width, height)
+            self._draw_ship(vessel, navball, maneuver, braking, link, docking, power, x, y, width, height)
         finally:
             # The left side, between the navigation and the
             # location panels: clear of the rest.
@@ -157,6 +170,7 @@ class FlightHud:
         braking,
         link,
         docking,
+        power,
         x: float,
         y: float,
         width: float,
@@ -168,7 +182,7 @@ class FlightHud:
         if vessel is None:
             return
 
-        right, bottom = self._draw_vessel(vessel, (x + width * 0.5, y + height - margin), maneuver, braking, link, docking)
+        right, bottom = self._draw_vessel(vessel, (x + width * 0.5, y + height - margin), maneuver, braking, link, docking, power)
 
         if navball is not None and not vessel.destroyed:
 
@@ -385,12 +399,14 @@ class FlightHud:
         maneuver: tuple[float, float, float] | None = None,
         braking=None,
         link: tuple[str, str] | None = None,
-        docking: tuple[str, str] | None = None
+        docking: tuple[str, str] | None = None,
+        power=None
     ):
         """
         maneuver: the node's (m/s left, s until its burn
         starts, burn s); braking: vessel/maneuver.py Braking;
-        link, docking: (text, "good" / "warn" / "bad").
+        link, docking: (text, "good" / "warn" / "bad");
+        power: vessel/power.py PowerStatus.
         Returns the panel's right edge and bottom (px).
         """
 
@@ -455,6 +471,9 @@ class FlightHud:
                 style.row("Orbital", f"{format.distance(vessel.orbital_speed)}/s", label_width=66.0)
                 style.row("Vertical", f"{vessel.vertical_speed:+,.0f} m/s", "warn" if falling else None, label_width=66.0)
 
+                if power is not None:
+                    FlightHud._draw_power(power)
+
                 # Orbit.
                 imgui.table_next_column()
 
@@ -492,6 +511,16 @@ class FlightHud:
                 style.chip("Parachute armed", "warn", same_line=True)
             elif vessel.parachute == "open":
                 style.chip("Parachute open", "good", same_line=True)
+
+            if power is not None:
+
+                if not power.powered:
+                    style.chip("No power", "bad", same_line=True)
+
+                wings = PANEL_CHIPS.get(power.panels)
+
+                if wings is not None:
+                    style.chip(wings[0], wings[1], same_line=True)
 
             # What needs attention.
             if maneuver is not None:
@@ -535,6 +564,52 @@ class FlightHud:
                 style.say(text, tone)
 
         return where.x + size.x, where.y + size.y
+
+    @staticmethod
+    def _draw_power(
+        power
+    ):
+        """Under Motion: the batteries, what comes in or goes out, the Sun."""
+
+        imgui.spacing()
+
+        style.heading("Power")
+
+        if power.capacity > 0.0:
+
+            share = power.share
+
+            style.meter(
+                "Charge",
+                share,
+                format.energy(power.charge),
+                "bad" if share < 0.1 else ("warn" if share < 0.3 else "good"),
+                88.0,
+                66.0
+            )
+
+        net = power.net
+
+        # (Full and making more than it draws: steady.)
+        full = power.capacity > 0.0 and power.share > 0.999 and net > 0.0
+
+        style.row(
+            "Net",
+            f"{'+' if net >= 0.0 else '-'}{format.watts(abs(net))}" + ("  full" if full else ""),
+            "good" if net >= 0.0 else ("bad" if power.share < 0.1 else "warn"),
+            label_width=66.0
+        )
+
+        # The Sun's strength here (1 AU: 100%), and how much of
+        # the time it shines (in time warp, round the orbit).
+        if power.sunlight <= 0.001:
+            sun = "in shadow"
+        elif power.sunlight >= 0.999:
+            sun = f"{power.flux:.0%}"
+        else:
+            sun = f"{power.flux:.0%}, {power.sunlight:.0%} lit"
+
+        style.row("Sun", sun, "faint" if power.sunlight <= 0.001 else "muted", label_width=66.0)
 
     # -----------------------------------------------------
     # Notices

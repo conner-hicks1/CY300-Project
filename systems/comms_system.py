@@ -32,7 +32,9 @@ from science.survey import direction_of
 # light: 1.3 s to the Moon, 3 to 22 minutes to Mars. A
 # crewed vessel flies itself; a probe's commands arrive
 # that much later, and without a link not at all: it flies
-# what it was sent (vessel/sequence.py).
+# what it was sent (vessel/sequence.py). Without power
+# (vessel/power.py) its radio is dead: no link, and no
+# relaying for others.
 
 SPEED_OF_LIGHT = 299_792_458.0
 
@@ -151,6 +153,9 @@ class CommsSystem:
         if state.destroyed:
             return Link(False, reason="Destroyed", crewed=crewed)
 
+        if not vessel.powered:
+            return Link(False, reason="No power", range=reach, crewed=crewed)
+
         bodies = vessel_system.soi_bodies(scene)
 
         if home is None or home not in bodies or vessel_system.reference_state(orbit_system, home) is None:
@@ -198,7 +203,7 @@ class CommsSystem:
 
         for other_entity, other in vessel_system.vessels(scene):
 
-            if other is component or other.state.destroyed:
+            if other is component or other.state.destroyed or not other.vessel.powered:
                 continue
 
             other_reach = antenna_range(other.vessel)

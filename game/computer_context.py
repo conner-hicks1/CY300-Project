@@ -109,6 +109,14 @@ class GameFlightContext(FlightContext):
         if name == "heat":
             return readout.heat[0] / readout.heat[1] if readout.heat is not None else 0.0
 
+        if name == "charge":
+
+            vessel = self.component.vessel
+
+            capacity = vessel.charge_capacity
+
+            return vessel.charge / capacity if capacity > 0.0 else (1.0 if vessel.powered else 0.0)
+
         if name == "brake":
 
             braking = app.vessel_system.braking(app.scene, app.orbit_system, app.planet_system)
@@ -196,6 +204,10 @@ class GameFlightContext(FlightContext):
     def transmit(self):
 
         self.app.transmit_all(self.component)
+
+    def panels(self, out: bool):
+
+        self.app.set_panels(self.component, out)
 
 
 def hold_sink_rate(

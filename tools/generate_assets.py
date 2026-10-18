@@ -176,6 +176,8 @@ def generate_tiles(
 #            two in a tile)
 #   foil     crinkled insulation foil
 #   shield   an ablative heat shield: charred, pitted
+#   cells    solar cells: deep blue squares in a silver grid
+#            (eight by eight in a tile, a metre on a wing)
 
 def _height_to_normal(
     height: np.ndarray,
@@ -309,6 +311,47 @@ def generate_shield(
     roughness = np.full((size, size), 1.0) - 0.1 * char
 
     _save_surface("shield", np.clip(albedo, 0.0, 1.0), height, occlusion, roughness, 2.0)
+
+
+def generate_cells(
+    size: int = 512,
+    cells: int = 8
+):
+
+    rng = np.random.default_rng(304)
+
+    coords = (np.arange(size) + 0.5) / size
+
+    u = np.broadcast_to(coords[None, :], (size, size))
+    v = np.broadcast_to(coords[:, None], (size, size))
+
+    # Distance to the nearest cell edge (in cells).
+    fu = (u * cells) % 1.0
+    fv = (v * cells) % 1.0
+
+    edge = np.minimum(np.minimum(fu, 1.0 - fu), np.minimum(fv, 1.0 - fv))
+
+    gap = 1.0 - np.clip((edge - 0.02) / 0.015, 0.0, 1.0)
+
+    # Each cell a shade apart; thin fingers across it.
+    shade = rng.uniform(0.85, 1.0, (cells, cells))[(v * cells).astype(int) % cells, (u * cells).astype(int) % cells]
+
+    fingers = (np.abs(((v * cells * 12.0) % 1.0) - 0.5) < 0.04).astype(float) * 0.25
+
+    blue = np.array([0.13, 0.2, 0.52])
+    silver = np.array([0.75, 0.77, 0.8])
+
+    cell = blue * (shade * (1.0 + 0.6 * fingers))[..., None]
+
+    albedo = cell * (1.0 - gap[..., None]) + silver * gap[..., None]
+
+    height = -0.6 * gap + 0.05 * fingers
+
+    occlusion = 1.0 - 0.15 * gap
+
+    roughness = 0.35 + 0.5 * gap
+
+    _save_surface("cells", np.clip(albedo, 0.0, 1.0), height, occlusion, roughness, 3.0)
 
 
 # =========================================================
@@ -660,6 +703,7 @@ def main() -> int:
     generate_hull()
     generate_foil()
     generate_shield()
+    generate_cells()
     generate_uv_checker()
     generate_torus()
     generate_pyramid()

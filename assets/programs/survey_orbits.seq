@@ -1,8 +1,13 @@
 # In orbit with a survey camera: run the experiments every
 # hour for a day, sending each result home as it comes
-# (half its value, but a probe may never come back).
+# (half its value, but a probe may never come back). The
+# camera and the transmitter need power: the wings out, and
+# a wait for the batteries when they run low.
+
+panels out
 
 repeat 24
+  wait until charge > 25%
   science
   transmit
   wait 1 h

@@ -44,6 +44,10 @@ def vessel_to_json(
                 "occupied": list(state.occupied),
                 "held_stage": state.held_stage,
                 "held_next": state.held_next,
+                "charge": state.charge,
+                "extended": state.extended,
+                "extending": state.extending,
+                "broken": state.broken,
             }
             for state in vessel.parts
         ],
@@ -81,6 +85,11 @@ def vessel_from_json(
             occupied=tuple(raw.get("occupied", ())),
             held_stage=raw.get("held_stage"),
             held_next=raw.get("held_next"),
+            # (Saved before power: full.)
+            charge=float(raw.get("charge", parts[raw["part"]].battery)),
+            extended=float(raw.get("extended", 0.0)),
+            extending=bool(raw.get("extending", False)),
+            broken=bool(raw.get("broken", False)),
         ))
 
     vessel = Vessel(str(data.get("name", "Vessel")), states, int(data.get("next_stage", 0)))

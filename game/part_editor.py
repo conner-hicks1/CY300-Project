@@ -12,8 +12,11 @@ from vessel.design import (
     open_design,
     save_draft
 )
+from vessel import power
 from vessel.parts import PartDefinition, PartError
 from vessel.vessel import Vessel
+
+from game import format
 
 
 # =========================================================
@@ -134,6 +137,33 @@ def part_summary(
 
     if part.antenna_range:
         lines.append(f"Antenna: reaches home from {part.antenna_range / 1.495978707e11:,.3g} AU ({part.antenna_range / 1e9:,.3g} million km)")
+
+    if part.battery:
+        lines.append(f"Battery {format.energy(part.battery)}")
+
+    if part.solar is not None:
+
+        solar = part.solar
+
+        lines.append(
+            f"Solar wings: {format.watts(solar.power)} at 1 AU square to the Sun "
+            f"({solar.wings} x {solar.length:g} x {solar.width:g} m); unfold in space (U)"
+        )
+
+    if part.generator:
+        lines.append(f"Makes {format.watts(part.generator)} day and night")
+
+    if part.power_draw:
+        lines.append(f"Draws {format.watts(part.power_draw)}")
+
+    if part.wheel_power:
+        lines.append(f"Its wheels draw up to {format.watts(part.wheel_power)} turning")
+
+    if part.experiment is not None and part.experiment.energy:
+        lines.append(f"A run takes {format.energy(part.experiment.energy)}")
+
+    if part.isru is not None and part.isru.power:
+        lines.append(f"Draws {format.watts(part.isru.power)} making propellant")
 
     if part.max_temperature != 1400.0:
         lines.append(f"Stands {part.max_temperature:,.0f} K")
@@ -545,11 +575,62 @@ class PartEditor:
         if stats and stats[0].engines and stats[0].twr_surface < 1.0:
             imgui.text_colored(WARNING_COLOR, f"The first stage cannot lift off {body.name} (TWR below 1).")
 
+        self._draw_power(vessel)
+
         for problem in draft.problems():
             imgui.text_colored(PROBLEM_COLOR, problem)
 
         for warning in draft.warnings():
             imgui.text_colored(WARNING_COLOR, warning)
+
+    # Where the Sun's light is measured for the editor: (name,
+    # AU).
+    SOLAR_DISTANCES = (("Earth", 1.0), ("Mars", 1.524), ("Jupiter", 5.203))
+
+    def _draw_power(
+        self,
+        vessel
+    ):
+        """The design's power: stored, made, drawn, how long it lasts in the dark."""
+
+        budget = power.budget(vessel)
+
+        if budget.capacity <= 0.0 and budget.solar <= 0.0 and budget.generators <= 0.0 and budget.draw <= 0.0:
+            return
+
+        imgui.spacing()
+
+        made = []
+
+        if budget.solar > 0.0:
+            made.append("solar " + ", ".join(
+                f"{format.watts(budget.solar * power.strength(au * power.AU))} at {name}"
+                for name, au in self.SOLAR_DISTANCES
+            ))
+
+        if budget.generators > 0.0:
+            made.append(f"{format.watts(budget.generators)} day and night")
+
+        imgui.text(f"Power: {format.energy(budget.capacity)} stored; draws {format.watts(budget.draw)}"
+                   + (f" (+{format.watts(budget.wheels)} turning)" if budget.wheels else ""))
+
+        if made:
+            imgui.text_disabled("Makes " + "; ".join(made))
+
+        hours = budget.dark_hours
+
+        if hours is None:
+            imgui.text_disabled("Its generators keep up with its draw.")
+        elif budget.capacity <= 0.0:
+            imgui.text_colored(WARNING_COLOR, "No battery: nothing to run on out of the sun.")
+        else:
+
+            text = f"In the dark its batteries last {format.duration(hours)}"
+
+            if budget.solar <= 0.0:
+                imgui.text_colored(WARNING_COLOR, text + ", and nothing recharges them.")
+            else:
+                imgui.text_disabled(text + ".")
 
     def _draw_files(
         self,

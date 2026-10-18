@@ -604,11 +604,12 @@ build your own rocket in the part editor, on the pad.
   Statements: `throttle` (full, off, 0.6, 60%), `hover`, `descend <m/s>`,
   `stage`, `sas` (on, off, hold, prograde, retrograde, maneuver),
   `science`, `transmit`, `burn` (fly the maneuver node: point, wait for its
-  start, burn until done), `log`, `wait <duration>`, `wait until
-  <condition>`, `at node | periapsis | apoapsis [- 30 s]`, `repeat n ...
-  end`. Conditions compare altitude, apoapsis, periapsis, speed,
-  vertical, orbital, pressure, fuel, heat, brake (s to the landing burn) or
-  node (s to it) with units (m, km, m/s, s, min, h, %, bar), or name a
+  start, burn until done), `panels out | in` (the solar wings), `log`,
+  `wait <duration>`, `wait until <condition>`, `at node | periapsis |
+  apoapsis [- 30 s]`, `repeat n ... end`. Conditions compare altitude,
+  apoapsis, periapsis, speed, vertical, orbital, pressure, fuel, heat,
+  brake (s to the landing burn), node (s to it) or charge (the batteries'
+  share) with units (m, km, m/s, s, min, h, %, bar), or name a
   situation (landed, orbiting...), with and / or / not. Errors name the
   line. Time warp holds back for what the computer waits on (a time, the
   braking point, the node)
@@ -624,6 +625,42 @@ build your own rocket in the part editor, on the pad.
   the program sent with 1.2 s of light time; it burned, fell behind the
   Moon out of contact, braked at 3.5 km and touched down at 2 m/s on its
   own
+
+**Power**
+
+- Electric charge in real units (`vessel/power.py`,
+  `systems/power_system.py`): watts made and drawn, watt-hours stored.
+  Command parts carry batteries (a probe core 800 Wh, the capsule 12 kWh,
+  the habitat 25 kWh), with more in battery packs (8 and 30 kWh)
+- Solar wings unfold with **U** (a probe's a light time late) over six
+  seconds and make their rating at 1 AU by the inverse square of the
+  distance: Mars gets 43%, Jupiter 4%. Each wing turns about its long axis
+  to face the Sun, so the vessel's attitude matters: with the Sun along
+  the wings they make nothing. A body's shadow cuts them off (in time warp
+  the light is averaged round the orbit, about a third dark in low orbit,
+  or round the day landed); thick air dims them (Venus's surface: nothing).
+  Unfolded in thick, fast air (over 1.5 kPa of dynamic pressure) they tear
+  off. A small wing (700 W), arrays of 4 and 28 kW
+- Generators make the same day and night anywhere: a radioisotope
+  generator (110 W, $20M) and a 10 kW fission reactor (1.5 t)
+- Drawn by avionics and life support (a probe 30 W, the capsule 350 W,
+  the habitat 1.2 kW), instruments and transmitters (the survey camera
+  40 W, a dish 60 W), the reaction wheels as they work, each experiment's
+  run (2 to 100 Wh) and each result sent (20 Wh), and a propellant plant
+  (20 kW, last: only what is spare and the batteries down to half)
+- Run flat: no reaction wheels (SAS cannot hold), no link (and no relaying
+  for others), commands arriving are lost, no experiments, no mapping, the
+  flight computer waits; a crew can still throttle and stage. The charge
+  coming back brings it all back. Notices when it goes and returns; the
+  clock stops for the flown vessel
+- The HUD's Power column: the charge, the net (+ charging, - running
+  down), the Sun's strength and how much of the time it shines; chips for
+  no power and the wings. The part editor shows what a design stores,
+  makes (at Earth, Mars and Jupiter) and draws, and how long it lasts in
+  the dark. Pathfinder and the Ferry fly on the capsule's batteries (a day
+  and a half); Pathfinder Heavy and Explorer carry two wings on the service
+  module, Mariner a battery and two wings on its lander, the Station Core a
+  28 kW array
 
 **The space programme**
 
@@ -650,8 +687,9 @@ build your own rocket in the part editor, on the pad.
   Moon's and Mercury's shadowed polar craters, richest at the lunar south
   pole; Mars's caps; Ceres; the icy moons) makes 600 kg a day, or 250 in
   Mars's carbon dioxide air (Venus's and Titan's less), filling the tanks
-  as the days pass (time warp included). Refuel on the Moon or Mars and
-  come home: a sample return
+  as the days pass (time warp included), as fast as its power allows (20
+  kW: a big array or two reactors). Refuel on the Moon or Mars and come
+  home: a sample return
 - The part editor shows the design's cost against the funds. Progress is
   saved in `data/programme/career.json`, the calendar with it: a revert or a
   trip elsewhere starts from the latest date reached, never earlier
@@ -720,10 +758,11 @@ build your own rocket in the part editor, on the pad.
 - Build on the launch pad (pause menu > Build vessel): the rocket stands
   there and changes as you edit; right mouse turns the view
 - Parts on the left by kind (command, tanks, engines, separators,
-  parachutes, science, antennas, utility, structure: 31, at 1.25 m and
-  2.5 m, with adapters, a nose cone, heat shields, science instruments,
+  parachutes, science, antennas, utility, structure, power: 38, at 1.25 m
+  and 2.5 m, with adapters, a nose cone, heat shields, science instruments,
   antennas, a propellant plant, docking ports (end and side), a habitat, a radial
-  separator and a 1.25 m booster engine; tooltips with cost, mass, propellant, thrust and Isp); a click adds one below the selected part, or
+  separator, a 1.25 m booster engine, batteries, solar wings and arrays, an
+  RTG and a reactor; tooltips with cost, mass, propellant, thrust and Isp); a click adds one below the selected part, or
   into the selected radial group
 - The stack on the right: select a part (it lights up) to move it, remove
   it or change its stage; automatic staging (from the bottom up, each
@@ -839,6 +878,7 @@ planet streams in over the first few seconds.
 | **L** | Vessels in flight |
 | **[** / **]** | Fly the previous / next vessel |
 | **B** | Auto-dock with the targeted vessel |
+| **U** | Unfold / fold the solar wings |
 | Arrows, **H** / **N** | Translate (RCS): forward / back, left / right, fore / aft |
 | **V** | Free camera: hold right mouse, **W A S D** move, **Space** up, **Shift** down (along the ground, around the planet from orbit; speed grows with altitude) |
 | **.** / **,** | Time warp faster / slower |
@@ -854,11 +894,11 @@ planet streams in over the first few seconds.
 | Path | Contents |
 | --- | --- |
 | `main.py`, `application.py` | Entry point, main loop, building a body's scene, keys, the HUD and menus |
-| `controllers/` | The application's parts, apart for size: the map and navigation, maneuver nodes, piloting through the link and the flight computer, science, the programme's panel, the fleet, docking, the part editor |
+| `controllers/` | The application's parts, apart for size: the map and navigation, maneuver nodes, piloting through the link and the flight computer, science, the programme's panel, the fleet, docking, power, the part editor |
 | `core/` | Window, input, events, timer, logging, profiler, job system, disk cache |
 | `ecs/` | Entity registry and components |
-| `vessel/` | Parts and vessel designs (and drafts being edited, saved designs), staging, propellant and parachutes, flight physics, heating, Kepler orbits, patched conics, transfers, maneuver nodes, flight computer sequences, vessels in flight as JSON, docking |
-| `systems/` | Transform, camera controller, orbits and clock, vessels, science, communications, the space programme, planet streaming and render systems |
+| `vessel/` | Parts and vessel designs (and drafts being edited, saved designs), staging, propellant and parachutes, flight physics, heating, Kepler orbits, patched conics, transfers, maneuver nodes, flight computer sequences, vessels in flight as JSON, docking, power |
+| `systems/` | Transform, camera controller, orbits and clock, vessels, power, science, communications, the space programme, planet streaming and render systems |
 | `science/` | Science sites, regions from the real maps, the orbital survey (mapping masks), the science record |
 | `programme/` | The career (funds, budget, missions on the calendar), resources for making propellant, the fleet of vessels in flight |
 | `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping, impact craters, dunes, surface climate, terrain, chunk building, level of detail, body shapes, orbits and spin, solar time, real maps |

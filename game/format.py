@@ -21,6 +21,33 @@ def distance(
     return f"{meters / 1000.0:,.0f} km"
 
 
+def watts(
+    value: float
+) -> str:
+    """Power: '350 W', '1.4 kW', '28 kW'."""
+
+    size = abs(value)
+
+    if size < 1_000.0:
+        return f"{value:,.0f} W"
+
+    if size < 100_000.0:
+        return f"{value / 1000.0:,.1f} kW"
+
+    return f"{value / 1000.0:,.0f} kW"
+
+
+def energy(
+    value: float
+) -> str:
+    """Stored energy: '800 Wh', '12.0 kWh'."""
+
+    if abs(value) < 1_000.0:
+        return f"{value:,.0f} Wh"
+
+    return f"{value / 1000.0:,.1f} kWh"
+
+
 def pressure(
     bar: float
 ) -> str:

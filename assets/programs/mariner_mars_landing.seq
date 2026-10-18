@@ -7,7 +7,9 @@
 # from orbit), then send this well before reaching the air:
 # minutes of light away, it has to fly itself.
 
-# Leave the upper stage; the shield faces the air.
+# Wings in before the air tears them off; leave the upper
+# stage; the shield faces the air.
+panels in
 stage
 sas retrograde
 wait until altitude < 125 km
@@ -28,5 +30,6 @@ descend 2 m/s
 wait until landed
 throttle off
 log Landed
+panels out
 science
 transmit

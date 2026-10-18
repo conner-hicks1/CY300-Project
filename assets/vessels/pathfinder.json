@@ -1,7 +1,7 @@
 {
   "format": 1,
   "name": "Pathfinder",
-  "description": "Two-stage orbital rocket with a crew capsule that comes home behind a heat shield: ~160 t at liftoff, ~10.1 km/s of delta-v in vacuum, enough for low Earth orbit with a good ascent. Stages: 0 booster, 1 upper stage, 2 capsule separation, 3 main parachute (opens below 250 m/s in thick enough air).",
+  "description": "Two-stage orbital rocket with a crew capsule that comes home behind a heat shield: ~160 t at liftoff, ~10.1 km/s of delta-v in vacuum, enough for low Earth orbit with a good ascent. Stages: 0 booster, 1 upper stage, 2 capsule separation, 3 main parachute (opens below 250 m/s in thick enough air). Power: the capsule's batteries, about a day and a half.",
   "notes": "Parts from the top down. stage: the stage (0 first, Space) that ignites an engine or fires a separator, dropping everything below it.",
   "parts": [
     {"part": "parachute_main", "stage": 3},

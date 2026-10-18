@@ -666,12 +666,14 @@ def heavy(parts):
 
 def test_boosters_count_twice_and_stand_off_the_axis(heavy, pathfinder):
 
-    boosters = [state for state in heavy.parts if state.radial and state.part.kind != "decoupler"]
+    # (Its solar wings are on the side too.)
+    boosters = [state for state in heavy.parts if state.radial and state.part.kind not in ("decoupler", "power")]
 
     assert {state.count for state in boosters} == {2}
 
-    # 2 x (40 + 2 x 650 + 900 + 2 x 10,000) + 2 x 60 (separators).
-    assert heavy.mass == pytest.approx(pathfinder.mass + 2 * (40 + 1300 + 900 + 20_000) + 2 * 60)
+    # 2 x (40 + 2 x 650 + 900 + 2 x 10,000) + 2 x 60
+    # (separators) + 2 x 18 (the service module's wings).
+    assert heavy.mass == pytest.approx(pathfinder.mass + 2 * (40 + 1300 + 900 + 20_000) + 2 * 60 + 2 * 18)
 
     # Core radius + booster radius, off the axis.
     assert boosters[0].distance == pytest.approx(1.25 + 0.625)
@@ -724,7 +726,8 @@ def test_radial_separator_drops_the_boosters_only(heavy):
 
     assert heavy.stage() == 1
 
-    assert not any(state.radial for state in heavy.parts)
+    # (The solar wings stay.)
+    assert not any(state.radial and state.part.kind != "power" for state in heavy.parts)
     assert len(heavy.core) == core_before and heavy.height == height_before
 
     assert len(heavy.dropped) == 5 and all(state.radial for state in heavy.dropped)
@@ -738,8 +741,9 @@ def test_dropping_the_core_section_takes_its_boosters(heavy):
     for _ in range(3):
         heavy.stage()
 
-    # Stage 2 dropped the lower core with everything on it.
-    assert not any(state.radial for state in heavy.parts)
+    # Stage 2 dropped the lower core with everything on it
+    # (the service module's wings above it stay).
+    assert not any(state.radial and state.part.kind != "power" for state in heavy.parts)
     assert heavy.parts[-1].part.id == "engine_vacuum"
 
 

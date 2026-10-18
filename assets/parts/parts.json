@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together). Kinds: command (needed to fly), tank, engine, decoupler (drops what is below it), parachute, structure (adapters, nose cones). max_temperature: K a part's skin stands (default 1400); a heat shield under a capsule stands ~3300 for coming in from orbit or the Moon. experiment: what science a part does (id, name, value, situations: landed / flying / space_low / space_high; needs_air; maps: maps the ground from orbit). crew: people aboard (crewed vessels fly without a link home). antenna_range: m from home the part's antenna still links (built into command parts: ~the Moon). cost: $ millions. isru: a propellant plant: kg a day it makes landed on ice (rate_ice) or in a usable air (rate_air). docking: a docking port (at a stack's top or bottom). rcs_thrust: N of translation thrust (docking). side: a side docking port, put on a radial group: it faces straight out from the core; a plain stack docks to it and hangs off it.",
+  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together). Kinds: command (needed to fly), tank, engine, decoupler (drops what is below it), parachute, structure (adapters, nose cones). max_temperature: K a part's skin stands (default 1400); a heat shield under a capsule stands ~3300 for coming in from orbit or the Moon. experiment: what science a part does (id, name, value, situations: landed / flying / space_low / space_high; needs_air; maps: maps the ground from orbit). crew: people aboard (crewed vessels fly without a link home). antenna_range: m from home the part's antenna still links (built into command parts: ~the Moon). cost: $ millions. isru: a propellant plant: kg a day it makes landed on ice (rate_ice) or in a usable air (rate_air). docking: a docking port (at a stack's top or bottom). rcs_thrust: N of translation thrust (docking). side: a side docking port, put on a radial group: it faces straight out from the core; a plain stack docks to it and hangs off it. Power (W and Wh): battery: Wh it stores; power_draw: W it draws all the time (avionics, life support, an instrument, a transmitter); wheel_power: W its reaction wheels draw turning hard; experiment energy: Wh a run takes; isru power: W the plant draws running; generator: W made day and night (an RTG, a reactor); solar: wings unfolding from it (power: W at 1 AU square to the Sun, length and width m of each wing, wings: 2 out both sides of a stack part, 1 straight out from a radial copy). Kind power: batteries, solar wings, generators.",
   "parts": [
     {
       "id": "capsule",
@@ -30,12 +30,16 @@
           "flying",
           "space_low",
           "space_high"
-        ]
+        ],
+        "energy": 2
       },
       "crew": 3,
       "antenna_range": 1000000000.0,
       "cost": 40.0,
-      "rcs_thrust": 2000
+      "rcs_thrust": 2000,
+      "battery": 12000,
+      "power_draw": 350,
+      "wheel_power": 400
     },
     {
       "id": "heat_shield_2m5",
@@ -104,9 +108,11 @@
           "space_low",
           "space_high"
         ],
-        "maps": true
+        "maps": true,
+        "energy": 50
       },
-      "cost": 10.0
+      "cost": 10.0,
+      "power_draw": 40
     },
     {
       "id": "sample_kit",
@@ -131,7 +137,8 @@
         "value": 30,
         "situations": [
           "landed"
-        ]
+        ],
+        "energy": 20
       },
       "cost": 6.0
     },
@@ -160,7 +167,8 @@
           "landed",
           "flying"
         ],
-        "needs_air": true
+        "needs_air": true,
+        "energy": 10
       },
       "cost": 4.0
     },
@@ -182,7 +190,8 @@
       "metallic": 0.7,
       "roughness": 0.3,
       "antenna_range": 100000000000.0,
-      "cost": 3.0
+      "cost": 3.0,
+      "power_draw": 25
     },
     {
       "id": "antenna_dish",
@@ -202,7 +211,8 @@
       "metallic": 0.6,
       "roughness": 0.35,
       "antenna_range": 2000000000000.0,
-      "cost": 12.0
+      "cost": 12.0,
+      "power_draw": 60
     },
     {
       "id": "isru_plant",
@@ -224,7 +234,8 @@
       "roughness": 0.4,
       "isru": {
         "rate_ice": 600,
-        "rate_air": 250
+        "rate_air": 250,
+        "power": 20000
       }
     },
     {
@@ -477,11 +488,15 @@
           "flying",
           "space_low",
           "space_high"
-        ]
+        ],
+        "energy": 2
       },
       "antenna_range": 1000000000.0,
       "cost": 6.0,
-      "rcs_thrust": 500
+      "rcs_thrust": 500,
+      "battery": 800,
+      "power_draw": 30,
+      "wheel_power": 60
     },
     {
       "id": "habitat_module",
@@ -513,8 +528,12 @@
         "situations": [
           "space_low",
           "space_high"
-        ]
-      }
+        ],
+        "energy": 100
+      },
+      "battery": 25000,
+      "power_draw": 1200,
+      "wheel_power": 500
     },
     {
       "id": "nose_cone_1m25",
@@ -730,6 +749,168 @@
       },
       "crash_speed": 12,
       "cost": 8.0
+    },
+    {
+      "id": "battery_1m25",
+      "name": "Battery pack, 1.25 m",
+      "kind": "power",
+      "mass": 60,
+      "shape": {
+        "radius_top": 0.625,
+        "radius_bottom": 0.625,
+        "height": 0.3
+      },
+      "color": [
+        0.2,
+        0.2,
+        0.22
+      ],
+      "metallic": 0.3,
+      "roughness": 0.5,
+      "battery": 8000,
+      "crash_speed": 8,
+      "cost": 1.0
+    },
+    {
+      "id": "battery_2m5",
+      "name": "Battery pack, 2.5 m",
+      "kind": "power",
+      "mass": 220,
+      "shape": {
+        "radius_top": 1.25,
+        "radius_bottom": 1.25,
+        "height": 0.4
+      },
+      "color": [
+        0.2,
+        0.2,
+        0.22
+      ],
+      "metallic": 0.3,
+      "roughness": 0.5,
+      "battery": 30000,
+      "crash_speed": 8,
+      "cost": 3.0
+    },
+    {
+      "id": "solar_wing",
+      "name": "Solar wing",
+      "kind": "power",
+      "mass": 18,
+      "shape": {
+        "radius_top": 0.2,
+        "radius_bottom": 0.2,
+        "height": 0.6
+      },
+      "color": [
+        0.86,
+        0.86,
+        0.84
+      ],
+      "metallic": 0.3,
+      "roughness": 0.4,
+      "solar": {
+        "power": 700,
+        "length": 2.6,
+        "width": 0.8,
+        "wings": 1
+      },
+      "crash_speed": 8,
+      "cost": 1.5
+    },
+    {
+      "id": "solar_array_1m25",
+      "name": "Solar array, 1.25 m",
+      "kind": "power",
+      "mass": 110,
+      "shape": {
+        "radius_top": 0.625,
+        "radius_bottom": 0.625,
+        "height": 0.35
+      },
+      "color": [
+        0.86,
+        0.86,
+        0.84
+      ],
+      "metallic": 0.3,
+      "roughness": 0.4,
+      "solar": {
+        "power": 4000,
+        "length": 5.0,
+        "width": 1.2,
+        "wings": 2
+      },
+      "crash_speed": 8,
+      "cost": 5.0
+    },
+    {
+      "id": "solar_array_2m5",
+      "name": "Solar array, 2.5 m",
+      "kind": "power",
+      "mass": 700,
+      "shape": {
+        "radius_top": 1.25,
+        "radius_bottom": 1.25,
+        "height": 0.6
+      },
+      "color": [
+        0.86,
+        0.86,
+        0.84
+      ],
+      "metallic": 0.3,
+      "roughness": 0.4,
+      "solar": {
+        "power": 28000,
+        "length": 14.0,
+        "width": 3.0,
+        "wings": 2
+      },
+      "crash_speed": 8,
+      "cost": 18.0
+    },
+    {
+      "id": "rtg",
+      "name": "Radioisotope generator",
+      "kind": "power",
+      "mass": 45,
+      "shape": {
+        "radius_top": 0.2,
+        "radius_bottom": 0.2,
+        "height": 0.7
+      },
+      "color": [
+        0.3,
+        0.3,
+        0.32
+      ],
+      "metallic": 0.6,
+      "roughness": 0.5,
+      "generator": 110,
+      "crash_speed": 10,
+      "cost": 20.0
+    },
+    {
+      "id": "reactor_10kw",
+      "name": "Fission reactor, 10 kW",
+      "kind": "power",
+      "mass": 1500,
+      "shape": {
+        "radius_top": 0.5,
+        "radius_bottom": 1.25,
+        "height": 2.5
+      },
+      "color": [
+        0.9,
+        0.9,
+        0.88
+      ],
+      "metallic": 0.4,
+      "roughness": 0.4,
+      "generator": 10000,
+      "crash_speed": 8,
+      "cost": 60.0
     }
   ]
 }

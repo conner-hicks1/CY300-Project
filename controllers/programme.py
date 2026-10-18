@@ -46,7 +46,15 @@ class ProgrammeController:
             if any(state.part.isru is not None for state in vessel.parts):
 
                 if programme.making > 0.0:
+
                     source = programme.resources[0].name if programme.resources else ""
+
+                    if vessel.isru_share < 0.995:
+                        source += f" ({vessel.isru_share:.0%} of its power)"
+
+                elif vessel.isru_wanted and programme.resources:
+
+                    source = f"{programme.resources[0].name}: no power to spare"
                 elif programme.resources:
                     source = f"{programme.resources[0].name} here: land to make propellant"
                 else:

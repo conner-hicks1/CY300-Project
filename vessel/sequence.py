@@ -20,6 +20,8 @@ from pathlib import Path
 #   sas on | off | hold | prograde | retrograde | maneuver
 #   science                            run the experiments
 #   transmit                           send the results home
+#   panels out | in                    unfold (or fold) the solar
+#                                      wings (also: unfold, fold)
 #   burn                               fly the maneuver node: point
 #                                      along it, wait for its start,
 #                                      full throttle until done
@@ -40,6 +42,7 @@ from pathlib import Path
 #   fuel      share left (0-1, or %)  heat      the hottest part's share of its limit
 #   brake     s until a landing burn must start (suicide burn)
 #   node      s until the maneuver node
+#   charge    the batteries' share full (0-1, or %)
 #
 # Units: m, km, m/s, km/s, s, min, h, d, %, bar.
 #
@@ -61,8 +64,13 @@ class SequenceError(ValueError):
 
 QUANTITIES = (
     "altitude", "apoapsis", "periapsis", "speed", "vertical", "orbital",
-    "pressure", "fuel", "heat", "brake", "node"
+    "pressure", "fuel", "heat", "brake", "node", "charge"
 )
+
+PANEL_WORDS = {
+    "out": True, "unfold": True, "extend": True, "open": True, "deploy": True,
+    "in": False, "fold": False, "retract": False, "close": False, "stow": False,
+}
 
 SITUATIONS = {
     "landed": "Landed",
@@ -338,6 +346,13 @@ def parse(
         elif head in ("science", "transmit", "burn") and not rest:
             add(head)
 
+        elif head in ("panels", "wings"):
+
+            if rest not in PANEL_WORDS:
+                raise SequenceError(number, "panels takes out or in (unfold, fold)")
+
+            add("panels", PANEL_WORDS[rest])
+
         elif head == "log":
             add("log", raw.split("#", 1)[0].strip()[3:].strip())
 
@@ -439,6 +454,8 @@ class FlightContext:
     def science(self): ...
 
     def transmit(self): ...
+
+    def panels(self, out: bool): ...
 
 
 @dataclass(slots=True)
@@ -602,6 +619,10 @@ class FlightComputer:
         elif kind == "transmit":
 
             context.transmit()
+
+        elif kind == "panels":
+
+            context.panels(statement.value)
 
         elif kind == "log":
 

@@ -30,6 +30,8 @@ from vessel.parts import PartDefinition
 #   shield  ablative heat shield, charred and pitted
 #   glass   a lens or a window: dark, glossy
 #   fabric  a parachute's pack (the part's color)
+#   cells   solar cells (a wing's, drawn by
+#           systems/vessel_system.py: not lathed)
 
 FINISHES = {
     #          metallic  roughness  texture
@@ -41,6 +43,7 @@ FINISHES = {
     "shield": (0.0,      0.92,      "shield"),
     "glass":  (0.1,      0.06,      None),
     "fabric": (0.0,      0.85,      None),
+    "cells":  (0.1,      0.3,       "cells"),
 }
 
 ALUMINIUM = (0.78, 0.79, 0.8)
@@ -153,6 +156,9 @@ def pieces(
 
     if kind == "science":
         return _instrument(part)
+
+    if kind == "power":
+        return _power(part)
 
     if part.max_temperature >= 2_500.0:
         return _heat_shield(part)
@@ -387,6 +393,49 @@ def _instrument(part) -> list[Piece]:
         looks.append(Piece(_cylinder(r_top * 0.9, 0.85 * h, h), "metal", ALUMINIUM, tile=None))
 
     return looks
+
+
+def _power(part) -> list[Piece]:
+
+    h, r = part.height, part.radius
+
+    ring = min(0.05, 0.12 * h)
+
+    rings = [
+        Piece(_band(r * 0.99, 0.0, ring, 0.012), "metal", ALUMINIUM, tile=None),
+        Piece(_band(r * 0.99, h - ring, h, 0.012), "metal", ALUMINIUM, tile=None),
+    ]
+
+    # Solar wings' housing: a drum, its wings' roots round
+    # the middle (the wings drawn apart).
+    if part.solar is not None:
+        return [
+            Piece(_cylinder(r * 0.97, ring, h - ring), "paint", tile=1.0),
+            Piece(_band(r * 0.97, 0.35 * h, 0.65 * h, 0.02), "cells", (1.0, 1.0, 1.0), tile=0.6),
+        ] + rings
+
+    # A reactor: a shielded core under a cone of radiator.
+    if part.generator >= 2_000.0:
+        return [
+            Piece(_cylinder(r * 0.45, 0.0, 0.35 * h), "steel", STEEL, tile=None),
+            Piece(_frustum(r, r * 0.4, 0.35 * h, h), "paint", (0.93, 0.93, 0.92), segments=48, tile=None),
+            Piece(_band(r * 0.45, 0.3 * h, 0.36 * h, 0.03), "metal", ALUMINIUM, tile=None),
+        ]
+
+    # An RTG: a finned, dark cylinder (fins: a hexagon's
+    # edges, standing out).
+    if part.generator > 0.0:
+        return [
+            Piece(_cylinder(r * 0.55, 0.0, h), "steel", STEEL, segments=24, tile=None),
+            Piece(_cylinder(r, 0.1 * h, 0.9 * h), "bell", BELL, segments=6, tile=None),
+            Piece(_band(r * 0.55, 0.92 * h, h, 0.02), "metal", ALUMINIUM, tile=None),
+        ]
+
+    # A battery pack: dark cells banded.
+    return [
+        Piece(_cylinder(r * 0.98, ring, h - ring), "paint", DARK_PAINT, tile=1.0),
+        Piece(_band(r * 0.98, 0.45 * h, 0.55 * h, 0.006), "paint", (0.85, 0.55, 0.15), tile=None),
+    ] + rings
 
 
 def merged(

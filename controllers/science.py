@@ -5,6 +5,8 @@ from ecs.components import PlanetComponent
 from game.science_panel import ScienceInfo
 from game import format as readable
 
+from vessel import power
+
 
 # =========================================================
 # The Application: Science
@@ -30,6 +32,19 @@ class ScienceController:
         if place is None:
             return
 
+        # Every instrument's run, at once (vessel/power.py).
+        energy = sum(
+            state.part.experiment.energy * state.count
+            for state in component.vessel.parts
+            if state.part.experiment is not None
+        )
+
+        if not power.take(component.vessel, energy):
+
+            self.hud.notify(f"Not enough power to run the experiments ({energy:,.0f} Wh)")
+
+            return
+
         for notice in self.science_system.run(component, place, self._has_air()):
             self.hud.notify(notice)
 
@@ -51,6 +66,13 @@ class ScienceController:
         gained = 0.0
 
         while component.science:
+
+            if not power.take(component.vessel, power.TRANSMIT_ENERGY):
+
+                self.hud.notify(f"Not enough power to transmit ({power.TRANSMIT_ENERGY:,.0f} Wh a result)")
+
+                break
+
             gained += self.science_system.transmit(component, 0)
 
         self.hud.notify(f"Transmitted: +{gained:,.1f} science")
@@ -118,8 +140,10 @@ class ScienceController:
 
         _, component = found
 
-        for notice in self.science_system.map_ground(self.scene, self.vessel_system, self.orbit_system, simulated):
-            self.hud.notify(notice)
+        # (The camera needs power.)
+        if component.vessel.powered:
+            for notice in self.science_system.map_ground(self.scene, self.vessel_system, self.orbit_system, simulated):
+                self.hud.notify(notice)
 
         if "landed" in events and component.body == self.vessel_system.launch_body and component.science:
 
@@ -203,6 +227,12 @@ class ScienceController:
                 if not self.link.connected:
 
                     self.hud.notify(f"No link to transmit ({self.link.reason})")
+
+                    continue
+
+                if not power.take(component.vessel, power.TRANSMIT_ENERGY):
+
+                    self.hud.notify(f"Not enough power to transmit ({power.TRANSMIT_ENERGY:,.0f} Wh)")
 
                     continue
 

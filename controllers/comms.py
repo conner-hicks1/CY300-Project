@@ -196,11 +196,20 @@ class CommsController:
             component.uplink = [item for item in component.uplink if item[0] > now]
 
             for _, kind, payload in sorted(arrived, key=lambda item: item[0]):
+
+                # A probe without power: deaf, the command lost.
+                if not component.vessel.powered and not self.link.crewed:
+
+                    Logger.info("[Comms] %s had no power: a command was lost.", component.vessel.name)
+
+                    continue
+
                 self._command(component, kind, payload)
 
         computer = component.computer
 
-        if computer is not None and not computer.done and not component.state.destroyed and not paused:
+        # (The computer needs power: it waits for it.)
+        if computer is not None and not computer.done and not component.state.destroyed and not paused and component.vessel.powered:
 
             line = computer.current
 
@@ -245,6 +254,10 @@ class CommsController:
         elif kind == "science":
 
             self.run_science_aboard(component)
+
+        elif kind == "panels":
+
+            self.set_panels(component, payload)
 
         elif kind == "program":
 
@@ -301,7 +314,7 @@ class CommsController:
             crewed=link.crewed
         )
 
-        names = {"program": "the program", "stop": "Stop", "controls": "controls", "stage": "Stage", "science": "Run experiments"}
+        names = {"program": "the program", "stop": "Stop", "controls": "controls", "stage": "Stage", "science": "Run experiments", "panels": "the solar wings"}
 
         info.in_flight = [(names.get(kind, kind), when - now) for when, kind, _ in component.uplink if when > now and kind != "controls"]
 

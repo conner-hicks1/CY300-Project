@@ -276,6 +276,9 @@ class ProgrammeSystem:
 
         vessel = component.vessel
 
+        # (Wanted: drawing its power, systems/power_system.py.)
+        vessel.isru_wanted = False
+
         plants = [state for state in vessel.parts if state.part.isru is not None]
 
         if not plants or flight is None or flight.body == flight.home:
@@ -295,6 +298,13 @@ class ProgrammeSystem:
             production(self.resources, state.part.isru.rate_ice, state.part.isru.rate_air) * state.count
             for state in plants
         )
+
+        # Running while there is room in the tanks, as fast as
+        # its power lets it.
+        vessel.isru_wanted = rate > 0.0 and vessel.propellant < vessel.propellant_capacity - 1e-3
+
+        if vessel.isru_wanted:
+            rate *= vessel.isru_share
 
         self.making = rate
 

@@ -39,7 +39,7 @@ from resources.resources import Resources
 
 from scene.scene import Scene
 
-from vessel import docking, heating, kepler, looks, maneuver, soi
+from vessel import docking, heating, kepler, looks, maneuver, power, soi
 from vessel.parts import VesselDesign
 from vessel.physics import (
     Controls,
@@ -2110,6 +2110,9 @@ class VesselSystem:
         self._update_canopies(scene, entity, component)
         self._update_reentry_glow(scene, entity, component)
 
+        for _, any_component in self.vessels(scene):
+            self._update_wings(scene, any_component)
+
         self.place(scene, orbit_system)
 
         return events
@@ -2290,8 +2293,9 @@ class VesselSystem:
         if span > self.STEER_SPAN:
 
             # Too fast to steer: stop any spin, as KSP does on
-            # rails.
+            # rails (the wheels idle).
             state.angular_velocity = np.zeros(3)
+            vessel.wheel_use = 0.0
 
             return
 
@@ -2481,6 +2485,7 @@ class VesselSystem:
 
         component.part_entities = {}
         component.pieces = {}
+        component.panel_entities = {}
 
         for state in component.vessel.parts:
 
@@ -2518,6 +2523,9 @@ class VesselSystem:
                     pieces.append((holder, finish))
 
                 copies.append(child)
+
+            if part.solar is not None:
+                self._build_wings(scene, component, state, copies)
 
             component.part_entities[id(state)] = copies
             component.pieces[id(state)] = pieces
@@ -2650,6 +2658,8 @@ class VesselSystem:
 
         dropped_pieces = {id(part): component.pieces.pop(id(part), []) for part in dropped}
 
+        dropped_panels = {id(part): component.panel_entities.pop(id(part)) for part in dropped if id(part) in component.panel_entities}
+
         dropped_entities = [child for copies in dropped_map.values() for child in copies]
 
         # (Only the core's height moves the origin: dropped
@@ -2697,6 +2707,7 @@ class VesselSystem:
 
             child.part_entities = dropped_map
             child.pieces = dropped_pieces
+            child.panel_entities = dropped_panels
 
             for child_part in dropped_entities:
                 scene.get_component(child_part, HierarchyComponent).parent = child_entity
@@ -2743,6 +2754,7 @@ class VesselSystem:
             self._destroy_tree(scene, child)
 
         component.part_entities.clear()
+        component.panel_entities.clear()
         component.pieces.clear()
         component.plume_entities.clear()
         component.canopy_entities.clear()
@@ -2982,6 +2994,123 @@ class VesselSystem:
 
             transform.position = (0.0, chute.bottom + chute.part.height + lines, 0.0)
             transform.scale = (radius, radius, radius)
+
+    # =====================================================
+    # Solar Wings
+    # =====================================================
+    #
+    # Each copy of a solar part grows its wings (vessel/
+    # power.py): a stack part's out both sides, a radial
+    # copy's straight out from the core, thin panels of
+    # cells from its middle. Unfolding they grow out to
+    # their length; out, each turns about its long axis to
+    # face the Sun. Torn off: gone.
+
+    WING_THICKNESS = 0.035
+
+    def _build_wings(
+        self,
+        scene: Scene,
+        component: VesselComponent,
+        state,
+        copies: list
+    ):
+
+        solar = state.part.solar
+
+        def build():
+
+            # A unit box, its cells a metre to a texture tile
+            # on the wing at full size.
+            data = MeshFactory.cube_data()
+
+            data.vertices[:, 9] *= solar.length
+            data.vertices[:, 10] *= solar.width
+
+            return Mesh.from_data(data)
+
+        mesh = self._resources.meshes.load(f"vessel/wing/{state.part.id}", build)
+
+        material = self._finish_material("cells")
+
+        wings = []
+
+        for child, axis in zip(copies, power.wing_axes(state)):
+
+            sides = (1.0, -1.0) if not state.radial else (1.0,)
+
+            for side in sides:
+
+                wing = scene.create_entity()
+
+                scene.add_component(wing, NameComponent(f"{state.part.name} wing"))
+                scene.add_component(wing, HierarchyComponent(child))
+                scene.add_component(wing, TransformComponent(transform=Transform(scale=(0.0, 0.0, 0.0))))
+                scene.add_component(wing, MeshRendererComponent(mesh=mesh, material=material))
+
+                wings.append((wing, axis * side))
+
+        component.panel_entities[id(state)] = wings
+
+    def _update_wings(
+        self,
+        scene: Scene,
+        component: VesselComponent
+    ):
+        """Each wing out as far as it is unfolded, turned to the Sun."""
+
+        if not component.panel_entities:
+            return
+
+        status = component.power
+
+        sun = getattr(status, "sun_local", None) if status is not None else None
+
+        up = np.array([0.0, 1.0, 0.0])
+
+        for state in component.vessel.parts:
+
+            wings = component.panel_entities.get(id(state))
+
+            if not wings:
+                continue
+
+            solar = state.part.solar
+
+            out = 0.0 if state.broken else state.extended
+
+            for wing, axis in wings:
+
+                transform = scene.get_component(wing, TransformComponent).transform
+
+                if out <= 0.0:
+
+                    transform.scale = (0.0, 0.0, 0.0)
+
+                    continue
+
+                # Its face: square to the Sun about its axis;
+                # without one, flat along the stack.
+                if sun is not None:
+                    normal = sun - axis * float(sun @ axis)
+                else:
+                    normal = np.cross(axis, up)
+
+                length = float(np.linalg.norm(normal))
+
+                normal = normal / length if length > 1e-6 else np.cross(axis, up)
+
+                across = np.cross(normal, axis)
+
+                # (Its copy stands upright: these are the
+                # copy's own axes.)
+                reach = solar.length * out
+
+                center = axis * (state.part.radius + 0.5 * reach)
+
+                transform.position = (float(center[0]), state.part.height * 0.5, float(center[2]))
+                transform.orientation = quaternion.from_matrix3(np.column_stack((axis, across, normal)))
+                transform.scale = (reach, solar.width, self.WING_THICKNESS)
 
     def navball_frame(
         self,

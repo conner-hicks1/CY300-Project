@@ -393,6 +393,7 @@ def _turn(
     if state.landed:
 
         state.angular_velocity = np.zeros(3)
+        vessel.wheel_use = 0.0
 
         return
 
@@ -459,6 +460,9 @@ def _turn(
         accel = np.where(idle, brake, accel)
 
     state.angular_velocity = state.angular_velocity + accel * dt
+
+    # How hard the wheels worked (their power draw).
+    vessel.wheel_use = min(float(np.max(np.abs(accel) / np.maximum(limit, 1e-12))), 1.0) if torque > 0.0 else 0.0
 
     _spin(state, dt)
 

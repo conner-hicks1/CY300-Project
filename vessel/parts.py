@@ -16,7 +16,7 @@ from pathlib import Path
 PARTS_PATH = Path("assets/parts/parts.json")
 VESSELS_DIRECTORY = Path("assets/vessels")
 
-KINDS = ("command", "tank", "engine", "decoupler", "parachute", "science", "antenna", "utility", "structure")
+KINDS = ("command", "tank", "engine", "decoupler", "parachute", "science", "antenna", "utility", "structure", "power")
 
 # Where an experiment works (science/record.py).
 SITUATIONS = ("landed", "flying", "space_low", "space_high")
@@ -54,6 +54,7 @@ class ExperimentSpec:
     value: float                    # science of one subject, before the body and region
     needs_air: bool = False         # samples the air (only where there is some)
     maps: bool = False              # maps the ground below from orbit (science/survey.py)
+    energy: float = 10.0            # Wh a run takes (vessel/power.py)
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +63,23 @@ class IsruSpec:
 
     rate_ice: float
     rate_air: float
+    power: float = 0.0              # W it draws making it (vessel/power.py)
+
+
+@dataclass(frozen=True, slots=True)
+class SolarSpec:
+    """
+    Solar wings (vessel/power.py): W at 1 AU with the sun
+    square on; each copy's wings out along one axis (a stack
+    part's: both sides; a radial copy's: straight out), each
+    `length` x `width` m, turning about that axis to follow
+    the sun.
+    """
+
+    power: float
+    length: float
+    width: float
+    wings: int = 2
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +109,16 @@ class PartDefinition:
     docking: bool = False           # a docking port (vessel/docking.py)
     side: bool = False              # a side port: on a radial group, facing straight out
     rcs_thrust: float = 0.0         # N of translation thrust each way (docking)
+
+    # Power (vessel/power.py): Wh stored, solar wings, W made
+    # all the time (an RTG, a reactor), W drawn all the time
+    # (avionics, life support, a camera, a transmitter), W
+    # its reaction wheels draw turning hard.
+    battery: float = 0.0
+    solar: SolarSpec | None = None
+    generator: float = 0.0
+    power_draw: float = 0.0
+    wheel_power: float = 0.0
 
     @property
     def radius(
@@ -229,7 +257,8 @@ def parse_part(
             situations=tuple(situations),
             value=_number(raw, "value", where, default=10.0),
             needs_air=bool(raw.get("needs_air", False)),
-            maps=bool(raw.get("maps", False))
+            maps=bool(raw.get("maps", False)),
+            energy=_number(raw, "energy", where, default=10.0)
         )
 
     isru = None
@@ -243,7 +272,24 @@ def parse_part(
 
         isru = IsruSpec(
             rate_ice=_number(raw, "rate_ice", where, default=0.0),
-            rate_air=_number(raw, "rate_air", where, default=0.0)
+            rate_air=_number(raw, "rate_air", where, default=0.0),
+            power=_number(raw, "power", where, default=0.0)
+        )
+
+    solar = None
+
+    if data.get("solar") is not None:
+
+        raw = data["solar"]
+
+        if not isinstance(raw, dict):
+            raise PartError(f"{where}: 'solar' must be an object")
+
+        solar = SolarSpec(
+            power=_number(raw, "power", where, minimum=1.0),
+            length=_number(raw, "length", where, minimum=0.1),
+            width=_number(raw, "width", where, minimum=0.1),
+            wings=int(_number(raw, "wings", where, default=2.0, minimum=1.0))
         )
 
     color = data.get("color", [0.7, 0.7, 0.7])
@@ -275,7 +321,12 @@ def parse_part(
         isru=isru,
         docking=bool(data.get("docking", False)),
         side=bool(data.get("side", False)),
-        rcs_thrust=_number(data, "rcs_thrust", where, default=0.0)
+        rcs_thrust=_number(data, "rcs_thrust", where, default=0.0),
+        battery=_number(data, "battery", where, default=0.0),
+        solar=solar,
+        generator=_number(data, "generator", where, default=0.0),
+        power_draw=_number(data, "power_draw", where, default=0.0),
+        wheel_power=_number(data, "wheel_power", where, default=0.0)
     )
 
 

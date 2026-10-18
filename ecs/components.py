@@ -241,6 +241,14 @@ class VesselComponent:
     # its wake).
     glow_entities: list = field(default_factory=list)
 
+    # Solar wings drawn: id(PartState) -> [(entity, axis in
+    # the vessel's frame)], children of the part's copies.
+    panel_entities: dict = field(default_factory=dict)
+
+    # Its power now (vessel/power.py PowerStatus), None until
+    # the first frame.
+    power: object = None
+
     # Each part's drawn pieces (vessel/looks.py): id(PartState)
     # -> [(entity, finish)], the copies themselves and their
     # children.

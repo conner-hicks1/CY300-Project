@@ -1,7 +1,7 @@
 {
   "format": 1,
   "name": "Ferry",
-  "description": "Pathfinder with a docking port on top: up to a station with a crew, and home. B docks with the vessel targeted (Vessels, L).",
+  "description": "Pathfinder with a docking port on top: up to a station with a crew, and home. B docks with the vessel targeted (Vessels, L). Power: the capsule's batteries, about a day and a half.",
   "notes": "Parts from the top down. stage: the stage (0 first, Space) that ignites an engine or fires a separator, dropping everything below it.",
   "parts": [
     {

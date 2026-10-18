@@ -1,6 +1,6 @@
 import math
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 
 from vessel.parts import PartDefinition, VesselDesign
 
@@ -107,6 +107,14 @@ class PartState:
     held_stage: int | None = None
     held_next: int | None = None
 
+    # Power (vessel/power.py): Wh in its battery; solar wings:
+    # how far out (0..1), whether they are going out (or in),
+    # torn off.
+    charge: float = 0.0
+    extended: float = 0.0
+    extending: bool = False
+    broken: bool = False
+
     @property
     def radial(
         self
@@ -151,6 +159,16 @@ class Vessel:
     # by whoever takes them).
     dropped: list[PartState] = field(default_factory=list)
 
+    # Power (vessel/power.py, systems/power_system.py): any
+    # charge to run on (none: no reaction wheels, no SAS
+    # holding, a probe deaf); how hard the wheels turned it
+    # last (0..1); a propellant plant that would run, and the
+    # share of its power it got.
+    powered: bool = True
+    wheel_use: float = 0.0
+    isru_wanted: bool = False
+    isru_share: float = 1.0
+
     @classmethod
     def from_design(
         cls,
@@ -163,7 +181,7 @@ class Vessel:
 
         for index, entry in enumerate(design.stack):
 
-            parts.append(PartState(entry.part, entry.stage, propellant=entry.part.propellant, source=(index,)))
+            parts.append(PartState(entry.part, entry.stage, propellant=entry.part.propellant, source=(index,), charge=entry.part.battery))
 
             for number, radial in enumerate(entry.radial):
 
@@ -185,7 +203,8 @@ class Vessel:
                         count=radial.symmetry,
                         group=group,
                         offset=radial.offset,
-                        source=(index, number, position)
+                        source=(index, number, position),
+                        charge=member.part.battery
                     ))
 
                 group += 1
@@ -423,6 +442,21 @@ class Vessel:
         return sum(state.part.cost * state.count for state in self.parts)
 
     @property
+    def charge(
+        self
+    ) -> float:
+        """Wh in the batteries, every copy counted."""
+
+        return sum(state.charge * state.count for state in self.parts)
+
+    @property
+    def charge_capacity(
+        self
+    ) -> float:
+
+        return sum(state.part.battery * state.count for state in self.parts)
+
+    @property
     def propellant(
         self
     ) -> float:
@@ -597,7 +631,8 @@ class Vessel:
         mass).
         """
 
-        torque = sum(state.part.reaction_wheel_torque * state.count for state in self.parts)
+        # (The wheels need power.)
+        torque = sum(state.part.reaction_wheel_torque * state.count for state in self.parts) if self.powered else 0.0
 
         com = self.center_of_mass
 
@@ -787,14 +822,7 @@ class Vessel:
 
         return Vessel(
             self.name,
-            [
-                PartState(
-                    s.part, s.stage, s.propellant, s.ignited, s.bottom, s.armed, s.deployed,
-                    s.count, s.group, s.offset, s.distance, s.source, s.temperature, s.flipped, s.joined, s.origin,
-                    s.outward, s.angle, s.anchor, s.occupied, s.held_stage, s.held_next
-                )
-                for s in self.parts
-            ],
+            [replace(s) for s in self.parts],
             self.next_stage,
             1.0
         )

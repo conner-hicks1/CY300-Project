@@ -325,6 +325,10 @@ def test_mapping_the_moon(play):
 
     game.put_in_orbit(body=moon, altitude=120_000.0, direction=(1.0, 0.0, 0.0), pole=(0.0, 0.0, 1.0))
 
+    # Days of mapping: the wings out (the capsule's batteries
+    # last a day and a bit).
+    game.press(Key.U)
+
     game.step(5)
 
     science = game.app.science_system

@@ -1,7 +1,7 @@
 {
   "format": 1,
   "name": "Explorer",
-  "description": "Pathfinder Heavy with science instruments on the capsule's side: a survey camera that maps the ground from orbit, a sample kit for the surface and an air sampler. R runs them; land back home to recover the results.",
+  "description": "Pathfinder Heavy with science instruments on the capsule's side: a survey camera that maps the ground from orbit, a sample kit for the surface and an air sampler. R runs them; land back home to recover the results. Two solar wings on the service module (U unfolds them, in space).",
   "notes": "Parts from the top down. stage: the stage (0 first, Space) that ignites an engine or fires a separator, dropping everything below it. radial: groups of parts round a core part (symmetry copies), with a radial separator.",
   "parts": [
     {
@@ -36,7 +36,18 @@
       "stage": 3
     },
     {
-      "part": "tank_2m5_medium"
+      "part": "tank_2m5_medium",
+      "radial": [
+        {
+          "symmetry": 2,
+          "offset": 0.0,
+          "parts": [
+            {
+              "part": "solar_wing"
+            }
+          ]
+        }
+      ]
     },
     {
       "part": "engine_vacuum",

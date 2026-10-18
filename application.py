@@ -101,6 +101,7 @@ from controllers.editor import EditorController
 from controllers.fleet import FleetController
 from controllers.maneuvers import ManeuverController
 from controllers.navigation import NavigationController
+from controllers.power import PowerController
 from controllers.programme import ProgrammeController
 from controllers.science import ScienceController
 
@@ -112,6 +113,7 @@ from systems.orbit_system import OrbitSystem, body_states
 from systems.render_system import RenderSystem
 from systems.transform_system import TransformSystem
 from systems.comms_system import CommsSystem, Link
+from systems.power_system import PowerSystem
 from systems.programme_system import ProgrammeSystem
 from systems.science_system import ScienceSystem
 from systems.vessel_system import LaunchSite, OrbitStart, VesselSystem
@@ -132,6 +134,7 @@ from ui.panels import PanelRegistry
 
 
 class Application(
+    PowerController,
     EditorController,
     FleetController,
     DockingController,
@@ -500,6 +503,9 @@ class Application(
         self.comms_system = CommsSystem()
         self.link = Link(False)
         self.computer_panel = ComputerPanel()
+
+        # Every vessel's power (systems/power_system.py).
+        self.power_system = PowerSystem()
 
         # The space programme: funds, missions (saved); its
         # panel (P).
@@ -1360,6 +1366,8 @@ class Application(
 
             self._notify(events)
 
+            self._update_power(simulated)
+
         with profiler.scope("Science"):
 
             self._update_science(events, simulated)
@@ -1655,6 +1663,9 @@ class Application(
         if Input.is_key_pressed(Key.B) and self.vessel_system.find(self.scene) is not None:
             self._toggle_docking()
 
+        if Input.is_key_pressed(Key.U) and self.vessel_system.find(self.scene) is not None:
+            self._toggle_panels()
+
         if Input.is_key_pressed(Key.LEFT_BRACKET):
             self._cycle_vessel(-1)
 
@@ -1856,7 +1867,8 @@ class Application(
             braking=self.vessel_system.braking(self.scene, self.orbit_system, self.planet_system),
             link=self._link_line(found[1]) if found is not None else None,
             docking=self._docking_line(),
-            navball=self._navball() if found is not None else None
+            navball=self._navball() if found is not None else None,
+            power=found[1].power if found is not None else None
         )
 
         self._draw_map()

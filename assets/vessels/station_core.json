@@ -1,7 +1,7 @@
 {
   "format": 1,
   "name": "Station Core",
-  "description": "An expandable habitat for four with docking ports at both ends and two side ports, on Pathfinder Heavy's stages: in orbit, drop the upper stage (its last stage) and dock ferries and more modules to it, along its axis or out to the sides.",
+  "description": "An expandable habitat for four with docking ports at both ends and two side ports, on Pathfinder Heavy's stages: in orbit, drop the upper stage (its last stage) and dock ferries and more modules to it, along its axis or out to the sides. A big solar array under the habitat (U unfolds it once in orbit).",
   "notes": "Parts from the top down. stage: the stage (0 first, Space) that ignites an engine or fires a separator, dropping everything below it. radial: groups of parts round a core part (symmetry copies), with a radial separator.",
   "parts": [
     {
@@ -20,6 +20,9 @@
           ]
         }
       ]
+    },
+    {
+      "part": "solar_array_2m5"
     },
     {
       "part": "docking_port_2m5"
