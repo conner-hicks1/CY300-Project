@@ -201,10 +201,10 @@ def test_names_come_back(parts):
     core = station(parts)
     ship = ferry(parts)
 
-    joined, _, _ = docking.merge(core, "bottom", ship, "top")
+    # The ferry docks to the station: still the station.
+    joined, _, _ = docking.merge(ship, "top", core, "bottom")
 
-    # The heavier names the whole.
-    assert joined.name == (core.name if core.mass >= ship.mass else ship.name)
+    assert joined.name == "Station Core"
 
     upper, lower, *_ = docking.split(joined, docking.joint(joined))
 

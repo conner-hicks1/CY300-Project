@@ -12,6 +12,7 @@ import os
 import time
 
 from datetime import datetime, timezone
+from pathlib import Path
 
 import numpy as np
 
@@ -152,14 +153,19 @@ class Application(
     # Main-thread time per frame for job completions.
     JOB_BUDGET_SECONDS = 0.002
 
+    # Headless: each frame this long (s).
+    HEADLESS_STEP = 1.0 / 60.0
+
     # =====================================================
     # Construction
     # =====================================================
 
     def __init__(self):
 
-        # A sandbox (initialize): no career.
+        # A sandbox (initialize): no career; headless: stepped
+        # from outside (step()), a hidden window.
         self.sandbox = False
+        self.headless = False
 
         # -------------------------------------------------
         # Lifecycle
@@ -299,7 +305,9 @@ class Application(
         self,
         body: str | None = None,
         dev: bool = False,
-        sandbox: bool = False
+        sandbox: bool = False,
+        headless: bool = False,
+        saves: Path | None = None
     ):
         """
         body: where to start (a profile id in assets/bodies/;
@@ -307,9 +315,15 @@ class Application(
         dev: start with the developer tools open (F3).
         sandbox: no funds, missions or calendar to keep: launch
             anything free, travel anywhere; its own saves.
+        headless: a hidden window and a fixed 1/60 s frame, for
+            stepping the game with step() (tests: see
+            tests/integration/).
+        saves: the folder for the career, science and fleet
+            saves (default: data/).
         """
 
         self.sandbox = sandbox
+        self.headless = headless
 
         engine_assert(
             not self._initialized,
@@ -332,7 +346,8 @@ class Application(
         self.window = Window(
             1280,
             720,
-            "CY300 Spaceflight"
+            "CY300 Spaceflight",
+            visible=not headless
         )
 
         self.window.set_event_callback(
@@ -343,7 +358,7 @@ class Application(
         # Core
         # -------------------------------------------------
 
-        self.timer = Timer()
+        self.timer = Timer(fixed_step=self.HEADLESS_STEP if headless else None)
 
         # -------------------------------------------------
         # Graphics
@@ -471,6 +486,9 @@ class Application(
         # panel (K).
         science_path = SANDBOX_PROGRESS_PATH if sandbox else PROGRESS_PATH
 
+        if saves is not None:
+            science_path = Path(saves) / "science.json"
+
         self.science_system = ScienceSystem(load_sites(), ScienceRecord.load(science_path), science_path)
         self.science_panel = SciencePanel()
 
@@ -484,16 +502,21 @@ class Application(
         # panel (P).
         campaign = load_campaign()
 
+        career_path = Path(saves) / "career.json" if saves is not None else CAREER_PATH
+
         if sandbox:
             self.programme_system = ProgrammeSystem(campaign, Career(funds=0.0), None, sandbox=True)
         else:
-            self.programme_system = ProgrammeSystem(campaign, Career.load(campaign, CAREER_PATH), CAREER_PATH)
+            self.programme_system = ProgrammeSystem(campaign, Career.load(campaign, career_path), career_path)
 
         self.programme_panel = ProgrammePanel()
 
         # Vessels left in flight (programme/fleet.py): saved,
         # brought into every scene; the list (L).
         self.fleet_path = fleet.SANDBOX_FLEET_PATH if sandbox else fleet.FLEET_PATH
+
+        if saves is not None:
+            self.fleet_path = Path(saves) / "fleet.json"
         self._fleet_records = fleet.load(self.fleet_path)
         self._fleet_restored = False
         self._fleet_saved = 0.0
@@ -521,6 +544,12 @@ class Application(
         self._edited_height = 0.0
 
         apply_quality(self.render_system.settings, DEFAULT_QUALITY)
+
+        # Headless, nothing is drawn: no terrain meshes, no
+        # rocks or trees to build.
+        if headless:
+            self.planet_system.stream = False
+            self.render_system.settings.scatter = False
 
         if body and body != self.START_BODY and not sandbox:
             Logger.warning("[Application] A career starts at home (%s); --sandbox to start at %s.", self.START_BODY, body)
@@ -1174,6 +1203,37 @@ class Application(
                     "[Profiler] Final statistics:\n%s",
                     profiler.format_report()
                 )
+
+    def step(
+        self,
+        render: bool = False,
+        keys: tuple = ()
+    ):
+        """
+        One frame of the main loop, run from outside it (a
+        headless run): input, the clock, update; render only if
+        asked (the game's state never depends on drawing).
+        keys: pressed this frame, as if typed.
+        """
+
+        engine_assert(self._initialized, "Application must be initialized before step().")
+
+        Input.begin_frame()
+
+        self.window.poll_events()
+
+        for key in keys:
+            Input.simulate_press(key)
+
+        self.timer.update()
+
+        self.update()
+
+        if render:
+
+            self.render()
+
+            self.window.swap_buffers()
 
     # =====================================================
     # Update

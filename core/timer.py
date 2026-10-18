@@ -13,15 +13,28 @@ class Timer:
 
     def __init__(
         self,
-        max_delta_time: float = DEFAULT_MAX_DELTA_TIME
+        max_delta_time: float = DEFAULT_MAX_DELTA_TIME,
+        fixed_step: float | None = None
     ):
+        """
+        fixed_step: every frame this long (s), whatever the
+        clock on the wall says: runs that must come out the
+        same each time (headless tests).
+        """
 
         if max_delta_time <= 0.0:
             raise ValueError(
                 "Timer max_delta_time must be positive."
             )
 
+        if fixed_step is not None and fixed_step <= 0.0:
+            raise ValueError(
+                "Timer fixed_step must be positive."
+            )
+
         self._max_delta_time = max_delta_time
+
+        self._fixed_step = fixed_step
 
         self._start_time = time.perf_counter()
         self._previous_time = self._start_time
@@ -73,6 +86,9 @@ class Timer:
             self._unclamped_delta_time,
             self._max_delta_time
         )
+
+        if self._fixed_step is not None:
+            self._delta_time = self._fixed_step
 
         self._previous_time = current_time
 

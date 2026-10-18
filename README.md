@@ -663,7 +663,7 @@ build your own rocket in the part editor, on the pad.
   stacks (top to top), its stages after the first's; the joined vessel
   shares propellant between separators (a depot feeding a ship) and a
   turned-over engine does not fire. Each part remembers the vessel it came
-  with: the joined one is named for the heavier, and undocking (Vessels
+  with: the joined one keeps the name of the vessel docked to, and undocking (Vessels
   list) splits it at the last joint, each half with its name back, pushed
   apart at 0.2 m/s
 - Side docking ports (a radial group on any core part: the Station Core's
@@ -746,7 +746,7 @@ build your own rocket in the part editor, on the pad.
 - A disk cache (`data/cache/`) of terrain chunks, keyed by their inputs and
   the generators' source code: chunks stream in ~70% faster on a second
   visit; oldest entries pruned past 2 GB
-- 664 unit tests
+- 666 unit tests, and 10 that play the game through headless (`pytest -m integration`)
 
 ## Getting Started
 
@@ -851,6 +851,25 @@ Run the tests (those on the real maps skip until they are downloaded):
 ```bash
 python -m pytest
 ```
+
+Play the game through in tests (`tests/integration/`: the real application
+headless, a hidden window that never takes the keyboard, a fixed 1/60 s
+frame, nothing drawn and no terrain meshes built, the saves in each test's
+own folder): a launch paid for
+and orbit's mission, a revert that keeps the calendar, coming home from orbit
+on a planned burn and the heat shield, the Mariner landing itself on the
+Moon's far side by program, a Ferry docking to the Station Core end-on and at
+a side port, the fleet through a revert and a relay, mapping the Moon. They
+take about nine minutes and need a GPU with OpenGL 4.5, so they run on their
+own:
+
+```bash
+python -m pytest -m integration
+```
+
+`tests/integration/harness.py`'s `Game` drives them: `step(frames)`,
+`press(key)`, `run_until(condition, frames)`, and setting vessels where a test
+needs them (`put_in_orbit`, `land_at`).
 
 Regenerate the procedural textures in `assets/` and the test models:
 

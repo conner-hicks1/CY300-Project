@@ -46,8 +46,10 @@ class Window:
         self,
         width: int,
         height: int,
-        title: str
+        title: str,
+        visible: bool = True
     ):
+        """visible False: a hidden window that never takes the focus (headless runs, tests)."""
 
         engine_assert(
             width > 0,
@@ -131,6 +133,12 @@ class Window:
                 glfw.OPENGL_DEBUG_CONTEXT,
                 True
             )
+
+            # Hidden: rendering still works off screen, and the
+            # keyboard never reaches it.
+            glfw.window_hint(glfw.VISIBLE, bool(visible))
+            glfw.window_hint(glfw.FOCUSED, bool(visible))
+            glfw.window_hint(glfw.FOCUS_ON_SHOW, bool(visible))
 
             # ---------------------------------------------
             # Window

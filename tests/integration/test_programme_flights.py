@@ -1,0 +1,86 @@
+import pytest
+
+from ecs.components import ClockComponent
+
+from tests.integration.harness import Game
+
+
+pytestmark = pytest.mark.integration
+
+
+def test_a_launch_is_paid_for_and_orbit_pays(play):
+
+    game: Game = play()
+
+    career = game.app.programme_system.career
+
+    start = career.funds
+
+    game.step(10)
+
+    assert game.vessel.state.landed and not game.vessel.paid
+
+    game.stage()
+
+    assert game.vessel.paid
+    assert career.funds == pytest.approx(start - game.vessel.vessel.cost)
+
+    game.put_in_orbit(altitude=200_000.0)
+
+    game.run_until(lambda: career.outcomes.get("first_orbit") == "done", 600)
+
+    assert career.funds == pytest.approx(start - game.vessel.vessel.cost + 80.0)
+
+
+def test_no_funds_no_launch(play):
+
+    game: Game = play()
+
+    game.app.programme_system.career.funds = 5.0
+
+    game.step(5)
+
+    game.stage()
+
+    assert not game.vessel.paid and game.vessel.vessel.next_stage == 0
+    assert any("Not enough funds" in notice for notice in game.notices())
+
+
+def test_a_revert_keeps_the_calendar(play):
+
+    game: Game = play()
+
+    game.step(5)
+
+    game.stage()
+
+    game.put_in_orbit()
+
+    # A month on.
+    clock = next(component for _, component in game.app.scene.registry.view_with(ClockComponent))
+
+    clock.time += 30 * 86_400.0
+
+    game.step(5)
+
+    before = game.clock
+
+    game.app.revert()
+
+    game.step(2)
+
+    # Not back, not on to the next morning: where it was.
+    assert before <= game.clock < before + 60.0
+
+
+def test_the_sandbox_launches_free_and_travels(play):
+
+    game: Game = play(sandbox=True, body="moon")
+
+    assert game.app.vessel_system.body_name(game.app.scene, game.vessel.body) == "Moon"
+
+    game.step(5)
+
+    game.stage()
+
+    assert game.vessel.paid and game.app.programme_system.career.funds == 0.0

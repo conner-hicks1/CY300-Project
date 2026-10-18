@@ -292,6 +292,11 @@ class PlanetSystem:
         # Rocks, trees and grass around the camera.
         self.scatter = ScatterSystem(jobs)
 
+        # Build terrain meshes to draw. Off headless (nothing
+        # drawn): the ground's heights come from the terrain
+        # itself (ground()), not from chunks.
+        self.stream = True
+
     # =====================================================
     # Update
     # =====================================================
@@ -485,6 +490,9 @@ class PlanetSystem:
             self._evict(planet)
 
         requests.sort(key=lambda request: request[:3])
+
+        if not self.stream:
+            requests.clear()
 
         for _, _, _, planet, key in requests:
 

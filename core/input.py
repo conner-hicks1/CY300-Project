@@ -106,6 +106,33 @@ class Input:
     # =====================================================
    
     @classmethod
+    def simulate_press(
+        cls,
+        key: Key
+    ):
+        """A scripted press (headless runs, tests): pressed this frame, down until simulate_release."""
+
+        cls._keys_down.add(key)
+        cls._keys_pressed.add(key)
+
+    @classmethod
+    def simulate_hold(
+        cls,
+        key: Key
+    ):
+        """Down (not newly pressed): a key held through frames."""
+
+        cls._keys_down.add(key)
+
+    @classmethod
+    def simulate_release(
+        cls,
+        key: Key
+    ):
+
+        cls._keys_down.discard(key)
+
+    @classmethod
     def _press_key(
         cls,
         key: Key

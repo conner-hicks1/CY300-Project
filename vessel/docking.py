@@ -324,9 +324,10 @@ def merge(
     b_end: str
 ) -> tuple[Vessel, bool, float]:
     """
-    Join b's port at b_end to a's port at a_end. Returns
-    (the joined vessel, whether b's parts went below a's,
-    how far (m) a's origin rose in the joined stack).
+    Join b's port at b_end to a's port at a_end (a docks to
+    b: the joined vessel keeps b's name). Returns (the joined
+    vessel, whether b's parts went below a's, how far (m) a's
+    origin rose in the joined stack).
     """
 
     a_port = next(port for port in free_ports(a) if port.end == a_end)
@@ -336,13 +337,13 @@ def merge(
     b_port.state.joined = True
 
     # Each part remembers the vessel it came with; the joined
-    # one is named for the heavier (a ferry docks to a
-    # station).
+    # one keeps the name of the one docked to (a ferry docks
+    # to a station: it is still the station).
     for vessel in (a, b):
         for state in vessel.parts:
             state.origin = state.origin or vessel.name
 
-    name = a.name if a.mass >= b.mass else b.name
+    name = b.name
 
     b_parts = list(b.parts)
 
