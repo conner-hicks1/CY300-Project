@@ -17,6 +17,7 @@ from ecs.components import (
     MeshRendererComponent,
     NameComponent,
     OrbitComponent,
+    PointLightComponent,
     PlanetComponent,
     StarComponent,
     TransformComponent,
@@ -2221,6 +2222,8 @@ class VesselSystem:
         self._update_plumes(scene, entity, component, orbit_system, planet_system)
         self._update_canopies(scene, entity, component)
         self._update_reentry_glow(scene, entity, component)
+        self._update_engine_light(scene, entity, component)
+        self._update_dust(scene, entity, component, orbit_system, dt)
 
         for _, any_component in self.vessels(scene):
             self._update_wings(scene, any_component)
@@ -2863,8 +2866,14 @@ class VesselSystem:
 
         parts = [child for copies in component.part_entities.values() for child in copies]
 
-        for child in parts + component.plume_entities + component.canopy_entities + component.glow_entities:
+        extra = [entity for entity in (component.engine_light, component.dust_entity) if entity is not None]
+
+        for child in parts + component.plume_entities + component.canopy_entities + component.glow_entities + extra:
             self._destroy_tree(scene, child)
+
+        component.engine_light = None
+        component.dust_entity = None
+        component.dust_level = 0.0
 
         component.part_entities.clear()
         component.panel_entities.clear()
@@ -2882,6 +2891,16 @@ class VesselSystem:
         "air_core": ((0.62, 0.0), (0.5, -0.25), (0.22, -0.6), (0.0, -0.75)),
         "vacuum": ((1.0, 0.0), (1.55, -0.18), (2.3, -0.55), (2.9, -1.0)),
         "vacuum_core": ((0.7, 0.0), (0.9, -0.25), (1.05, -0.55)),
+    }
+
+    # Each propellant's flame against kerosene's orange:
+    # methane burns blue, hydrogen nearly clear (a faint blue
+    # with a pink core), hypergolics a pale orange.
+    PLUME_TINTS = {
+        "kerolox": (1.0, 1.0, 1.0),
+        "methalox": (0.35, 0.55, 1.6),
+        "hydrolox": (0.25, 0.3, 0.75),
+        "hypergolic": (1.0, 0.8, 0.62),
     }
 
     # HDR colors at full throttle (they bloom).
@@ -2973,7 +2992,9 @@ class VesselSystem:
                 glow = scene.get_component(child, GlowComponent)
 
                 glow.mesh = self._glow_mesh(name, self.PLUME_SHAPES[name])
-                glow.color = tuple(c * (0.25 + 0.75 * throttle) for c in self.PLUME_COLORS[name])
+                tint = self.PLUME_TINTS.get(engine.part.engine.propellant, (1.0, 1.0, 1.0))
+
+                glow.color = tuple(c * t * (0.25 + 0.75 * throttle) for c, t in zip(self.PLUME_COLORS[name], tint))
                 glow.falloff = 1.2 if layer == 0 else 2.0
                 glow.tail = 1.2 if layer == 0 else 1.6
 
@@ -3157,6 +3178,178 @@ class VesselSystem:
         north = np.cross(up, east)
 
         return east * here.wind_east + north * here.wind_north
+
+    # =====================================================
+    # Engine Light and Landing Dust
+    # =====================================================
+    #
+    # Burning engines light the vessel and the ground round it
+    # (a point light under the stack, as bright as the thrust:
+    # a launch lights the pad like day), their flame's color.
+    # Low over the ground they raise a cloud: dust off the
+    # Moon or Mars, steam and smoke off the pad, spreading
+    # wider and thicker the lower and harder they push,
+    # settling for a few seconds after.
+
+    LIGHT_COLORS = {
+        "kerolox": (1.0, 0.62, 0.3),
+        "methalox": (0.6, 0.72, 1.0),
+        "hydrolox": (0.75, 0.75, 1.0),
+        "hypergolic": (1.0, 0.75, 0.5),
+    }
+
+    # The ground's dust's color, by body (else a grey-brown).
+    DUST_COLORS = {
+        "Moon": (0.5, 0.49, 0.47),
+        "Mars": (0.66, 0.42, 0.25),
+        "Earth": (0.86, 0.86, 0.86),
+        "Mercury": (0.45, 0.43, 0.41),
+    }
+
+    DUST_SHAPE = ((0.12, 0.0), (1.0, 0.04), (0.9, 0.3), (0.55, 0.55), (0.0, 0.62))
+
+    def _update_engine_light(
+        self,
+        scene: Scene,
+        entity: Entity,
+        component: VesselComponent
+    ):
+
+        vessel = component.vessel
+
+        engines = [] if component.state.destroyed or vessel.throttle <= 0.0 else vessel.burning_engines()
+
+        if not engines:
+
+            if component.engine_light is not None:
+                light = scene.get_component(component.engine_light, PointLightComponent)
+                light.intensity = 0.0
+
+            return
+
+        thrust = vessel.thrust(0.0)[0]
+
+        if component.engine_light is None:
+
+            child = scene.create_entity()
+
+            scene.add_component(child, NameComponent("Engine light"))
+            scene.add_component(child, HierarchyComponent(entity))
+            scene.add_component(child, TransformComponent(transform=Transform()))
+            scene.add_component(child, PointLightComponent())
+
+            component.engine_light = child
+
+        # Bright as the sun (5) out to a reach growing with the
+        # thrust (a big booster's ~30 m).
+        reach = 30.0 * math.sqrt(max(thrust, 1.0) / 2.2e6)
+
+        kind = engines[0][1].part.engine.propellant
+
+        light = scene.get_component(component.engine_light, PointLightComponent)
+
+        light.color = self.LIGHT_COLORS.get(kind, (1.0, 0.7, 0.4))
+        light.intensity = 5.0 * reach * reach * (0.4 + 0.6 * vessel.throttle) * (0.35 if kind == "hydrolox" else 1.0)
+        light.range = max(12.0 * reach, 15.0)
+
+        lowest = min(state.bottom for _, state in engines)
+
+        transform = scene.get_component(component.engine_light, TransformComponent).transform
+
+        # Below the nozzles, in the flame.
+        transform.position = (0.0, lowest - 0.6 * reach, 0.0)
+
+    def _update_dust(
+        self,
+        scene: Scene,
+        entity: Entity,
+        component: VesselComponent,
+        orbit_system,
+        dt: float
+    ):
+        """The flown vessel's engines raising dust (or steam) under it, near the ground."""
+
+        vessel = component.vessel
+        state = component.state
+
+        physics = self._bodies.get(component.body)
+
+        thrust = vessel.thrust(0.0)[0] if not state.destroyed and vessel.throttle > 0.0 else 0.0
+
+        spread = min(max(10.0 * math.sqrt(max(thrust, 1.0) / 1.0e5), 6.0), 25.0)
+
+        height = max(self._height, 0.0)
+
+        reach = 3.0 * spread
+
+        wanted = 0.0
+
+        if thrust > 0.0 and physics is not None and physics.solid and height < reach:
+            wanted = math.sqrt(vessel.throttle) * (1.0 - height / reach)
+
+        # Up fast, settling slowly.
+        rate = 2.0 if wanted > component.dust_level else 0.35
+
+        component.dust_level += (wanted - component.dust_level) * min(rate * max(dt, 0.0), 1.0)
+
+        if component.dust_level < 0.01:
+
+            if component.dust_entity is not None:
+                scene.get_component(component.dust_entity, GlowComponent).opacity = 0.0
+                scene.get_component(component.dust_entity, TransformComponent).transform.scale = (0.0, 0.0, 0.0)
+
+            return
+
+        if component.dust_entity is None:
+
+            child = scene.create_entity()
+
+            scene.add_component(child, NameComponent("Dust"))
+            scene.add_component(child, HierarchyComponent(entity))
+            scene.add_component(child, TransformComponent(transform=Transform()))
+            scene.add_component(child, GlowComponent(mesh=self._glow_mesh("dust", self.DUST_SHAPE), falloff=2.5, tail=0.0))
+
+            component.dust_entity = child
+
+        level = component.dust_level
+
+        name = self.body_name(scene, component.body)
+
+        base = self.DUST_COLORS.get(name, (0.5, 0.46, 0.42))
+
+        # Lit as the ground round it is: by the sun's height.
+        reference = self.reference_state(orbit_system, component.body)
+
+        sun_up = 0.5
+
+        if reference is not None:
+
+            where = np.asarray(reference[0], dtype=np.float64) + state.position
+
+            up = state.position / float(np.linalg.norm(state.position))
+
+            sun_up = float(-where @ up) / float(np.linalg.norm(where))
+
+        light = 5.0 * (0.12 + 0.88 * max(sun_up, 0.0))
+
+        # Lit from within by the flame too.
+        engines = vessel.burning_engines()
+
+        flame = self.LIGHT_COLORS.get(engines[0][1].part.engine.propellant, (1.0, 0.7, 0.4)) if engines else (0.0, 0.0, 0.0)
+
+        glow = scene.get_component(component.dust_entity, GlowComponent)
+
+        glow.color = tuple(c * light + f * 1.5 * vessel.throttle for c, f in zip(base, flame))
+        glow.opacity = 0.5 * level
+
+        size = spread * (0.5 + 0.7 * level)
+
+        transform = scene.get_component(component.dust_entity, TransformComponent).transform
+
+        # On the ground under it, along the stack.
+        transform.position = (0.0, -height, 0.0)
+        transform.orientation = np.array([0.0, 0.0, 0.0, 1.0])
+        transform.scale = (size, size * 0.28, size)
 
     # =====================================================
     # Landing Legs

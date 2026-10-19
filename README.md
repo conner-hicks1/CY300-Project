@@ -514,6 +514,16 @@ build your own rocket in the part editor, on the pad.
   for the legs and for lying on its side; the part editor shows how the
   last stage stands. Radial groups can be turned round the core (`angle`
   in a design): Mariner's four legs stand between its two wings
+- Burning engines light the vessel and the ground round them (a point
+  light under the stack as bright as the thrust, the flame's color: a
+  launch lights the pad, a lander its landing site at night). Plumes are
+  colored by propellant: kerosene orange, methane blue, hydrogen nearly
+  clear, hypergolics pale. Low over the ground engines raise a cloud
+  (`GlowComponent.opacity`: drawn over the scene, not added): dust off the
+  Moon or Mars, steam off the pad, spreading wider the lower and harder
+  they push, lit by the sun and the flame, settling for a few seconds
+  after. A vessel in a body's shadow is in the dark (the shader's eclipse
+  test)
 - Prograde and retrograde follow the motion over the ground below 30 km
   (and in air), so retrograde points straight up for a vertical landing
 - Attitude control works coasting too: SAS and the pilot's keys turn the

@@ -92,3 +92,46 @@ def test_a_lander_stands_on_its_legs_and_one_tilted_falls_over(play):
     game.step(60)
 
     assert state.landed and state.toppled
+
+
+def test_a_hovering_lander_raises_dust_and_lights_the_ground(play):
+    """Low over the Moon under power: a dust cloud and the engine's light; engines off: the light out, the dust settling."""
+
+    from ecs.components import GlowComponent, PointLightComponent
+
+    game: Game = play(design="mariner")
+
+    game.step(5)
+
+    component = game.vessel
+
+    for _ in range(6):
+        game.app.stage_vessel(component)
+
+    game.step(5)
+
+    moon = game.body("Moon")
+
+    _drop(game, component, moon, 8.0, 0.0)
+
+    for _ in range(180):
+
+        component.hover = 0.0
+
+        game.step(1)
+
+    scene = game.app.scene
+
+    assert component.vessel.throttle > 0.0
+    assert component.dust_level > 0.15
+
+    assert scene.get_component(component.engine_light, PointLightComponent).intensity > 0.0
+    assert scene.get_component(component.dust_entity, GlowComponent).opacity > 0.05
+
+    component.hover = None
+    component.vessel.throttle = 0.0
+
+    game.step(600)
+
+    assert scene.get_component(component.engine_light, PointLightComponent).intensity == 0.0
+    assert component.dust_level < 0.05

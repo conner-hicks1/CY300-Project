@@ -147,6 +147,11 @@ class GlowComponent:
     falloff: float = 1.5
     tail: float = 1.5
 
+    # 0: glowing gas, added over the scene; above 0: a cloud
+    # (dust, smoke) drawn over what is behind it, this opaque
+    # at its thickest.
+    opacity: float = 0.0
+
 
 # =========================================================
 # Camera
@@ -248,6 +253,13 @@ class VesselComponent:
     # Its power now (vessel/power.py PowerStatus), None until
     # the first frame.
     power: object = None
+
+    # Its engines' light on itself and the ground (a point
+    # light), the dust its engines raise landing, and how
+    # thick that is now (0..1).
+    engine_light: object = None
+    dust_entity: object = None
+    dust_level: float = 0.0
 
     # Each part's drawn pieces (vessel/looks.py): id(PartState)
     # -> [(entity, finish)], the copies themselves and their

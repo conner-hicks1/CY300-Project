@@ -1923,12 +1923,34 @@ class RenderSystem:
         RenderState.set_face_culling(False)
         RenderState.set_blending(True)
 
-        glBlendFunc(GL_ONE, GL_ONE)
         glDepthMask(False)
 
         meshes = self._resources.meshes
 
+        # Clouds first (over what is behind them), then the
+        # glowing gas added over all.
+        glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA)
+
         for _, transform, glow in glows:
+
+            if glow.opacity <= 0.0:
+                continue
+
+            shader.set_vec3("uGlowColor", tuple(glow.color))
+            shader.set_float("uGlowFalloff", glow.falloff)
+            shader.set_float("uGlowTail", glow.tail)
+            shader.set_float("uGlowOpacity", glow.opacity)
+
+            self._renderer.draw_mesh(meshes.get(glow.mesh), shader, transform.world_matrix)
+
+        glBlendFunc(GL_ONE, GL_ONE)
+
+        shader.set_float("uGlowOpacity", 0.0)
+
+        for _, transform, glow in glows:
+
+            if glow.opacity > 0.0:
+                continue
 
             shader.set_vec3("uGlowColor", tuple(glow.color))
             shader.set_float("uGlowFalloff", glow.falloff)
