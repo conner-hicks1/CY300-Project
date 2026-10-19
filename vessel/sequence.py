@@ -46,6 +46,8 @@ from pathlib import Path
 #   node      s until the maneuver node
 #   charge    the batteries' share full (0-1, or %)
 #   slope     deg of the ground below (near it)
+#   dust      Mars's dust optical depth over it (low or landed)
+#   wind      m/s of Mars's wind over it
 #
 # Units: m, km, m/s, km/s, s, min, h, d, %, bar.
 #
@@ -67,7 +69,7 @@ class SequenceError(ValueError):
 
 QUANTITIES = (
     "altitude", "apoapsis", "periapsis", "speed", "vertical", "orbital",
-    "pressure", "fuel", "heat", "brake", "node", "charge", "slope"
+    "pressure", "fuel", "heat", "brake", "node", "charge", "slope", "dust", "wind"
 )
 
 LEG_WORDS = {"down": True, "lower": True, "deploy": True, "up": False, "raise": False, "retract": False, "stow": False}

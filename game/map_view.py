@@ -40,6 +40,9 @@ MOON_COLOR = (0.75, 0.75, 0.8, 0.45)
 MARKER_COLOR = (1.0, 0.9, 0.45, 1.0)
 VESSEL_COLOR = (1.0, 1.0, 1.0, 1.0)
 SITE_COLOR = (1.0, 0.85, 0.45, 1.0)
+
+# Mars's dust storms.
+DUST_COLOR = (0.95, 0.62, 0.32, 0.85)
 OTHER_COLOR = (0.9, 0.65, 1.0, 1.0)
 
 
@@ -231,13 +234,16 @@ class MapView:
         node_world: np.ndarray | None = None,
         node_label: str = "",
         sites: list | None = None,
-        others: list | None = None
+        others: list | None = None,
+        storms: list | None = None
     ):
         """
         planned: the path after the maneuver node's burn
         (a Prediction, or None), node_world: where the node
         is. sites: (world point, name) of the science sites
-        on the body. others: the other vessels round it,
+        on the body. storms: Mars's dust storms, (world points
+        of its edge or None for a global one, label, world
+        point of its center). others: the other vessels round it,
         (world point, name, orbit's world points or None,
         targeted).
 
@@ -292,6 +298,16 @@ class MapView:
 
                 draw.add_quad_filled((x, y - 4.0), (x + 4.0, y), (x, y + 4.0), (x - 4.0, y), color)
                 draw.add_text((x + 6.0, y - 7.0), _color(SITE_COLOR, 0.75), name)
+
+        for edge, label, center in storms or ():
+
+            if edge is not None and len(edge) > 1:
+                self._polyline(draw, projection, edge, DUST_COLOR, body_world, body_radius, 2.0)
+
+            pixel, front = projection.project(center[None, :])
+
+            if front[0]:
+                draw.add_text((pixel[0, 0] - 30.0, pixel[0, 1] + 8.0), _color(DUST_COLOR, 0.95), label)
 
         for point, name, orbit, targeted in others or ():
 

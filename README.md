@@ -628,7 +628,8 @@ build your own rocket in the part editor, on the pad.
   apoapsis [- 30 s]`, `repeat n ... end`. Conditions compare altitude,
   apoapsis, periapsis, speed, vertical, orbital, pressure, fuel, heat,
   brake (s to the landing burn), node (s to it), charge (the batteries'
-  share) or slope (deg of the ground below) with units (m, km, m/s, s, min, h, %, bar), or name a
+  share), slope (deg of the ground below), dust or wind (Mars's) with
+  units (m, km, m/s, s, min, h, %, bar), or name a
   situation (landed, orbiting...), with and / or / not. Errors name the
   line. Time warp holds back for what the computer waits on (a time, the
   braking point, the node)
@@ -665,6 +666,29 @@ build your own rocket in the part editor, on the pad.
 - New tech nodes: storable propellants, hydrogen upper stages, methane
   engines, zero boil-off. Mariner's lander now burns storable propellant
   (60 kN, 3.9 km/s): it keeps through a cruise to Mars
+
+**Mars's weather and seasons**
+
+- The season from the real calendar (`planet/weather.py`): Mars's solar
+  longitude Ls and Mars year (MY 39 begins in autumn 2026). The whole air
+  is about 12% thicker in southern summer (Ls ~255) than at Ls ~75, as CO2
+  freezes onto the winter pole and thaws: parachutes, drag and landings
+  feel it
+- Dust storms in the dusty season (Ls 180-330): each Mars year a few
+  regional storms (dust optical depth 1.5-4.5 over a thousand-odd km, for
+  weeks) and, about one year in three, a global one (5-10 everywhere for
+  months; Opportunity's 2018 storm reached 10.8). Drawn from the Mars year,
+  the same every time: the Programme panel forecasts the season, and the
+  map draws the storms over Mars
+- Dust dims the sunlight reaching a lander (mostly scattered, not lost:
+  two thirds at depth 1, a few percent in a global storm); dust settles on
+  a landed vessel's solar wings and a storm's gusts in clearer air blow
+  them clean (as Spirit's and Opportunity's were). Storms blow tens of m/s
+  round them: a descent drifts (a little through such thin air, much more
+  under a parachute)
+- The HUD over Mars: Ls and season, the dust, the sunlight that gets
+  through, the wind and where from; a chip for a storm. The flight
+  computer reads `dust` and `wind`
 
 **Power**
 

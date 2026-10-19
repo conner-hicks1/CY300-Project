@@ -155,6 +155,9 @@ def solar_power(
 
     total = 0.0
 
+    # (Dust on them: Mars.)
+    light = light * (1.0 - vessel.panel_dust)
+
     for state in solar_parts(vessel):
 
         if state.broken or state.extended <= 0.0:

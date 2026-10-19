@@ -3,6 +3,8 @@ import math
 from imgui_bundle import imgui
 
 from game import format, style
+
+from planet import weather
 from game.flight import FlightReadout
 from game.time_warp import TimeWarp
 
@@ -544,6 +546,11 @@ class FlightHud:
             if vessel.toppled:
                 style.chip("On its side", "bad", same_line=True)
 
+            sky = vessel.weather
+
+            if sky is not None and sky.storm:
+                style.chip("Global dust storm" if sky.storm.startswith("Global") else "Dust storm", "bad" if sky.tau >= 5.0 else "warn", same_line=True)
+
             if power is not None:
 
                 if not power.powered:
@@ -580,6 +587,15 @@ class FlightHud:
             elif braking is not None:
 
                 style.say("Engines cannot stop the fall", "bad")
+
+            # Mars's weather, low or landed there.
+            if sky is not None:
+
+                style.say(
+                    f"Mars Ls {sky.longitude:,.0f} ({sky.season.split(' / ')[0]}): dust {sky.tau:.1f}, "
+                    f"sunlight {sky.light:.0%}, wind {sky.wind:,.0f} m/s from {weather.wind_from(sky)}",
+                    "bad" if sky.tau >= 5.0 else ("warn" if sky.tau >= 2.0 else "muted")
+                )
 
             # The ground below: will it stand there?
             if vessel.slope is not None and not vessel.destroyed and not vessel.toppled:

@@ -13,6 +13,8 @@ from game.map_view import ScreenProjection
 
 from systems.vessel_system import Suggestion
 
+from planet import weather
+
 from science.survey import direction_of as survey_direction
 
 from vessel import kepler, maneuver
@@ -244,6 +246,53 @@ class NavigationController:
                     site.name
                 ))
 
+        # Mars's dust storms, where they are now.
+        storms = []
+
+        if reference is not None and reference in self.orbit_system.states and reference in body_world and body_id == "mars":
+
+            _, frame = self.orbit_system.states[reference]
+
+            radius = body_radius[reference]
+
+            to_world = self.orbit_system.inertial_to_world
+
+            for storm, strength in weather.active(self.orbit_system.time):
+
+                label = f"{storm.name.split(',')[0]} (dust {storm.tau * strength:.1f})"
+
+                center = body_world[reference] + to_world @ (frame @ survey_direction(storm.latitude, storm.longitude)) * radius * 1.01
+
+                if storm.global_storm:
+
+                    storms.append((None, f"Global dust storm (dust {storm.tau * strength:.1f})", body_world[reference] + to_world @ (frame @ np.array([0.0, 1.0, 0.0])) * radius * 1.15))
+
+                    continue
+
+                # Its edge: a ring its radius from its center.
+                ring = []
+
+                angle = storm.radius / weather.MARS_RADIUS
+
+                pole = survey_direction(storm.latitude, storm.longitude)
+
+                hint = np.array([0.0, 1.0, 0.0]) if abs(pole[1]) < 0.9 else np.array([1.0, 0.0, 0.0])
+
+                across = np.cross(pole, hint)
+                across /= np.linalg.norm(across)
+
+                along = np.cross(pole, across)
+
+                for k in range(49):
+
+                    turn = 2.0 * np.pi * k / 48
+
+                    local = pole * np.cos(angle) + (across * np.cos(turn) + along * np.sin(turn)) * np.sin(angle)
+
+                    ring.append(body_world[reference] + to_world @ (frame @ local) * radius * 1.01)
+
+                storms.append((np.array(ring), label, center))
+
         self.map_view.draw(
             projection,
             self.orbit_system.inertial_to_world,
@@ -258,7 +307,8 @@ class NavigationController:
             node_world=node_world,
             node_label=f"Node {self.maneuver_dv:,.0f} m/s" if self.maneuver_dv is not None else "",
             sites=sites,
-            others=others
+            others=others,
+            storms=storms
         )
 
         targets = sorted(

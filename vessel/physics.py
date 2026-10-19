@@ -167,10 +167,28 @@ class Environment:
     # None: level (square to the direction).
     normal: Callable[[np.ndarray], np.ndarray] | None = None
 
+    # The wind at a position (m/s, inertial, on top of the air
+    # turning with the body; planet/weather.py); None: still.
+    wind: Callable[[np.ndarray], np.ndarray] | None = None
+
 
 # =========================================================
 # Stepping
 # =========================================================
+
+def air_velocity(
+    environment: Environment,
+    state: VesselState
+) -> np.ndarray:
+    """The vessel's velocity through the air: less the air's turning with the body, and its wind."""
+
+    relative = state.velocity - surface_velocity(environment, state.position)
+
+    if environment.wind is not None:
+        relative = relative - environment.wind(state.position)
+
+    return relative
+
 
 def surface_velocity(
     environment: Environment,
@@ -223,7 +241,7 @@ def step(
 
     pressure, density = environment.air(radius, direction)
 
-    air_velocity = state.velocity - surface_velocity(environment, state.position)
+    through_air = air_velocity(environment, state) if density > VACUUM_DENSITY else state.velocity - surface_velocity(environment, state.position)
 
     # -------------------------------------------------
     # Attitude
@@ -253,15 +271,15 @@ def step(
 
     if density > VACUUM_DENSITY:
 
-        speed = float(np.linalg.norm(air_velocity))
+        speed = float(np.linalg.norm(through_air))
 
         vessel.open_parachutes(pressure, speed, dt)
 
-        acceleration -= 0.5 * density * speed * air_velocity * vessel.drag_area() / mass
+        acceleration -= 0.5 * density * speed * through_air * vessel.drag_area() / mass
 
     ambient = environment.temperature(radius) if environment.temperature is not None and density > VACUUM_DENSITY else heating.SPACE_TEMPERATURE
 
-    burned = heating.heat(vessel, state.up, air_velocity, density if density > VACUUM_DENSITY else 0.0, ambient, dt)
+    burned = heating.heat(vessel, state.up, through_air, density if density > VACUUM_DENSITY else 0.0, ambient, dt)
 
     if burned is not None:
 
@@ -343,7 +361,10 @@ def motion(
     if density is None:
         _, density = environment.air(radius, state.position / radius)
 
-    if density > VACUUM_DENSITY or radius - environment.ground(state.position / radius) < SURFACE_MODE_HEIGHT:
+    if density > VACUUM_DENSITY:
+        return air_velocity(environment, state)
+
+    if radius - environment.ground(state.position / radius) < SURFACE_MODE_HEIGHT:
         return state.velocity - surface_velocity(environment, state.position)
 
     return state.velocity

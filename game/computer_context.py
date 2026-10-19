@@ -112,6 +112,9 @@ class GameFlightContext(FlightContext):
         if name == "slope":
             return readout.slope
 
+        if name in ("dust", "wind"):
+            return None if readout.weather is None else (readout.weather.tau if name == "dust" else readout.weather.wind)
+
         if name == "charge":
 
             vessel = self.component.vessel

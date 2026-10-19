@@ -169,6 +169,10 @@ class Vessel:
     isru_wanted: bool = False
     isru_share: float = 1.0
 
+    # Dust settled on its solar wings, landed on Mars (0..1 of
+    # them covered: planet/weather.py).
+    panel_dust: float = 0.0
+
     @classmethod
     def from_design(
         cls,

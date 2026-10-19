@@ -39,6 +39,9 @@ from resources.resources import Resources
 
 from scene.scene import Scene
 
+from planet import weather
+from science.survey import latitude_longitude
+
 from vessel import docking, heating, kepler, landing, looks, maneuver, power, propellants, soi
 from vessel.parts import VesselDesign
 from vessel.physics import (
@@ -95,6 +98,9 @@ class _BodyPhysics:
     spin: np.ndarray
     column: object | None           # planet/air.py AirColumn
     air_top: float | None           # m above sea level
+
+    # Mars: its weather (planet/weather.py) moves its air.
+    mars: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -167,6 +173,10 @@ class VesselReadout:
     # What the burning (or next) engines burn: its short name
     # (vessel/propellants.py), "" without engines.
     propellant_kind: str = ""
+
+    # Mars's weather over it (planet/weather.py), low or
+    # landed there; else None.
+    weather: object = None
 
 
 def copy_positions(
@@ -1075,7 +1085,8 @@ class VesselSystem:
                 spin=orbit_system.spin(scene, body),
                 column=column,
                 # Where the air stops counting, m above sea level.
-                air_top=1000.0 * column.altitude_of_pressure(AIR_LIMIT_BAR) if column is not None else None
+                air_top=1000.0 * column.altitude_of_pressure(AIR_LIMIT_BAR) if column is not None else None,
+                mars=self.body_name(scene, body) == "Mars"
             )
 
         self._bodies[body] = physics
@@ -1151,6 +1162,24 @@ class VesselSystem:
 
             normal = normal_at
 
+        # Mars: the season thickens or thins the whole air, and
+        # storms blow (planet/weather.py).
+        thicken = 1.0
+        wind = None
+
+        if physics.mars and body in orbit_system.states:
+
+            now = orbit_system.time
+
+            thicken = weather.pressure_factor(weather.solar_longitude(now))
+
+            _, mars_frame = orbit_system.states[body]
+
+            def wind_of(position):
+                return self.wind_at(mars_frame, now, position)
+
+            wind = wind_of
+
         if column is not None:
 
             gas_constant = column.gas_constant
@@ -1159,7 +1188,7 @@ class VesselSystem:
 
                 altitude = (radius - sea_radius) / 1000.0
 
-                pressure = column.pressure(altitude)
+                pressure = column.pressure(altitude) * thicken
 
                 if pressure < AIR_LIMIT_BAR:
                     return 0.0, 0.0
@@ -1187,7 +1216,8 @@ class VesselSystem:
             ground=lambda d: ground_radius,
             air_top=air_top,
             temperature=temperature,
-            normal=normal
+            normal=normal,
+            wind=wind
         )
 
     def _extent(
@@ -3079,6 +3109,52 @@ class VesselSystem:
     # looked up (for the HUD, and the landing).
     SLOPE_HEIGHT = 3_000.0
 
+    # Below this height (m) over Mars the HUD shows its
+    # weather.
+    WEATHER_HEIGHT = 150_000.0
+
+    @staticmethod
+    def weather_here(
+        frame: np.ndarray,
+        now: float,
+        position: np.ndarray
+    ) -> weather.Weather:
+        """Mars's weather over a point (inertial, about Mars; frame: Mars's)."""
+
+        local = frame.T @ (position / float(np.linalg.norm(position)))
+
+        latitude, longitude = latitude_longitude(local)
+
+        return weather.weather_at(now, float(latitude[0]), float(longitude[0]))
+
+    @classmethod
+    def wind_at(
+        cls,
+        frame: np.ndarray,
+        now: float,
+        position: np.ndarray
+    ) -> np.ndarray:
+        """Mars's wind at a point (inertial m/s)."""
+
+        here = cls.weather_here(frame, now, position)
+
+        up = position / float(np.linalg.norm(position))
+
+        pole = frame @ np.array([0.0, 1.0, 0.0])
+
+        east = np.cross(pole, up)
+
+        length = float(np.linalg.norm(east))
+
+        if length < 1e-9:
+            return np.zeros(3)
+
+        east = east / length
+
+        north = np.cross(up, east)
+
+        return east * here.wind_east + north * here.wind_north
+
     # =====================================================
     # Landing Legs
     # =====================================================
@@ -3426,5 +3502,10 @@ class VesselSystem:
             legs=landing.leg_state(vessel),
             toppled=state.toppled,
             fell=state.fell,
-            propellant_kind=propellants.of(kind).short if (kind := vessel.section_kind()) is not None else ""
+            propellant_kind=propellants.of(kind).short if (kind := vessel.section_kind()) is not None else "",
+            weather=(
+                self.weather_here(orbit_system.states[component.body][1], orbit_system.time, state.position)
+                if physics.mars and component.body in orbit_system.states and radius - physics.radius < self.WEATHER_HEIGHT
+                else None
+            )
         )

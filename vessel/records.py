@@ -22,6 +22,7 @@ def vessel_to_json(
     return {
         "name": vessel.name,
         "next_stage": vessel.next_stage,
+        "panel_dust": vessel.panel_dust,
         "parts": [
             {
                 "part": state.part.id,
@@ -93,6 +94,8 @@ def vessel_from_json(
         ))
 
     vessel = Vessel(str(data.get("name", "Vessel")), states, int(data.get("next_stage", 0)))
+
+    vessel.panel_dust = float(data.get("panel_dust", 0.0))
 
     vessel._restack()
 

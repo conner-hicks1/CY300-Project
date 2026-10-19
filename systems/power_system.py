@@ -6,6 +6,8 @@ from math3d import quaternion
 
 from scene.scene import Scene
 
+from planet import weather
+
 from vessel import kepler, power, propellants
 
 
@@ -27,6 +29,10 @@ from vessel import kepler, power, propellants
 # vessel holding its attitude, as on rails) or round the
 # day (the Sun going round the sky).
 #
+# Low over Mars (or landed), dust in its sky dims the light
+# (planet/weather.py), and landed, dust settles on the wings
+# (a storm's wind can clean them).
+#
 # The same sunlight warms the tanks: cryogenic propellant
 # boils off (vessel/propellants.py), once launched (on the
 # pad it is topped off).
@@ -35,6 +41,9 @@ SUN = None
 
 
 class PowerSystem:
+
+    # Below this height (m) over Mars its dust dims the light.
+    DUST_HEIGHT = 60_000.0
 
     # A step longer than this (s) is sampled.
     SAMPLE_SPAN = 30.0
@@ -113,7 +122,18 @@ class PowerSystem:
 
             own = (physics.radius if component.body is not SUN else None)
 
-            sunlight, light, sun_local, flux = self._sunlight(vessel, state, physics, center, others, own, dt)
+            dust = 0.0
+
+            if physics.mars and component.body in orbit_system.states and float(np.linalg.norm(state.position)) - physics.radius < self.DUST_HEIGHT:
+
+                here = vessel_system.weather_here(orbit_system.states[component.body][1], orbit_system.time, state.position)
+
+                dust = here.tau
+
+                if state.landed and dt > 0.0:
+                    vessel.panel_dust = weather.settle_dust(vessel.panel_dust, here, dt)
+
+            sunlight, light, sun_local, flux = self._sunlight(vessel, state, physics, center, others, own, dt, dust)
 
             generation = power.generator_power(vessel) + light
 
@@ -195,7 +215,8 @@ class PowerSystem:
         center: np.ndarray,
         others: list,
         own_radius: float | None,
-        dt: float
+        dt: float,
+        dust: float = 0.0
     ) -> tuple[float, float, np.ndarray | None, float]:
         """
         (share of the step in sunlight, W from the wings on
@@ -240,7 +261,7 @@ class PowerSystem:
                     positions = list(sampled[good])
                     turns = [0.0] * len(positions)
 
-        return self._average(vessel, physics, center, others, own_radius, frame, positions, turns)
+        return self._average(vessel, physics, center, others, own_radius, frame, positions, turns, dust)
 
     def _average(
         self,
@@ -251,7 +272,8 @@ class PowerSystem:
         own_radius,
         frame,
         positions,
-        turns
+        turns,
+        dust: float = 0.0
     ):
 
         lit = 0
@@ -313,6 +335,9 @@ class PowerSystem:
                 continue
 
             share = power.through_air(self._pressure(physics, radius), sun_height) if own_radius is not None else 1.0
+
+            if dust > 0.0:
+                share *= weather.sunlight(dust, sun_height)
 
             local = frame.T @ to_sun
 

@@ -1,6 +1,7 @@
 from game.programme_panel import ProgrammeInfo, deadline_text, reward_text
 from game.research_panel import ResearchInfo
 
+from planet import weather
 from programme import research
 
 from vessel import propellants
@@ -18,6 +19,37 @@ from programme.career import RECOVERY, today_of
 #
 # A part of Application (application.py), apart for its
 # size: its methods run on the application (self is it).
+
+def mars_forecast(
+    now: float
+) -> tuple[str, str]:
+    """Mars's weather for the panel: (text, tone)."""
+
+    ls = weather.solar_longitude(now)
+
+    head = f"Mars: Ls {ls:,.0f}, {weather.season(ls).split(' / ')[0]}"
+
+    blowing = weather.active(now)
+
+    grand = [(storm, strength) for storm, strength in blowing if storm.global_storm]
+
+    if grand:
+
+        storm, strength = grand[0]
+
+        return f"{head}: a global dust storm (dust {storm.tau * strength:.1f} everywhere); landers' power is down", "bad"
+
+    if blowing:
+        return f"{head}, the dust season: {len(blowing)} regional storm{'s' if len(blowing) > 1 else ''}", "warn"
+
+    if weather.dusty_season(ls):
+        return f"{head}, the dust season (storms likely until Ls {weather.DUST_SEASON[1]:.0f})", "warn"
+
+    # Ls goes round in about 687 days.
+    days = ((weather.DUST_SEASON[0] - ls) % 360.0) * 686.98 / 360.0
+
+    return f"{head}: clear skies; the dust season in about {days:,.0f} days", "muted"
+
 
 class ProgrammeController:
 
@@ -91,6 +123,8 @@ class ProgrammeController:
             ))
 
         now = self.orbit_system.time
+
+        info.mars = mars_forecast(now)
 
         for window in programme.windows(self):
 

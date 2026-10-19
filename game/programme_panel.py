@@ -44,6 +44,9 @@ class ProgrammeInfo:
     # Science left to spend on research (None: a sandbox).
     spend: float | None = None
 
+    # Mars's weather: (text, tone).
+    mars: tuple | None = None
+
     # This vessel: (name, cost, recovery value, paid).
     vessel: tuple | None = None
 
@@ -179,6 +182,14 @@ class ProgrammePanel:
             else:
 
                 imgui.text_disabled(f"  {title} (after others)")
+
+        if info.mars is not None:
+
+            imgui.separator()
+
+            text, tone = info.mars
+
+            imgui.text_colored(style.tone(tone), text)
 
         if info.windows:
 
