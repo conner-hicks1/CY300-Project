@@ -178,6 +178,9 @@ class VesselReadout:
     # landed there; else None.
     weather: object = None
 
+    # Its failed parts' names (vessel/reliability.py).
+    failed: tuple = ()
+
 
 def copy_positions(
     state
@@ -3503,6 +3506,7 @@ class VesselSystem:
             toppled=state.toppled,
             fell=state.fell,
             propellant_kind=propellants.of(kind).short if (kind := vessel.section_kind()) is not None else "",
+            failed=tuple(state.part.name for state in vessel.parts if state.failed),
             weather=(
                 self.weather_here(orbit_system.states[component.body][1], orbit_system.time, state.position)
                 if physics.mars and component.body in orbit_system.states and radius - physics.radius < self.WEATHER_HEIGHT

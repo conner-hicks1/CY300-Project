@@ -771,6 +771,17 @@ build your own rocket in the part editor, on the pad.
   editor parts not yet researched are greyed out (the tooltip names the
   node) and a design with any cannot launch; neither can one on the pad
   (Space). A sandbox knows everything
+- Reliability (`vessel/reliability.py`): in a career a new engine may
+  fail to light (about 4%) or shut down in the middle of a burn (about 3%
+  over 300 s), a new parachute may not open (3%); a failed engine is dead
+  and the vessel flies on with what is left. Every second an engine model
+  burns, each time it lights, each parachute opening is flight data kept
+  with the career, and failures get rarer with it (a few tenths of a
+  percent once well flown): test flights are worth flying. The part
+  editor shows each engine's odds for a 300 s burn and the chance a whole
+  design lights, burns and opens everything; the Programme panel lists the
+  flight data; failures come as notices and a HUD chip. A sandbox has no
+  failures
 - The part editor shows the design's cost against the funds. Progress is
   saved in `data/programme/career.json`, the calendar with it: a revert or a
   trip elsewhere starts from the latest date reached, never earlier

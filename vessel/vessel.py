@@ -115,6 +115,10 @@ class PartState:
     extending: bool = False
     broken: bool = False
 
+    # Failed (vessel/reliability.py): an engine that will not
+    # light again, a parachute that will not open.
+    failed: bool = False
+
     @property
     def radial(
         self
@@ -569,6 +573,7 @@ class Vessel:
             (index, state)
             for index, state in enumerate(self.parts)
             if state.ignited
+            and not state.failed
             and state.part.engine is not None
             and not state.flipped
             and not state.outward
@@ -780,10 +785,10 @@ class Vessel:
 
         for state in self.parts:
 
-            if state.stage == stage and state.part.engine is not None:
+            if state.stage == stage and state.part.engine is not None and not state.failed:
                 state.ignited = True
 
-            if state.stage == stage and state.part.parachute is not None:
+            if state.stage == stage and state.part.parachute is not None and not state.failed:
                 state.armed = True
 
         return stage

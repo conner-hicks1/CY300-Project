@@ -43,9 +43,14 @@ class Game:
         body: str = "earth",
         sandbox: bool = False,
         design: str | None = None,
-        researched: bool = True
+        researched: bool = True,
+        failures: bool = False
     ):
-        """researched: every tech node known (else only the free ones: a new career's)."""
+        """
+        researched: every tech node known (else only the free
+        ones: a new career's). failures: parts may fail
+        (vessel/reliability.py; off: runs replay the same).
+        """
 
         from application import Application
 
@@ -55,11 +60,12 @@ class Game:
 
         self.app.initialize(body=body, sandbox=sandbox, headless=True, saves=Path(saves))
 
+        programme = self.app.programme_system
+
         if researched:
-
-            programme = self.app.programme_system
-
             programme.career.researched = {node.id for node in programme.tree.nodes}
+
+        programme.failures.enabled = failures and not sandbox
 
         self.frame = 0
 

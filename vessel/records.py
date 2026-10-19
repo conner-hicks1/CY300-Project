@@ -49,6 +49,7 @@ def vessel_to_json(
                 "extended": state.extended,
                 "extending": state.extending,
                 "broken": state.broken,
+                "failed": state.failed,
             }
             for state in vessel.parts
         ],
@@ -91,6 +92,7 @@ def vessel_from_json(
             extended=float(raw.get("extended", 0.0)),
             extending=bool(raw.get("extending", False)),
             broken=bool(raw.get("broken", False)),
+            failed=bool(raw.get("failed", False)),
         ))
 
     vessel = Vessel(str(data.get("name", "Vessel")), states, int(data.get("next_stage", 0)))

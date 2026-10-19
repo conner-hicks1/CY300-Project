@@ -39,7 +39,7 @@ NOTICE_SECONDS = 4.0
 
 # Words that color a notice.
 NOTICE_TONES = (
-    (("lost", "destroyed", "burned up", "missed", "out of power", "torn off", "fell over"), "bad"),
+    (("lost", "destroyed", "burned up", "missed", "out of power", "torn off", "fell over", "failure"), "bad"),
     (("no link", "not enough", "cannot", "too far", "could not", "nothing", "no power"), "warn"),
     (("mission done", "recovered", "docked", "landed", "science", "transmitted", "budget", "mapped", "done", "power again"), "good"),
 )
@@ -545,6 +545,9 @@ class FlightHud:
 
             if vessel.toppled:
                 style.chip("On its side", "bad", same_line=True)
+
+            if vessel.failed:
+                style.chip(f"Failed: {vessel.failed[0].lower()}" + (f" +{len(vessel.failed) - 1}" if len(vessel.failed) > 1 else ""), "bad", same_line=True)
 
             sky = vessel.weather
 

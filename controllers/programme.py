@@ -4,7 +4,7 @@ from game.research_panel import ResearchInfo
 from planet import weather
 from programme import research
 
-from vessel import propellants
+from vessel import propellants, reliability
 
 from planet.orbits import date_of
 
@@ -125,6 +125,26 @@ class ProgrammeController:
         now = self.orbit_system.time
 
         info.mars = mars_forecast(now)
+
+        if programme.failures.enabled:
+
+            for part_id, experience in sorted(programme.failures.record.parts.items()):
+
+                part = self.parts.get(part_id)
+
+                if part is None or not experience.ignitions:
+                    continue
+
+                if part.engine is not None:
+                    chance = reliability.mission_reliability(experience, 300.0)
+                    odds = f"{chance:.1%} for a 300 s burn"
+                    flown = f"{experience.seconds:,.0f} s burned, lit {experience.ignitions}, {experience.failures} failures"
+                else:
+                    chance = 1.0 - reliability.chute_failure(experience)
+                    odds = f"{chance:.1%} to open"
+                    flown = f"opened {experience.ignitions}, {experience.failures} failures"
+
+                info.flight_data.append((part.name, flown, odds, "good" if chance > 0.98 else ("warn" if chance > 0.93 else "bad")))
 
         for window in programme.windows(self):
 

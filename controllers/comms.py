@@ -144,6 +144,10 @@ class CommsController:
 
         Logger.info("[Application] Stage %d.", stage)
 
+        # Each engine lighting, each parachute arming, may fail
+        # (vessel/reliability.py).
+        failures = self.programme_system.staged(component, stage)
+
         what = []
 
         if len(vessel.parts) < parts:
@@ -156,6 +160,9 @@ class CommsController:
             what.append("parachute armed")
 
         self.hud.notify(f"Stage {stage}: {', '.join(what) or 'fired'}")
+
+        for notice in failures:
+            self.hud.notify(notice)
 
     def _uplink(
         self,

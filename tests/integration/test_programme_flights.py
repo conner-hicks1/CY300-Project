@@ -131,3 +131,46 @@ def test_a_new_career_researches_before_it_flies_a_probe(play):
     saved = json.loads(programme.path.read_text(encoding="utf-8"))
 
     assert set(needed) <= set(saved["researched"]) and saved["research_spent"] == pytest.approx(spent)
+
+
+def test_an_engine_fails_in_flight_and_the_programme_learns(play):
+    """Failures on: the booster lights, burns (flight data grows), then a failure shuts it down; the HUD and the notices say so."""
+
+    from core.key_codes import Key
+
+    from tests.test_reliability import Always
+
+    game: Game = play(failures=True)
+
+    programme = game.app.programme_system
+
+    assert programme.failures.enabled
+
+    programme.failures.random = Always(0.999)
+
+    game.step(5)
+
+    game.press(Key.Z)
+    game.stage()
+
+    game.step(120)
+
+    booster = game.vessel.vessel.parts[-1]
+
+    assert booster.ignited and not booster.failed
+
+    flown = programme.career.reliability.of(booster.part.id)
+
+    assert flown.ignitions == 1 and flown.seconds > 1.0
+
+    # The next roll fails.
+    programme.failures.random = Always(0.0)
+
+    game.step(2)
+
+    assert booster.failed and game.vessel.vessel.burning_engines() == []
+    assert any("Engine failure" in notice for notice in game.notices())
+
+    readout = game.app.vessel_system.readout(game.app.scene, game.app.orbit_system, game.app.planet_system)
+
+    assert booster.part.name in readout.failed

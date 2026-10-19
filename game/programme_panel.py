@@ -47,6 +47,10 @@ class ProgrammeInfo:
     # Mars's weather: (text, tone).
     mars: tuple | None = None
 
+    # Flight data: (part name, what is flown, reliability
+    # text, tone) for each part flown.
+    flight_data: list = field(default_factory=list)
+
     # This vessel: (name, cost, recovery value, paid).
     vessel: tuple | None = None
 
@@ -182,6 +186,21 @@ class ProgrammePanel:
             else:
 
                 imgui.text_disabled(f"  {title} (after others)")
+
+        if info.flight_data:
+
+            imgui.separator()
+
+            if imgui.tree_node("Flight data (reliability)"):
+
+                for name, flown, odds, tone in info.flight_data:
+
+                    imgui.text(f"  {name}")
+                    imgui.same_line()
+                    imgui.text_colored(style.tone(tone), odds)
+                    imgui.text_disabled(f"      {flown}")
+
+                imgui.tree_pop()
 
         if info.mars is not None:
 

@@ -1838,8 +1838,13 @@ class Application(
 
     def _draw_ui(self):
 
-        # What is not researched yet, for the editor.
+        # What is not researched yet, and the flight data, for
+        # the editor.
         self.part_editor.locked = self.programme_system.locked_parts()
+
+        failures = self.programme_system.failures
+
+        self.part_editor.reliability = failures.record if failures.enabled else None
 
         if self.part_editor.open:
 

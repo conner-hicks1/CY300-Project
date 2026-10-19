@@ -12,7 +12,7 @@ from vessel.design import (
     open_design,
     save_draft
 )
-from vessel import landing, power, propellants
+from vessel import landing, power, propellants, reliability
 from vessel.parts import PartDefinition, PartError
 from vessel.vessel import Vessel
 
@@ -190,6 +190,56 @@ def part_summary(
     return lines
 
 
+def _wrapped_text(
+    text: str
+):
+
+    imgui.text_wrapped(text)
+
+
+def _wrapped_colored(
+    color,
+    text: str
+):
+
+    imgui.push_text_wrap_pos(0.0)
+    imgui.text_colored(color, text)
+    imgui.pop_text_wrap_pos()
+
+
+def _wrapped_disabled(
+    text: str
+):
+
+    imgui.push_text_wrap_pos(0.0)
+    imgui.text_disabled(text)
+    imgui.pop_text_wrap_pos()
+
+
+def reliability_lines(
+    part: PartDefinition,
+    record
+) -> list[str]:
+    """Its odds, from the programme's flight data (none: nothing fails)."""
+
+    if record is None or (part.engine is None and part.parachute is None):
+        return []
+
+    experience = record.parts.get(part.id) or reliability.Experience()
+
+    if part.engine is not None:
+
+        chance = reliability.mission_reliability(experience, 300.0)
+
+        flown = f"{experience.seconds:,.0f} s flown, lit {experience.ignitions}" if experience.ignitions else "never flown"
+
+        return [f"Reliability: {chance:.1%} to light and burn 300 s ({flown})"]
+
+    chance = 1.0 - reliability.chute_failure(experience)
+
+    return [f"Reliability: {chance:.1%} to open ({experience.ignitions} opened before)"]
+
+
 class PartEditor:
 
     def __init__(
@@ -224,6 +274,10 @@ class PartEditor:
         # it; empty: all buildable). Research... sets the flag.
         self.locked: dict = {}
         self.research_requested = False
+
+        # The programme's flight data (vessel/reliability.py
+        # Record), or None: nothing fails (a sandbox).
+        self.reliability = None
 
     # -----------------------------------------------------
     # Opening
@@ -324,7 +378,7 @@ class PartEditor:
 
                     imgui.end_disabled()
 
-                    summary = part_summary(part)
+                    summary = part_summary(part) + reliability_lines(part, self.reliability)
 
                     if node is not None:
                         summary = [f"Research {node.name} ({node.cost:,.0f} science) to build it", ""] + summary
@@ -623,11 +677,47 @@ class PartEditor:
 
         self._draw_boiloff(vessel)
 
+        self._draw_reliability(vessel, stats)
+
         for problem in draft.problems() + self._unresearched():
             imgui.text_colored(PROBLEM_COLOR, problem)
 
         for warning in draft.warnings():
             imgui.text_colored(WARNING_COLOR, warning)
+
+    def _draw_reliability(
+        self,
+        vessel,
+        stats
+    ):
+        """The chance every engine lights and burns its stage through, and every parachute opens."""
+
+        record = self.reliability
+
+        if record is None:
+            return
+
+        chance = 1.0
+
+        burns = {stage.stage: stage.burn_time for stage in stats}
+
+        for state in vessel.parts:
+
+            experience = record.of(state.part.id) if state.part.id in record.parts else reliability.Experience()
+
+            if state.part.engine is not None and state.stage is not None:
+                chance *= reliability.mission_reliability(experience, burns.get(state.stage, 0.0)) ** state.count
+
+            if state.part.parachute is not None and state.stage is not None:
+                chance *= (1.0 - reliability.chute_failure(experience)) ** state.count
+
+        _wrapped_colored(
+            WARNING_COLOR if chance < 0.9 else (0.75, 0.75, 0.75, 1.0),
+            f"Reliability: {chance:.0%} that every engine lights and burns its stage and every parachute opens"
+        )
+
+        if chance < 0.95:
+            _wrapped_disabled("New parts fail more: each flight's data makes them better (Programme panel: flight data).")
 
     @staticmethod
     def _draw_boiloff(
@@ -642,7 +732,7 @@ class PartEditor:
 
         held = vessel.propellant
 
-        imgui.text_colored(
+        _wrapped_colored(
             WARNING_COLOR if rate > 0.005 * held else (0.75, 0.75, 0.75, 1.0),
             f"Boil-off in sunlight at 1 AU: {rate:,.0f} kg a day ({rate / max(held, 1.0) * 100.0:.2g}% of its propellant)"
         )
@@ -674,7 +764,7 @@ class PartEditor:
             landing.set_legs(lander, True)
             landing.move_legs(lander, landing.LEG_TIME)
 
-            imgui.text(
+            _wrapped_text(
                 f"Landing: stands on slopes up to {landing.standing_angle(lander):,.0f} deg with its legs down "
                 f"({folded:,.0f} up), touching down at up to {landing.crash_speed(lander):,.0f} m/s"
             )
@@ -689,9 +779,9 @@ class PartEditor:
             )
 
             if bottom.kind == "engine":
-                imgui.text_colored(WARNING_COLOR, text + "; landing legs stand on more.")
+                _wrapped_colored(WARNING_COLOR, text + "; landing legs stand on more.")
             else:
-                imgui.text_disabled(text)
+                _wrapped_disabled(text)
 
     def _unresearched(
         self
@@ -741,26 +831,26 @@ class PartEditor:
         if budget.generators > 0.0:
             made.append(f"{format.watts(budget.generators)} day and night")
 
-        imgui.text(f"Power: {format.energy(budget.capacity)} stored; draws {format.watts(budget.draw)}"
+        _wrapped_text(f"Power: {format.energy(budget.capacity)} stored; draws {format.watts(budget.draw)}"
                    + (f" (+{format.watts(budget.wheels)} turning)" if budget.wheels else ""))
 
         if made:
-            imgui.text_disabled("Makes " + "; ".join(made))
+            _wrapped_disabled("Makes " + "; ".join(made))
 
         hours = budget.dark_hours
 
         if hours is None:
-            imgui.text_disabled("Its generators keep up with its draw.")
+            _wrapped_disabled("Its generators keep up with its draw.")
         elif budget.capacity <= 0.0:
-            imgui.text_colored(WARNING_COLOR, "No battery: nothing to run on out of the sun.")
+            _wrapped_colored(WARNING_COLOR, "No battery: nothing to run on out of the sun.")
         else:
 
             text = f"In the dark its batteries last {format.duration(hours)}"
 
             if budget.solar <= 0.0:
-                imgui.text_colored(WARNING_COLOR, text + ", and nothing recharges them.")
+                _wrapped_colored(WARNING_COLOR, text + ", and nothing recharges them.")
             else:
-                imgui.text_disabled(text + ".")
+                _wrapped_disabled(text + ".")
 
     def _draw_files(
         self,

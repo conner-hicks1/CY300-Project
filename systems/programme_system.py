@@ -7,6 +7,7 @@ from core.logger import Logger
 from planet.orbits import date_of
 
 from programme import research
+from vessel.reliability import Failures
 from programme.career import Campaign, Career, Flight, today_of
 from programme.resources import products, resources_at
 
@@ -73,6 +74,10 @@ class ProgrammeSystem:
 
         # The tech tree (programme/research.py).
         self.tree = tree if tree is not None else research.load_tree()
+
+        # Parts failing (vessel/reliability.py): learned from the
+        # career's flight data; none in a sandbox.
+        self.failures = Failures(career.reliability, enabled=not sandbox)
 
         # A sandbox: launches free, no budget, no missions.
         self.sandbox = sandbox
@@ -162,6 +167,9 @@ class ProgrammeSystem:
         career = self.career
 
         career.clock = max(career.clock, app.orbit_system.time)
+
+        if found is not None and simulated > 0.0 and not found[1].state.destroyed:
+            self._burn_failures(found[1], simulated)
 
         today = today_of(date_of(app.orbit_system.time))
 
@@ -428,6 +436,79 @@ class ProgrammeSystem:
     # =====================================================
     # Saving
     # =====================================================
+
+    # =====================================================
+    # Reliability
+    # =====================================================
+
+    def _burn_failures(
+        self,
+        component,
+        simulated: float
+    ):
+        """The burning engines' seconds: flight data, and the odd failure."""
+
+        vessel = component.vessel
+
+        if vessel.throttle <= 0.0:
+            return
+
+        engines = vessel.burning_engines()
+
+        if not engines:
+            return
+
+        for _, state in engines:
+
+            if not self.failures.burns(state.part.id, simulated, state.count):
+
+                state.failed = True
+                state.ignited = False
+
+                self.news.append(f"Engine failure: the {state.part.name.lower()} shut down")
+
+                Logger.info("[Programme] %s: the %s failed.", vessel.name, state.part.name)
+
+        self._changed(save_now=False)
+
+    def staged(
+        self,
+        component,
+        stage: int
+    ) -> list[str]:
+        """
+        A stage just fired: its engines lighting, its
+        parachutes arming, each may fail (marked failed).
+        Notices for what did.
+        """
+
+        notices = []
+
+        for state in component.vessel.parts:
+
+            if state.stage != stage:
+                continue
+
+            if state.part.engine is not None and state.ignited and not self.failures.lights(state.part.id, state.count):
+
+                state.ignited = False
+                state.failed = True
+
+                notices.append(f"Engine failure: the {state.part.name.lower()} did not light")
+
+            if state.part.parachute is not None and state.armed and not self.failures.opens(state.part.id, state.count):
+
+                state.armed = False
+                state.failed = True
+
+                notices.append(f"Parachute failure: the {state.part.name.lower()} will not open")
+
+        if notices:
+            Logger.info("[Programme] Stage %d: %s.", stage, "; ".join(notices))
+
+        self._changed(save_now=False)
+
+        return notices
 
     # =====================================================
     # Research
