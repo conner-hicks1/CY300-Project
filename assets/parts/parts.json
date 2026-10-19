@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together). Kinds: command (needed to fly), tank, engine, decoupler (drops what is below it), parachute, structure (adapters, nose cones). max_temperature: K a part's skin stands (default 1400); a heat shield under a capsule stands ~3300 for coming in from orbit or the Moon. experiment: what science a part does (id, name, value, situations: landed / flying / space_low / space_high; needs_air; maps: maps the ground from orbit). crew: people aboard (crewed vessels fly without a link home). antenna_range: m from home the part's antenna still links (built into command parts: ~the Moon). cost: $ millions. isru: a propellant plant: kg a day it makes landed on ice (rate_ice) or in a usable air (rate_air). docking: a docking port (at a stack's top or bottom). rcs_thrust: N of translation thrust (docking). side: a side docking port, put on a radial group: it faces straight out from the core; a plain stack docks to it and hangs off it. Power (W and Wh): battery: Wh it stores; power_draw: W it draws all the time (avionics, life support, an instrument, a transmitter); wheel_power: W its reaction wheels draw turning hard; experiment energy: Wh a run takes; isru power: W the plant draws running; generator: W made day and night (an RTG, a reactor); solar: wings unfolding from it (power: W at 1 AU square to the Sun, length and width m of each wing, wings: 2 out both sides of a stack part, 1 straight out from a radial copy). Kind power: batteries, solar wings, generators. Kind legs: landing legs (legs: span, m their pads stand out beyond the mount when down; crash_speed: what landing on them stands), on a radial group; G lowers them. Propellants (vessel/propellants.py): a tank's propellant_type and an engine's propellant are one of kerolox (the default), methalox, hydrolox, hypergolic; an engine burns only tanks of its own kind in its section. Cryogenic propellants boil off in sunlight (hydrolox fastest); insulation scales a tank's boil-off; cooling: kg of cryogenic propellant a cryocooler keeps from boiling (while powered).",
+  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together). Kinds: command (needed to fly), tank, engine, decoupler (drops what is below it), parachute, structure (adapters, nose cones). max_temperature: K a part's skin stands (default 1400); a heat shield under a capsule stands ~3300 for coming in from orbit or the Moon. experiment: what science a part does (id, name, value, situations: landed / flying / space_low / space_high; needs_air; maps: maps the ground from orbit). crew: people aboard (crewed vessels fly without a link home). antenna_range: m from home the part's antenna still links (built into command parts: ~the Moon). cost: $ millions. isru: a propellant plant: kg a day it makes landed on ice (rate_ice) or in a usable air (rate_air). docking: a docking port (at a stack's top or bottom). rcs_thrust: N of translation thrust (docking). side: a side docking port, put on a radial group: it faces straight out from the core; a plain stack docks to it and hangs off it. Power (W and Wh): battery: Wh it stores; power_draw: W it draws all the time (avionics, life support, an instrument, a transmitter); wheel_power: W its reaction wheels draw turning hard; experiment energy: Wh a run takes; isru power: W the plant draws running; generator: W made day and night (an RTG, a reactor); solar: wings unfolding from it (power: W at 1 AU square to the Sun, length and width m of each wing, wings: 2 out both sides of a stack part, 1 straight out from a radial copy). Kind power: batteries, solar wings, generators. Kind legs: landing legs (legs: span, m their pads stand out beyond the mount when down; crash_speed: what landing on them stands), on a radial group; G lowers them. Propellants (vessel/propellants.py): a tank's propellant_type and an engine's propellant are one of kerolox (the default), methalox, hydrolox, hypergolic; an engine burns only tanks of its own kind in its section. Cryogenic propellants boil off in sunlight (hydrolox fastest); insulation scales a tank's boil-off; cooling: kg of cryogenic propellant a cryocooler keeps from boiling (while powered). Life (vessel/life.py): supplies: kg of oxygen, water and food it holds (in its mass; 5 kg a person a day); recycling: the share its life support recycles while powered; shielding: the share of radiation that gets through (1: all).",
   "parts": [
     {
       "id": "capsule",
@@ -39,7 +39,9 @@
       "rcs_thrust": 2000,
       "battery": 12000,
       "power_draw": 350,
-      "wheel_power": 400
+      "wheel_power": 400,
+      "supplies": 210,
+      "shielding": 0.7
     },
     {
       "id": "heat_shield_2m5",
@@ -533,7 +535,10 @@
       },
       "battery": 25000,
       "power_draw": 1200,
-      "wheel_power": 500
+      "wheel_power": 500,
+      "supplies": 3600,
+      "recycling": 0.6,
+      "shielding": 0.5
     },
     {
       "id": "nose_cone_1m25",
@@ -1242,6 +1247,27 @@
       "power_draw": 2000,
       "crash_speed": 8,
       "cost": 8.0
+    },
+    {
+      "id": "supply_module",
+      "name": "Supply module, 2.5 m",
+      "kind": "utility",
+      "mass": 4300,
+      "shape": {
+        "radius_top": 1.25,
+        "radius_bottom": 1.25,
+        "height": 1.6
+      },
+      "color": [
+        0.9,
+        0.9,
+        0.86
+      ],
+      "metallic": 0.2,
+      "roughness": 0.5,
+      "supplies": 4000,
+      "crash_speed": 8,
+      "cost": 6.0
     }
   ]
 }

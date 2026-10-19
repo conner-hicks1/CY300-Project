@@ -12,7 +12,7 @@ from vessel.design import (
     open_design,
     save_draft
 )
-from vessel import landing, power, propellants, reliability
+from vessel import landing, life, power, propellants, reliability
 from vessel.parts import PartDefinition, PartError
 from vessel.vessel import Vessel
 
@@ -151,6 +151,15 @@ def part_summary(
 
     if part.antenna_range:
         lines.append(f"Antenna: reaches home from {part.antenna_range / 1.495978707e11:,.3g} AU ({part.antenna_range / 1e9:,.3g} million km)")
+
+    if part.supplies:
+        lines.append(f"Supplies {part.supplies:,.0f} kg (a person uses 5 kg a day)")
+
+    if part.recycling:
+        lines.append(f"Life support recycles {part.recycling:.0%} of it (powered)")
+
+    if part.shielding < 1.0:
+        lines.append(f"Shielding: lets {part.shielding:.0%} of the radiation through")
 
     if part.legs is not None:
         lines.append(f"Landing leg: its pad {part.legs.span:g} m out when down (G); lands at up to {part.crash_speed:.0f} m/s")
@@ -675,6 +684,8 @@ class PartEditor:
 
         self._draw_landing(vessel)
 
+        self._draw_life(vessel)
+
         self._draw_boiloff(vessel)
 
         self._draw_reliability(vessel, stats)
@@ -718,6 +729,30 @@ class PartEditor:
 
         if chance < 0.95:
             _wrapped_disabled("New parts fail more: each flight's data makes them better (Programme panel: flight data).")
+
+    @staticmethod
+    def _draw_life(
+        vessel
+    ):
+        """A crewed design's supplies: how long they last its crew."""
+
+        seats = sum(state.part.crew * state.count for state in vessel.parts)
+
+        if seats <= 0:
+            return
+
+        held = sum(state.part.supplies * state.count for state in vessel.parts)
+
+        recycling = max((state.part.recycling for state in vessel.parts), default=0.0)
+
+        days = life.days_left(held, seats, recycling)
+
+        text = f"Crew {seats}: supplies for {days:,.0f} days" + (f" (recycling {recycling:.0%}, powered)" if recycling else "")
+
+        if days < 7.0:
+            _wrapped_colored(WARNING_COLOR, text + ": short for anything past low orbit.")
+        else:
+            _wrapped_text(text)
 
     @staticmethod
     def _draw_boiloff(

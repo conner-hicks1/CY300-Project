@@ -261,6 +261,14 @@ class VesselComponent:
     dust_entity: object = None
     dust_level: float = 0.0
 
+    # Its crew's life (vessel/life.py, systems/crew_system.py):
+    # the flight's radiation dose (mSv), s without supplies,
+    # s without power; LifeStatus for the HUD (None: no crew).
+    dose: float = 0.0
+    starving: float = 0.0
+    unpowered: float = 0.0
+    life: object = None
+
     # Each part's drawn pieces (vessel/looks.py): id(PartState)
     # -> [(entity, finish)], the copies themselves and their
     # children.

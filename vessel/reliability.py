@@ -152,13 +152,14 @@ class Failures:
     def lights(
         self,
         part_id: str,
-        copies: int = 1
+        copies: int = 1,
+        scale: float = 1.0
     ) -> bool:
-        """An engine (all its copies) lighting: True if it does (learned from either way)."""
+        """An engine (all its copies) lighting: True if it does (learned from either way). scale: on the odds (an engineer aboard: 0.5)."""
 
         experience = self.record.of(part_id)
 
-        failed = self.enabled and any(self.random.random() < ignition_failure(experience) for _ in range(copies))
+        failed = self.enabled and any(self.random.random() < ignition_failure(experience) * scale for _ in range(copies))
 
         experience.ignitions += copies
 
@@ -170,13 +171,14 @@ class Failures:
     def opens(
         self,
         part_id: str,
-        copies: int = 1
+        copies: int = 1,
+        scale: float = 1.0
     ) -> bool:
         """A parachute arming: True if it will open."""
 
         experience = self.record.of(part_id)
 
-        failed = self.enabled and any(self.random.random() < chute_failure(experience) for _ in range(copies))
+        failed = self.enabled and any(self.random.random() < chute_failure(experience) * scale for _ in range(copies))
 
         experience.ignitions += copies
 
@@ -189,13 +191,14 @@ class Failures:
         self,
         part_id: str,
         seconds: float,
-        copies: int = 1
+        copies: int = 1,
+        scale: float = 1.0
     ) -> bool:
         """An engine burning `seconds` more: True if it keeps going (and its seconds are learned)."""
 
         experience = self.record.of(part_id)
 
-        chance = 1.0 - math.exp(-burn_rate(experience) * seconds * copies)
+        chance = 1.0 - math.exp(-burn_rate(experience) * seconds * copies * scale)
 
         experience.seconds += seconds * copies
 

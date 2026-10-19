@@ -51,6 +51,9 @@ class ProgrammeInfo:
     # text, tone) for each part flown.
     flight_data: list = field(default_factory=list)
 
+    # Astronauts: (name, role, status, flights, days, dose mSv).
+    astronauts: list = field(default_factory=list)
+
     # This vessel: (name, cost, recovery value, paid).
     vessel: tuple | None = None
 
@@ -74,6 +77,9 @@ class ProgrammePanel:
 
         # Research... clicked (the game opens the tech tree).
         self.research_requested = False
+
+        # A Hire button clicked: the role (the game hires).
+        self.hire_requested: str | None = None
 
     def toggle(self):
 
@@ -186,6 +192,36 @@ class ProgrammePanel:
             else:
 
                 imgui.text_disabled(f"  {title} (after others)")
+
+        if info.astronauts:
+
+            imgui.separator()
+
+            ready = sum(1 for item in info.astronauts if item[2] == "ready")
+
+            if imgui.tree_node(f"Astronauts ({ready} ready)"):
+
+                tones = {"ready": GOOD, "flying": style.tone("accent"), "lost": BAD, "retired": NOTE}
+
+                for name, role, status, flights, days, dose in info.astronauts:
+
+                    imgui.text(f"  {name}")
+                    imgui.same_line()
+                    imgui.text_colored(NOTE, role)
+                    imgui.same_line()
+                    imgui.text_colored(tones.get(status, NOTE), status)
+                    imgui.text_disabled(f"      {flights} flights, {days:,.1f} days in space, {dose:,.0f} mSv")
+
+                for role in ("pilot", "engineer", "scientist"):
+
+                    if imgui.button(f"Hire a {role}"):
+                        self.hire_requested = role
+
+                    imgui.same_line()
+
+                imgui.text_disabled("$5M each")
+
+                imgui.tree_pop()
 
         if info.flight_data:
 

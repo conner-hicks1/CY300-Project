@@ -126,6 +126,12 @@ class ProgrammeController:
 
         info.mars = mars_forecast(now)
 
+        if not programme.sandbox:
+            info.astronauts = [
+                (a.name, a.role, a.status, a.flights, a.days, a.dose)
+                for a in programme.career.corps.astronauts
+            ]
+
         if programme.failures.enabled:
 
             for part_id, experience in sorted(programme.failures.record.parts.items()):
@@ -157,6 +163,20 @@ class ProgrammeController:
             ))
 
         self.programme_panel.draw(info)
+
+        if self.programme_panel.hire_requested is not None:
+
+            why = programme.hire(self.programme_panel.hire_requested)
+
+            self.programme_panel.hire_requested = None
+
+            for news in programme.news:
+                self.hud.notify(news)
+
+            programme.news.clear()
+
+            if why:
+                self.hud.notify(why)
 
         if self.programme_panel.research_requested:
 

@@ -119,6 +119,12 @@ class PartState:
     # light again, a parachute that will not open.
     failed: bool = False
 
+    # Who sits in it (programme/crew.py; None: not assigned,
+    # every seat counts as filled: on the pad, in a sandbox),
+    # and its supplies (kg, vessel/life.py).
+    crew_names: tuple | None = None
+    supplies: float = 0.0
+
     @property
     def radial(
         self
@@ -189,7 +195,7 @@ class Vessel:
 
         for index, entry in enumerate(design.stack):
 
-            parts.append(PartState(entry.part, entry.stage, propellant=entry.part.propellant, source=(index,), charge=entry.part.battery))
+            parts.append(PartState(entry.part, entry.stage, propellant=entry.part.propellant, source=(index,), charge=entry.part.battery, supplies=entry.part.supplies))
 
             for number, radial in enumerate(entry.radial):
 
@@ -214,7 +220,8 @@ class Vessel:
                         offset=radial.offset,
                         source=(index, number, position),
                         charge=member.part.battery,
-                        angle=radial.angle
+                        angle=radial.angle,
+                        supplies=member.part.supplies
                     ))
 
                 group += 1

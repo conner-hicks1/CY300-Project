@@ -141,13 +141,15 @@ class FlightHud:
         braking=None,
         link: tuple[str, str] | None = None,
         docking: tuple[str, str] | None = None,
-        power=None
+        power=None,
+        life=None
     ):
         """
         vessel: the vessel's readout (systems/vessel_system.py
         VesselReadout), if flying one. navball: a
         game/navball.py NavballFrame for the attitude ball.
-        power: its vessel/power.py PowerStatus.
+        power: its vessel/power.py PowerStatus; life: its crew's
+        systems/crew_system.py LifeStatus.
         """
 
         if not self.visible:
@@ -167,7 +169,7 @@ class FlightHud:
         self._draw_flight(readout, speed, loading, fps, (x + margin, y + height - margin))
 
         try:
-            self._draw_ship(vessel, navball, maneuver, braking, link, docking, power, x, y, width, height)
+            self._draw_ship(vessel, navball, maneuver, braking, link, docking, power, life, x, y, width, height)
         finally:
             # The left side, between the navigation and the
             # location panels: clear of the rest.
@@ -182,6 +184,7 @@ class FlightHud:
         link,
         docking,
         power,
+        life,
         x: float,
         y: float,
         width: float,
@@ -193,7 +196,7 @@ class FlightHud:
         if vessel is None:
             return
 
-        right, bottom = self._draw_vessel(vessel, (x + width * 0.5, y + height - margin), maneuver, braking, link, docking, power)
+        right, bottom = self._draw_vessel(vessel, (x + width * 0.5, y + height - margin), maneuver, braking, link, docking, power, life)
 
         if navball is not None and not vessel.destroyed:
 
@@ -415,7 +418,8 @@ class FlightHud:
         braking=None,
         link: tuple[str, str] | None = None,
         docking: tuple[str, str] | None = None,
-        power=None
+        power=None,
+        life=None
     ):
         """
         maneuver: the node's (m/s left, s until its burn
@@ -546,6 +550,12 @@ class FlightHud:
             if vessel.toppled:
                 style.chip("On its side", "bad", same_line=True)
 
+            if life is not None and life.storm >= 5.0:
+                style.chip("Solar storm", "bad", same_line=True)
+
+            if life is not None and life.unpowered > 0.0:
+                style.chip("Life support: no power", "bad", same_line=True)
+
             if vessel.failed:
                 style.chip(f"Failed: {vessel.failed[0].lower()}" + (f" +{len(vessel.failed) - 1}" if len(vessel.failed) > 1 else ""), "bad", same_line=True)
 
@@ -590,6 +600,19 @@ class FlightHud:
             elif braking is not None:
 
                 style.say("Engines cannot stop the fall", "bad")
+
+            # The crew: what they have left, what they are taking.
+            if life is not None:
+
+                days = "a long time" if life.days > 9_999.0 else f"{life.days:,.1f} days"
+
+                style.say(
+                    f"Crew {life.crew}: supplies {days}"
+                    + (f" (recycling {life.recycling:.0%})" if life.recycling > 0.0 else "")
+                    + f", {life.dose:,.0f} mSv this flight (+{life.rate:,.1f} a day)",
+                    "bad" if life.starving > 0.0 or life.days < 1.0 or life.rate > 100.0
+                    else ("warn" if life.days < 3.0 or life.rate > 10.0 else "muted")
+                )
 
             # Mars's weather, low or landed there.
             if sky is not None:

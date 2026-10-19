@@ -48,6 +48,30 @@ class PowerController:
 
                 self.hud.notify(f"Solar wings torn off in the air ({name})")
 
+    def _update_crew(
+        self,
+        simulated: float
+    ):
+        """Every crew's supplies and radiation (systems/crew_system.py); losses and doses to the programme."""
+
+        losses, notices = self.crew_system.update(self.scene, self.vessel_system, self.orbit_system, simulated)
+
+        for notice in notices:
+            self.hud.notify(notice)
+
+        programme = self.programme_system
+
+        if losses:
+
+            for loss in losses:
+                Logger.info("[Crew] The crew of %s %s.", loss.vessel, loss.why)
+
+            programme.crew_losses(losses)
+
+            self.time_warp.stop()
+
+        programme.add_doses(self.crew_system.doses)
+
     def _flown_name(self) -> str:
 
         found = self.vessel_system.find(self.scene)

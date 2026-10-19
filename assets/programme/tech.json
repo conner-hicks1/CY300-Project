@@ -195,7 +195,7 @@
     {
       "id": "stations",
       "name": "Space stations",
-      "about": "A habitat for four, side ports to build out from, and a 28 kW array to run it all.",
+      "about": "A habitat for four, side ports to build out from, a supply module, and a 28 kW array to run it all.",
       "cost": 60,
       "requires": [
         "docking"
@@ -203,7 +203,8 @@
       "parts": [
         "habitat_module",
         "side_port",
-        "solar_array_2m5"
+        "solar_array_2m5",
+        "supply_module"
       ]
     },
     {

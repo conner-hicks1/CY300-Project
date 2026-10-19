@@ -716,6 +716,31 @@ build your own rocket in the part editor, on the pad.
   through, the wind and where from; a chip for a storm. The flight
   computer reads `dust` and `wind`
 
+**Crews**
+
+- An astronaut corps (`programme/crew.py`), kept with the career: seven to
+  start (pilots, engineers, scientists, names made up), more hired ($5M,
+  Programme panel). A crewed launch fills the seats (a pilot, an engineer,
+  a scientist first; none ready, no launch); they come home ready again
+  (past 1,000 mSv in a career, retired), are lost with their vessel, or
+  stand down when a flight is reverted. An engineer aboard halves the
+  chance of a part failing; a scientist gets a quarter more out of each
+  experiment
+- Life support (`vessel/life.py`, `systems/crew_system.py`): 5 kg a person
+  a day of oxygen, water and food from the supplies aboard (the capsule
+  holds two weeks for three; a habitat 3.6 t, recycling 60% while powered;
+  a 4 t supply module). Out of supplies three days, or without power a
+  day, the crew is lost
+- Radiation, mSv a day: next to nothing under thick air, ~0.6 in low orbit,
+  up to ~100 in the hearts of the Van Allen belts (cross them fast), 1.8
+  in deep space, 1.4 on the Moon, 0.7 on Mars, thousands in Jupiter's
+  belts. Solar storms now and then (one month in eight, drawn from the
+  calendar): hundreds a day at 1 AU, turned by the magnetosphere in low
+  orbit and by air, halved by a habitat's walls or a planet underfoot.
+  Past 3,000 mSv in one flight the crew is lost. The HUD shows the crew,
+  their supplies and dose; chips for a solar storm and life support
+  without power; the editor shows how long a design's supplies last
+
 **Power**
 
 - Electric charge in real units (`vessel/power.py`,

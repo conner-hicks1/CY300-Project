@@ -63,8 +63,19 @@ class Link:
 def crew(
     vessel
 ) -> int:
+    """People aboard: each seat's assigned crew (programme/crew.py), or every seat when not assigned."""
 
-    return sum(state.part.crew * state.count for state in vessel.parts)
+    return sum(
+        (len(state.crew_names) if state.crew_names is not None else state.part.crew) * state.count
+        for state in vessel.parts
+    )
+
+
+def crew_names(
+    vessel
+) -> list[str]:
+
+    return [name for state in vessel.parts if state.crew_names for name in state.crew_names]
 
 
 def antenna_range(

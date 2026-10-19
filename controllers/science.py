@@ -45,8 +45,15 @@ class ScienceController:
 
             return
 
+        before = len(component.science)
+
         for notice in self.science_system.run(component, place, self._has_air()):
             self.hud.notify(notice)
+
+        # A scientist aboard gets more out of each experiment.
+        if self.programme_system.has_role(component.vessel, self.programme_system.career.corps, "scientist"):
+            for result in component.science[before:]:
+                result.cap *= 1.25
 
     def transmit_all(
         self,

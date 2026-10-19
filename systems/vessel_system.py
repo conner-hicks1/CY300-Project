@@ -2159,6 +2159,13 @@ class VesselSystem:
 
                 # Lost on rails: gone.
                 if background.state.destroyed:
+
+                    # (Its crew with it.)
+                    names = [name for part in background.vessel.parts if part.crew_names for name in part.crew_names]
+
+                    if names:
+                        events.append("crew gone:" + ";".join(names))
+
                     self.remove(scene, other)
 
         was_destroyed = state.destroyed

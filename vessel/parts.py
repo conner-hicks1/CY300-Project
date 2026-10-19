@@ -140,6 +140,13 @@ class PartDefinition:
     # A landing leg (vessel/landing.py).
     legs: LegSpec | None = None
 
+    # Life (vessel/life.py): kg of supplies it holds, the
+    # share of them its life support recycles (powered), its
+    # shielding (the radiation that gets through: 1, all).
+    supplies: float = 0.0
+    recycling: float = 0.0
+    shielding: float = 1.0
+
     @property
     def radius(
         self
@@ -380,7 +387,10 @@ def parse_part(
         generator=_number(data, "generator", where, default=0.0),
         power_draw=_number(data, "power_draw", where, default=0.0),
         wheel_power=_number(data, "wheel_power", where, default=0.0),
-        legs=legs
+        legs=legs,
+        supplies=_number(data, "supplies", where, default=0.0),
+        recycling=min(_number(data, "recycling", where, default=0.0), 0.95),
+        shielding=_number(data, "shielding", where, default=1.0)
     )
 
 

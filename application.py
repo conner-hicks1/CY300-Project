@@ -116,6 +116,7 @@ from systems.render_system import RenderSystem
 from systems.transform_system import TransformSystem
 from systems.comms_system import CommsSystem, Link
 from systems.power_system import PowerSystem
+from systems.crew_system import CrewSystem
 from systems.programme_system import ProgrammeSystem
 from systems.science_system import ScienceSystem
 from systems.vessel_system import LaunchSite, OrbitStart, VesselSystem
@@ -509,6 +510,9 @@ class Application(
 
         # Every vessel's power (systems/power_system.py).
         self.power_system = PowerSystem()
+
+        # Every crew's life (systems/crew_system.py).
+        self.crew_system = CrewSystem()
 
         # The space programme: funds, missions (saved); its
         # panel (P).
@@ -1374,6 +1378,8 @@ class Application(
 
             self._update_power(simulated)
 
+            self._update_crew(simulated)
+
         with profiler.scope("Science"):
 
             self._update_science(events, simulated)
@@ -1595,6 +1601,12 @@ class Application(
 
     def revert(self):
         """Back to the launch: the same body, from the start (the other vessels in flight stay where they are)."""
+
+        # The flight called off: its crew back in the corps.
+        found = self.vessel_system.find(self.scene)
+
+        if found is not None and found[1].paid:
+            self.programme_system.stand_down(found[1])
 
         if self.body_id is not None:
             self.travel_to(self.body_id, keep_flown=False)
@@ -1901,7 +1913,8 @@ class Application(
             link=self._link_line(found[1]) if found is not None else None,
             docking=self._docking_line(),
             navball=self._navball() if found is not None else None,
-            power=found[1].power if found is not None else None
+            power=found[1].power if found is not None else None,
+            life=found[1].life if found is not None else None
         )
 
         self._draw_map()

@@ -17,7 +17,11 @@ from vessel import propellants, soi
 from vessel.docking import modules
 from vessel.transfer import find_window
 
-from systems.comms_system import crew
+from types import SimpleNamespace
+
+from programme.crew import HIRE_COST
+from systems.comms_system import crew, crew_names
+from vessel import life
 
 
 @dataclass(frozen=True, slots=True)
@@ -137,6 +141,17 @@ class ProgrammeSystem:
 
         cost = component.vessel.cost
 
+        # Its seats: filled from the corps (programme/crew.py).
+        seats = sum(part.part.crew * part.count for part in component.vessel.parts if part.crew_names is None)
+
+        chosen = self.career.corps.choose(seats) if seats > 0 else []
+
+        if seats > 0 and not chosen:
+
+            self.news.append("No astronauts ready to fly: hire one (Programme panel)")
+
+            return False
+
         if not self.career.can_afford(cost):
 
             self.news.append(f"Not enough funds: {component.vessel.name} costs ${cost:,.1f}M, ${self.career.funds:,.1f}M left")
@@ -146,6 +161,25 @@ class ProgrammeSystem:
         self.career.launch(cost)
 
         component.paid = True
+
+        if chosen:
+
+            names = [astronaut.name for astronaut in chosen]
+
+            # Into the seats, part by part.
+            for part in component.vessel.parts:
+
+                if part.part.crew > 0 and part.crew_names is None:
+
+                    take = part.part.crew * part.count
+
+                    part.crew_names = tuple(names[:take])
+
+                    names = names[take:]
+
+            self.career.corps.launch([astronaut.name for astronaut in chosen], component.vessel.name, self.career.clock)
+
+            self.news.append("Crew: " + ", ".join(f"{astronaut.name} ({astronaut.role})" for astronaut in chosen))
 
         self.news.append(f"Launch: -${cost:,.1f}M")
 
@@ -190,8 +224,20 @@ class ProgrammeSystem:
             flight = self._flight(app, component)
 
             if "destroyed" in events and crew(component.vessel) > 0:
-                career.crew_lost()
-                self._changed()
+
+                self.crew_lost(crew_names(component.vessel), f"with {component.vessel.name}")
+
+                for part in component.vessel.parts:
+                    if part.part.crew > 0:
+                        part.crew_names = ()
+
+            # Crews lost with vessels not flown (on rails).
+            for event in events:
+
+                kind, _, names = event.partition(":")
+
+                if kind == "crew gone":
+                    self.crew_lost([name for name in names.split(";") if name], "with their vessel")
 
             if flight is not None and flight.situation == "Landed" and flight.body != flight.home:
                 component.landed_on.add(flight.body)
@@ -227,6 +273,14 @@ class ProgrammeSystem:
                 refund = career.recover(found[1].vessel.cost)
 
                 self.news.append(f"Recovered: +${refund:,.1f}M")
+
+            # The crew home.
+            names = crew_names(found[1].vessel)
+
+            if names and not self.sandbox:
+
+                for name in career.corps.home(names, app.orbit_system.time, life.CAREER_LIMIT):
+                    self.news.append(f"{name} retires: past the career's radiation limit")
 
             found[1].paid = False
             found[1].landed_on = set()
@@ -530,6 +584,113 @@ class ProgrammeSystem:
     # =====================================================
 
     # =====================================================
+    # Crews
+    # =====================================================
+
+    def crew_lost(
+        self,
+        names: list[str],
+        why: str
+    ):
+        """Astronauts lost: noted, mourned (reputation)."""
+
+        if self.sandbox:
+            return
+
+        lost = self.career.corps.lose(names)
+
+        if not lost and not names:
+
+            # (An unassigned crew: a sandbox's, a pad's.)
+            self.career.crew_lost()
+
+        if lost:
+
+            self.career.crew_lost()
+
+            self.news.append(f"Lost {why}: {', '.join(lost)}")
+
+        self._changed()
+
+    def crew_losses(
+        self,
+        losses
+    ):
+        """systems/crew_system.py's losses (out of supplies, of power, the radiation)."""
+
+        for loss in losses:
+
+            self.news.append(f"The crew of {loss.vessel} {loss.why}")
+
+            self.crew_lost(list(loss.names), f"aboard {loss.vessel}")
+
+    def add_doses(
+        self,
+        doses: dict
+    ):
+        """Each astronaut's radiation this frame."""
+
+        if self.sandbox:
+            return
+
+        corps = self.career.corps
+
+        for name, dose in doses.items():
+
+            astronaut = corps.named(name)
+
+            if astronaut is not None:
+                astronaut.dose += dose
+
+        if doses:
+            self._changed(save_now=False)
+
+    def stand_down(
+        self,
+        component
+    ):
+        """A flight called off (a revert): its crew ready again."""
+
+        names = crew_names(component.vessel)
+
+        if names:
+
+            self.career.corps.stand_down(names)
+
+            self._changed()
+
+    def hire(
+        self,
+        role: str
+    ) -> str:
+        """A new astronaut ($HIRE_COST M): "" hired, else why not."""
+
+        if self.sandbox:
+            return "A sandbox needs no astronauts"
+
+        if not self.career.can_afford(HIRE_COST):
+            return f"Hiring costs ${HIRE_COST:,.0f}M"
+
+        self.career.funds -= HIRE_COST
+
+        astronaut = self.career.corps.hire(role)
+
+        self.news.append(f"Hired {astronaut.name}, {astronaut.role}: -${HIRE_COST:,.0f}M")
+
+        self._changed()
+
+        return ""
+
+    @staticmethod
+    def has_role(
+        vessel,
+        corps,
+        role: str
+    ) -> bool:
+
+        return any((corps.named(name) or SimpleNamespace(role="")).role == role for name in crew_names(vessel))
+
+    # =====================================================
     # Reliability
     # =====================================================
 
@@ -550,9 +711,11 @@ class ProgrammeSystem:
         if not engines:
             return
 
+        scale = 0.5 if self.has_role(vessel, self.career.corps, "engineer") else 1.0
+
         for _, state in engines:
 
-            if not self.failures.burns(state.part.id, simulated, state.count):
+            if not self.failures.burns(state.part.id, simulated, state.count, scale):
 
                 state.failed = True
                 state.ignited = False
@@ -576,19 +739,21 @@ class ProgrammeSystem:
 
         notices = []
 
+        scale = 0.5 if self.has_role(component.vessel, self.career.corps, "engineer") else 1.0
+
         for state in component.vessel.parts:
 
             if state.stage != stage:
                 continue
 
-            if state.part.engine is not None and state.ignited and not self.failures.lights(state.part.id, state.count):
+            if state.part.engine is not None and state.ignited and not self.failures.lights(state.part.id, state.count, scale):
 
                 state.ignited = False
                 state.failed = True
 
                 notices.append(f"Engine failure: the {state.part.name.lower()} did not light")
 
-            if state.part.parachute is not None and state.armed and not self.failures.opens(state.part.id, state.count):
+            if state.part.parachute is not None and state.armed and not self.failures.opens(state.part.id, state.count, scale):
 
                 state.armed = False
                 state.failed = True

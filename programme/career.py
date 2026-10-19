@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 
+from programme.crew import Corps
 from vessel.reliability import Record
 
 
@@ -209,6 +210,9 @@ class Career:
     # Flight data: what each part has flown (vessel/
     # reliability.py Record).
     reliability: Record = field(default_factory=Record)
+
+    # The astronauts (programme/crew.py).
+    corps: Corps = field(default_factory=Corps.founded)
 
     # Notices for the HUD (taken by the game).
     news: list = field(default_factory=list)
@@ -472,6 +476,7 @@ class Career:
             "researched": sorted(self.researched),
             "research_spent": self.research_spent,
             "reliability": self.reliability.to_json(),
+            "corps": self.corps.to_json(),
         }
 
     @classmethod
@@ -491,7 +496,8 @@ class Career:
             clock=float(data.get("clock", 0.0)),
             researched={str(item) for item in data.get("researched", [])},
             research_spent=float(data.get("research_spent", 0.0)),
-            reliability=Record.from_json(data.get("reliability"))
+            reliability=Record.from_json(data.get("reliability")),
+            corps=Corps.from_json(data.get("corps"))
         )
 
     def save(

@@ -77,6 +77,9 @@ def snapshot(
             "body": science_system.body_id(scene, component.body),
             "epoch": now,
             "landed_on": sorted(component.landed_on),
+            "dose": component.dose,
+            "starving": component.starving,
+            "unpowered": component.unpowered,
             "science": [[result.subject, result.title, result.cap] for result in component.science],
             "node": node_to_json(component.node),
             "active": entity == active_entity,
@@ -131,6 +134,9 @@ def restore(
             orbit_system,
             paid=True,
             landed_on=set(record.get("landed_on", [])),
+            dose=float(record.get("dose", 0.0)),
+            starving=float(record.get("starving", 0.0)),
+            unpowered=float(record.get("unpowered", 0.0)),
             science=[ScienceResult(*item) for item in record.get("science", [])],
             node=node_from_json(record.get("node"))
         )

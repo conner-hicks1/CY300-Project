@@ -50,6 +50,8 @@ def vessel_to_json(
                 "extending": state.extending,
                 "broken": state.broken,
                 "failed": state.failed,
+                "crew_names": list(state.crew_names) if state.crew_names is not None else None,
+                "supplies": state.supplies,
             }
             for state in vessel.parts
         ],
@@ -93,6 +95,9 @@ def vessel_from_json(
             extending=bool(raw.get("extending", False)),
             broken=bool(raw.get("broken", False)),
             failed=bool(raw.get("failed", False)),
+            crew_names=tuple(raw["crew_names"]) if raw.get("crew_names") is not None else None,
+            # (Saved before supplies: full.)
+            supplies=float(raw.get("supplies", parts[raw["part"]].supplies)),
         ))
 
     vessel = Vessel(str(data.get("name", "Vessel")), states, int(data.get("next_stage", 0)))
