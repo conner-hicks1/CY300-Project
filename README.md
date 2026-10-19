@@ -514,6 +514,13 @@ build your own rocket in the part editor, on the pad.
   for the legs and for lying on its side; the part editor shows how the
   last stage stands. Radial groups can be turned round the core (`angle`
   in a design): Mariner's four legs stand between its two wings
+- Details off the axis (`vessel/looks.py` details): a capsule's windows,
+  hatch and RCS thruster quads, a probe's instrument boxes, a habitat's
+  portholes and handrails, tanks' cable raceways, engines' turbopumps and
+  gimbal actuators, separators' bolts, a dish's feed horn and struts, an
+  RTG's radiator fins. Engine bells show their brazed cooling tubes
+  bronzed and blued by the heat near the throat; hydrogen tanks wear
+  orange sprayed foam, methane tanks bare stainless steel
 - Burning engines light the vessel and the ground round them (a point
   light under the stack as bright as the thrust, the flame's color: a
   launch lights the pad, a lander its landing site at night). Plumes are

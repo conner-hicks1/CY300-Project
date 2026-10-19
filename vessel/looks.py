@@ -2,6 +2,11 @@ import math
 
 from dataclasses import dataclass
 
+import numpy as np
+
+from graphics.mesh_data import MeshData
+from graphics.mesh_factory import MeshFactory
+
 from vessel.parts import PartDefinition
 
 
@@ -32,18 +37,27 @@ from vessel.parts import PartDefinition
 #   fabric  a parachute's pack (the part's color)
 #   cells   solar cells (a wing's, drawn by
 #           systems/vessel_system.py: not lathed)
+#   foam    a hydrogen tank's sprayed-on orange insulation
+#
+# Besides the lathed pieces, details off the axis (details()):
+# boxes and small cylinders round the part, a few copies
+# evenly spaced: RCS thruster quads, windows and a hatch, a
+# tank's cable raceway, an engine's turbopump and gimbal
+# actuators, a separator's bolts, a dish's feed horn, a
+# probe's instrument boxes, an RTG's fins.
 
 FINISHES = {
     #          metallic  roughness  texture
     "paint":  (0.05,     0.5,       "hull"),
     "metal":  (0.9,      0.32,      "hull"),
     "steel":  (0.85,     0.45,      None),
-    "bell":   (0.8,      0.55,      None),
+    "bell":   (0.8,      0.55,      "tubes"),
     "foil":   (1.0,      0.28,      "foil"),
     "shield": (0.0,      0.92,      "shield"),
     "glass":  (0.1,      0.06,      None),
     "fabric": (0.0,      0.85,      None),
     "cells":  (0.1,      0.3,       "cells"),
+    "foam":   (0.0,      0.85,      "foam"),
 }
 
 ALUMINIUM = (0.78, 0.79, 0.8)
@@ -186,8 +200,11 @@ def _tank(part) -> list[Piece]:
 
     ring = min(0.08, 0.04 * h)
 
+    # Hydrogen: sprayed foam; methane: bare stainless steel.
+    skin = {"hydrolox": "foam", "methalox": "metal"}.get(part.propellant_type, "paint")
+
     looks = [
-        Piece(_cylinder(r, ring, h - ring), "paint", tile=3.0),
+        Piece(_cylinder(r, ring, h - ring), skin, tile=3.0),
         Piece(_band(r * 0.995, 0.0, ring, 0.02), "metal", ALUMINIUM),
         Piece(_band(r * 0.995, h - ring, h, 0.02), "metal", ALUMINIUM),
     ]
@@ -222,7 +239,7 @@ def _engine(part) -> list[Piece]:
     chamber = 0.42 * exit_radius
 
     return [
-        Piece(bell, "bell", BELL, segments=48, tile=None),
+        Piece(bell, "bell", (0.85, 0.8, 0.75), segments=48, tile=None),
         Piece(_cylinder(chamber, throat_height, h * 0.68), "steel", STEEL, tile=None),
         Piece(_frustum(chamber * 1.2, mount * 0.9, h * 0.68, h * 0.9), "steel", STEEL, tile=None),
         Piece(_cylinder(mount, h * 0.9, h), "metal", ALUMINIUM, tile=None),
@@ -456,6 +473,262 @@ def _power(part) -> list[Piece]:
         Piece(_cylinder(r * 0.98, ring, h - ring), "paint", DARK_PAINT, tile=1.0),
         Piece(_band(r * 0.98, 0.45 * h, 0.55 * h, 0.006), "paint", (0.85, 0.55, 0.15), tile=None),
     ] + rings
+
+
+# ---------------------------------------------------------
+# Details off the axis
+# ---------------------------------------------------------
+
+@dataclass(frozen=True, slots=True)
+class Detail:
+    """
+    A box (size: across, up, out m) or a cylinder (size:
+    radius, length m) on the part: its center `out` m from
+    the axis, `up` m above the part's bottom; `count` copies
+    evenly round from `angle` deg. A cylinder stands along the
+    stack, or (tilt 90) points straight out.
+    """
+
+    shape: str
+    size: tuple
+    out: float
+    up: float
+    finish: str
+    color: tuple | None = None
+    count: int = 1
+    angle: float = 0.0
+    tilt: float = 0.0
+
+
+DARK = (0.08, 0.08, 0.09)
+
+
+def _surface(
+    part,
+    height: float
+) -> float:
+    """The part's radius at a height (a frustum)."""
+
+    share = min(max(height / max(part.height, 1e-6), 0.0), 1.0)
+
+    return part.radius_bottom + (part.radius_top - part.radius_bottom) * share
+
+
+def details(
+    part: PartDefinition
+) -> list[Detail]:
+    """The part's details off its axis (its shape within its own size, a little proud)."""
+
+    kind = part.kind
+    h = part.height
+
+    found = []
+
+    if part.docking or part.legs is not None or part.solar is not None:
+        return found
+
+    if kind == "command":
+
+        if part.crew >= 4:
+
+            r = part.radius
+
+            found += [
+                Detail("cylinder", (0.16, 0.05), r * 0.99, 0.64 * h, "glass", GLASS, count=4, angle=45.0, tilt=90.0),
+                Detail("box", (0.04, 0.8 * h, 0.04), r * 1.02, 0.5 * h, "metal", ALUMINIUM, count=8, angle=22.5),
+            ]
+
+        elif part.crew > 0:
+
+            window = 0.6 * h
+
+            found += [
+                Detail("box", (0.34, 0.3, 0.03), _surface(part, window) * 0.97, window, "glass", GLASS, angle=-22.0),
+                Detail("box", (0.34, 0.3, 0.03), _surface(part, window) * 0.97, window, "glass", GLASS, angle=22.0),
+                Detail("box", (0.34, 0.3, 0.03), _surface(part, window) * 0.97, window, "glass", GLASS, angle=180.0),
+                Detail("box", (0.62, 0.72, 0.025), _surface(part, 0.45 * h) * 0.98, 0.45 * h, "metal", ALUMINIUM, angle=90.0),
+            ]
+
+        else:
+
+            r = part.radius
+
+            found.append(Detail("box", (0.26, 0.26, 0.14), r * 0.97 + 0.07, 0.5 * h, "foil", GOLD, count=4, angle=45.0))
+
+        if part.rcs_thrust > 0.0:
+
+            at = 0.78 * h if part.crew else 0.5 * h
+
+            r = _surface(part, at)
+
+            found += [
+                Detail("box", (0.22, 0.26, 0.12), r + 0.04, at, "paint", DARK_PAINT, count=4, angle=0.0),
+                Detail("cylinder", (0.035, 0.12), r + 0.14, at, "bell", BELL, count=4, angle=0.0, tilt=90.0),
+            ]
+
+        return found
+
+    if kind == "tank":
+
+        r = part.radius
+
+        # A cable raceway down its side.
+        found.append(Detail("box", (0.14 * r / 1.25 + 0.06, 0.9 * h, 0.07), r + 0.03, 0.5 * h, "metal", ALUMINIUM, angle=90.0))
+
+        if h >= 4.0:
+            found.append(Detail("box", (0.08, 0.9 * h, 0.05), r + 0.02, 0.5 * h, "metal", ALUMINIUM, angle=270.0))
+
+        return found
+
+    if kind == "engine":
+
+        mount = part.radius_top
+
+        chamber = 0.42 * part.radius_bottom * 0.94
+
+        found += [
+            # A turbopump beside the chamber, its exhaust duct.
+            Detail("cylinder", (0.32 * chamber + 0.04, 0.3 * h), chamber * 1.9, 0.72 * h, "steel", STEEL),
+            Detail("cylinder", (0.12 * chamber + 0.02, 0.25 * h), chamber * 1.9, 0.48 * h, "bell", BELL),
+            # Gimbal actuators from the mount to the chamber.
+            Detail("box", (0.05 + 0.03 * mount, 0.28 * h, 0.05 + 0.03 * mount), chamber * 1.35, 0.76 * h, "metal", ALUMINIUM, count=2, angle=135.0),
+        ]
+
+        return found
+
+    if kind == "decoupler":
+
+        r = part.radius
+
+        found.append(Detail("box", (0.07, 0.6 * h, 0.05), r * 0.99 + 0.02, 0.5 * h, "steel", STEEL, count=12 if r > 1.0 else 8, angle=15.0))
+
+        return found
+
+    if kind == "antenna":
+
+        top = h + 0.1 * part.radius_top
+
+        found += [
+            # The feed horn at the dish's focus, on three struts.
+            Detail("cylinder", (0.06 * part.radius_top + 0.02, 0.12 * h), 0.0, top, "steel", STEEL),
+            Detail("box", (0.02, 0.6 * h, 0.02), 0.45 * part.radius_top, 0.72 * h, "metal", ALUMINIUM, count=3),
+        ]
+
+        return found
+
+    if kind == "power" and part.generator > 0.0 and part.generator < 2_000.0:
+
+        r = part.radius
+
+        # Radiator fins.
+        depth = 0.45 * r
+
+        found.append(Detail("box", (0.025, 0.8 * h, depth), 0.55 * r + 0.5 * depth, 0.5 * h, "bell", BELL, count=8, angle=22.5))
+
+        return found
+
+    if kind == "power" and part.battery > 0.0:
+
+        found.append(Detail("box", (0.2, 0.08, 0.03), part.radius * 0.98 + 0.01, 0.5 * part.height, "metal", ALUMINIUM, count=4, angle=45.0))
+
+        return found
+
+    return found
+
+
+def _place(
+    data: MeshData,
+    matrix: np.ndarray,
+    offset: np.ndarray,
+    color
+) -> MeshData:
+    """A mesh moved: positions by matrix and offset, normals and tangents turned, all one color."""
+
+    vertices = data.vertices.copy()
+
+    vertices[:, 0:3] = vertices[:, 0:3] @ matrix.T + offset
+
+    normals = vertices[:, 3:6] @ np.linalg.inv(matrix)
+
+    vertices[:, 3:6] = normals / np.maximum(np.linalg.norm(normals, axis=1, keepdims=True), 1e-12)
+
+    tangents = vertices[:, 11:14] @ matrix.T
+
+    vertices[:, 11:14] = tangents / np.maximum(np.linalg.norm(tangents, axis=1, keepdims=True), 1e-12)
+
+    vertices[:, 6:9] = color
+
+    return MeshData(vertices.astype(np.float32), data.indices.copy())
+
+
+_UNIT_CYLINDER = None
+
+
+def detail_data(
+    detail: Detail,
+    color
+) -> list[MeshData]:
+    """A detail's copies as meshes in the part's frame."""
+
+    global _UNIT_CYLINDER
+
+    if detail.shape == "box":
+        unit = MeshFactory.cube_data()
+        scale = np.diag(detail.size)
+    else:
+
+        if _UNIT_CYLINDER is None:
+            _UNIT_CYLINDER = MeshFactory.lathe_data(((0.0, -0.5), (1.0, -0.5), (1.0, 0.5), (0.0, 0.5)), 12, None)
+
+        unit = _UNIT_CYLINDER
+
+        radius, length = detail.size
+
+        scale = np.diag((radius, length, radius))
+
+    meshes = []
+
+    up = np.array([0.0, 1.0, 0.0])
+
+    for k in range(max(detail.count, 1)):
+
+        angle = math.radians(detail.angle) + 2.0 * math.pi * k / max(detail.count, 1)
+
+        out = np.array([math.cos(angle), 0.0, math.sin(angle)])
+        across = np.array([-math.sin(angle), 0.0, math.cos(angle)])
+
+        # Local x across, y up, z out.
+        turn = np.column_stack((across, up, out))
+
+        if detail.tilt:
+
+            tilt = math.radians(detail.tilt)
+
+            # Leaning out about the across axis: y toward out.
+            lean = np.array([
+                [1.0, 0.0, 0.0],
+                [0.0, math.cos(tilt), -math.sin(tilt)],
+                [0.0, math.sin(tilt), math.cos(tilt)],
+            ])
+
+            turn = turn @ lean
+
+        meshes.append(_place(unit, turn @ scale, out * detail.out + up * detail.up, color))
+
+    return meshes
+
+
+def merged_details(
+    part: PartDefinition
+) -> dict[str, list[MeshData]]:
+    """The details by finish: finish -> meshes."""
+
+    groups: dict[str, list[MeshData]] = {}
+
+    for detail in details(part):
+        groups.setdefault(detail.finish, []).extend(detail_data(detail, detail.color or part.color))
+
+    return groups
 
 
 def merged(

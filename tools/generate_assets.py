@@ -178,6 +178,11 @@ def generate_tiles(
 #   shield   an ablative heat shield: charred, pitted
 #   cells    solar cells: deep blue squares in a silver grid
 #            (eight by eight in a tile, a metre on a wing)
+#   tubes    an engine bell: the regenerative cooling tubes
+#            brazed side by side (round it, u), burnt bronze
+#            and blue near the throat (along it, v), dark at
+#            the exit
+#   foam     sprayed-on insulation foam: lumpy, matte
 
 def _height_to_normal(
     height: np.ndarray,
@@ -352,6 +357,75 @@ def generate_cells(
     roughness = 0.35 + 0.5 * gap
 
     _save_surface("cells", np.clip(albedo, 0.0, 1.0), height, occlusion, roughness, 3.0)
+
+
+def generate_tubes(
+    size: int = 512,
+    tubes: int = 96
+):
+
+    rng = np.random.default_rng(305)
+
+    coords = (np.arange(size) + 0.5) / size
+
+    u = np.broadcast_to(coords[None, :], (size, size))
+    v = np.broadcast_to(coords[:, None], (size, size))
+
+    # Each tube a rounded ridge; the seams between dark.
+    phase = (u * tubes) % 1.0
+
+    ridge = np.sqrt(np.clip(1.0 - (2.0 * phase - 1.0) ** 2, 0.0, 1.0))
+
+    seam = 1.0 - np.clip(ridge / 0.35, 0.0, 1.0)
+
+    # Along the bell (v: its profile from the exit, 0, up to
+    # the throat and back down inside): the heat's colors.
+    heat = np.exp(-((v - 0.42) / 0.16) ** 2)
+
+    exit_dark = np.clip(1.0 - v / 0.2, 0.0, 1.0)
+
+    bronze = np.array([0.62, 0.45, 0.3])
+    blue = np.array([0.32, 0.34, 0.5])
+    steel = np.array([0.48, 0.47, 0.46])
+
+    tint = steel * (1.0 - heat[..., None]) + (bronze * 0.6 + blue * 0.4) * heat[..., None]
+
+    tint = tint * (1.0 - 0.45 * exit_dark[..., None])
+
+    streaks = _blur(rng.normal(0.0, 1.0, (size, size)), 3) * 0.04
+
+    albedo = tint * (0.85 + 0.15 * ridge[..., None] + streaks[..., None]) * (1.0 - 0.35 * seam[..., None])
+
+    height = ridge * 0.6 - seam * 0.2
+
+    occlusion = 1.0 - 0.3 * seam
+
+    roughness = 0.75 + 0.2 * seam - 0.15 * heat
+
+    _save_surface("tubes", np.clip(albedo, 0.0, 1.0), height, occlusion, roughness, 4.0)
+
+
+def generate_foam(
+    size: int = 512
+):
+
+    rng = np.random.default_rng(306)
+
+    lumps = _blur(rng.normal(0.0, 1.0, (size, size)), 5)
+    fine = _blur(rng.normal(0.0, 1.0, (size, size)), 1)
+
+    lumps /= np.abs(lumps).max()
+    fine /= np.abs(fine).max()
+
+    height = 0.7 * lumps + 0.3 * fine
+
+    albedo = (0.88 + 0.08 * lumps + 0.04 * fine)[..., None] * np.ones(3)
+
+    occlusion = 0.85 + 0.15 * (lumps * 0.5 + 0.5)
+
+    roughness = np.full((size, size), 0.95)
+
+    _save_surface("foam", np.clip(albedo, 0.0, 1.0), height, occlusion, roughness, 2.5)
 
 
 # =========================================================
@@ -704,6 +778,8 @@ def main() -> int:
     generate_foil()
     generate_shield()
     generate_cells()
+    generate_tubes()
+    generate_foam()
     generate_uv_checker()
     generate_torus()
     generate_pyramid()

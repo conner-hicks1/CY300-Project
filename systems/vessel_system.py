@@ -2676,9 +2676,15 @@ class VesselSystem:
 
         meshes = []
 
-        for finish, (pieces, colors) in looks.merged(part, skirt).items():
+        lathed = looks.merged(part, skirt)
 
-            def build(pieces=pieces, colors=colors):
+        extras = looks.merged_details(part)
+
+        for finish in list(lathed) + [finish for finish in extras if finish not in lathed]:
+
+            pieces, colors = lathed.get(finish, ([], []))
+
+            def build(pieces=pieces, colors=colors, finish=finish):
 
                 datas = [
                     MeshFactory.lathe_data(
@@ -2691,6 +2697,8 @@ class VesselSystem:
                     )
                     for piece, color in zip(pieces, colors)
                 ]
+
+                datas += extras.get(finish, [])
 
                 return Mesh.from_data(MeshData.merge(datas))
 

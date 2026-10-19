@@ -127,3 +127,36 @@ def test_an_interstage_covers_the_engine_above():
     groups = looks.merged(parts["engine_booster"])
 
     assert set(groups) >= {"bell", "steel", "metal"}
+
+
+@pytest.mark.parametrize("part_id", sorted(load_parts()))
+def test_details_stay_on_the_part(part_id):
+
+    part = load_parts()[part_id]
+
+    for finish, meshes in looks.merged_details(part).items():
+
+        assert finish in looks.FINISHES
+
+        for data in meshes:
+
+            positions, normals, _, _ = _attributes(data)
+
+            assert np.isfinite(data.vertices).all()
+
+            np.testing.assert_allclose(np.linalg.norm(normals, axis=1), 1.0, atol=1e-4)
+
+            # Off the axis, a little proud of the part; within
+            # its height (a feed horn just over a dish's rim).
+            assert np.hypot(positions[:, 0], positions[:, 2]).max() <= part.radius * 1.6 + 0.35
+            assert positions[:, 1].min() >= -0.05 and positions[:, 1].max() <= part.height * 1.35 + 0.1
+
+
+def test_a_capsule_has_windows_and_thrusters():
+
+    parts = load_parts()
+
+    finishes = looks.merged_details(parts["capsule"])
+
+    assert len(finishes["glass"]) == 3
+    assert len(finishes["paint"]) == 4 and len(finishes["bell"]) == 4
