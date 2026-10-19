@@ -6,9 +6,11 @@ from core.logger import Logger
 
 from planet.orbits import date_of
 
-from programme import research
+import numpy as np
+
+from programme import events, research
 from vessel.reliability import Failures
-from programme.career import Campaign, Career, Flight, today_of
+from programme.career import EVENT_KINDS, Campaign, Career, Flight, today_of
 from programme.resources import products, resources_at
 
 from vessel import propellants, soi
@@ -194,6 +196,18 @@ class ProgrammeSystem:
             if flight is not None and flight.situation == "Landed" and flight.body != flight.home:
                 component.landed_on.add(flight.body)
 
+            if not self.sandbox:
+
+                for mission in career.events(self.campaign, today, flight):
+
+                    if mission.reward.science:
+                        app.science_system.record.points += mission.reward.science
+                        app.science_system._changed()
+
+                    Logger.info("[Programme] Event mission done: %s.", mission.title)
+
+                    self._changed()
+
             self._isru(app, component, flight, simulated)
 
         now = time.monotonic()
@@ -243,6 +257,8 @@ class ProgrammeSystem:
 
         home = app.vessel_system.launch_body
 
+        eclipsed, apophis = self._events_seen(app, component)
+
         return Flight(
             body=science.body_id(app.scene, component.body),
             situation=readout.situation,
@@ -250,8 +266,84 @@ class ProgrammeSystem:
             site=app.current_site or "",
             home=science.body_id(app.scene, home) if home is not None else "",
             landed_on=frozenset(component.landed_on),
-            docked=modules(component.vessel)
+            docked=modules(component.vessel),
+            eclipsed=eclipsed,
+            apophis=apophis
         )
+
+    def _events_seen(
+        self,
+        app,
+        component,
+        always: bool = False
+    ) -> tuple[dict, float | None]:
+        """
+        Real events from the vessel: how much of the Sun each
+        body hides; how far Apophis is. Looked at only on an
+        event mission's days (it is not free), or `always`.
+        """
+
+        today = today_of(date_of(app.orbit_system.time))
+
+        wanted = {
+            mission.kind
+            for mission in self.campaign.missions
+            if mission.kind in EVENT_KINDS
+            and self.career.state(mission, today) == "open"
+            and (mission.deadline is None or today <= mission.deadline)
+        }
+
+        if always:
+            wanted = set(EVENT_KINDS)
+
+        if not wanted:
+            return {}, None
+
+        vessels = app.vessel_system
+
+        where = vessels.position_of(component, app.orbit_system)
+
+        if where is None:
+            return {}, None
+
+        science = app.science_system
+
+        sun_radius = vessels._star_radius(app.scene)
+
+        eclipsed = {}
+
+        earth = None
+
+        for key, body in vessels.soi_bodies(app.scene).items():
+
+            if key is None:
+                continue
+
+            reference = vessels.reference_state(app.orbit_system, key)
+
+            if reference is None:
+                continue
+
+            body_id = science.body_id(app.scene, key)
+
+            center = np.asarray(reference[0], dtype=np.float64)
+
+            if body_id == "earth":
+                earth = center
+
+            covered = events.sun_coverage(where, np.zeros(3), sun_radius, center, body.radius)
+
+            if covered > 0.0:
+                eclipsed[body_id] = covered
+
+        apophis = None
+
+        now = app.orbit_system.time
+
+        if "apophis" in wanted and earth is not None and events.apophis_near(now):
+            apophis = float(np.linalg.norm(earth + events.apophis_position(now) - where))
+
+        return eclipsed, apophis
 
     def _check(
         self,

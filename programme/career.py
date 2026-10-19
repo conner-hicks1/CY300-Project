@@ -37,7 +37,11 @@ from vessel.reliability import Record
 MISSIONS_PATH = Path("assets/programme/missions.json")
 CAREER_PATH = Path("data/programme/career.json")
 
-KINDS = ("orbit", "soi", "land", "return", "map", "science", "sample", "isru", "dock")
+KINDS = ("orbit", "soi", "land", "return", "map", "science", "sample", "isru", "dock", "eclipse", "apophis")
+
+# Missions for a moment on the calendar (programme/events.py):
+# checked every frame, not just now and then.
+EVENT_KINDS = ("eclipse", "apophis")
 
 # Of the parts' cost, back when landed home.
 RECOVERY = 0.8
@@ -70,6 +74,12 @@ class Mission:
     requires: tuple[str, ...] = ()
     opens: date | None = None
     deadline: date | None = None
+
+    # Missed, no reputation lost (a chance, not a promise).
+    optional: bool = False
+
+    # Met only landed on this body (an eclipse seen from it).
+    landed: str = ""
 
 
 @dataclass(frozen=True, slots=True)
@@ -128,7 +138,9 @@ def load_campaign(
             reward=Reward(float(reward.get("funds", 0.0)), float(reward.get("reputation", 0.0)), float(reward.get("science", 0.0))),
             requires=tuple(raw.get("requires", [])),
             opens=_date(raw.get("opens"), where),
-            deadline=_date(raw.get("deadline"), where)
+            deadline=_date(raw.get("deadline"), where),
+            optional=bool(raw.get("optional", False)),
+            landed=str(raw.get("landed", ""))
         ))
 
     ids = {mission.id for mission in missions}
@@ -162,6 +174,12 @@ class Flight:
 
     # Vessels docked in one (1: just itself).
     docked: int = 1
+
+    # Real events (programme/events.py): body id -> the share
+    # of the Sun it hides from the vessel now; the vessel's
+    # distance from Apophis (m), near its pass.
+    eclipsed: dict = field(default_factory=dict)
+    apophis: float | None = None
 
 
 @dataclass(slots=True)
@@ -315,22 +333,63 @@ class Career:
             if mission.deadline is not None and today > mission.deadline:
 
                 self.outcomes[mission.id] = "failed"
-                self.reputation -= DEADLINE_MISSED
 
-                self.news.append(f"Missed: {mission.title} (reputation -{DEADLINE_MISSED:.0f})")
+                if mission.optional:
+
+                    self.news.append(f"Passed: {mission.title}")
+
+                else:
+
+                    self.reputation -= DEADLINE_MISSED
+
+                    self.news.append(f"Missed: {mission.title} (reputation -{DEADLINE_MISSED:.0f})")
 
                 continue
 
             if self._met(mission, flight, science_points, mapped, sampled):
 
-                self.outcomes[mission.id] = "done"
-
-                self.funds += mission.reward.funds
-                self.reputation += mission.reward.reputation
+                self.complete(mission)
 
                 done.append(mission)
 
-                self.news.append(f"Mission done: {mission.title} (+${mission.reward.funds:,.0f}M)")
+        return done
+
+    def complete(
+        self,
+        mission: Mission
+    ):
+        """A mission done: paid, noted."""
+
+        self.outcomes[mission.id] = "done"
+
+        self.funds += mission.reward.funds
+        self.reputation += mission.reward.reputation
+
+        self.news.append(f"Mission done: {mission.title} (+${mission.reward.funds:,.0f}M)")
+
+    def events(
+        self,
+        campaign: Campaign,
+        today: date,
+        flight: Flight | None
+    ) -> list[Mission]:
+        """The real events' missions met now (checked every frame: an eclipse is soon over)."""
+
+        done = []
+
+        for mission in campaign.missions:
+
+            if mission.kind not in EVENT_KINDS or self.state(mission, today) != "open":
+                continue
+
+            if mission.deadline is not None and today > mission.deadline:
+                continue
+
+            if self._met(mission, flight, 0.0, {}, set()):
+
+                self.complete(mission)
+
+                done.append(mission)
 
         return done
 
@@ -372,6 +431,17 @@ class Career:
                 and flight.situation == "Landed"
                 and (not mission.site or flight.site == mission.site)
             )
+
+        if kind == "eclipse":
+
+            # Covered enough by its body (and landed where it
+            # says: a lander in the Earth's shadow).
+            return flight.eclipsed.get(mission.body, 0.0) >= mission.value and (
+                not mission.landed or (flight.body == mission.landed and flight.situation == "Landed")
+            )
+
+        if kind == "apophis":
+            return flight.apophis is not None and flight.apophis <= mission.value * 1000.0
 
         if kind == "dock":
             return (

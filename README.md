@@ -752,6 +752,16 @@ build your own rocket in the part editor, on the pad.
   window (2029-12-31), land on Mars, in Jezero, samples back before 2036;
   Jupiter; science banked; propellant made on another world. A deadline
   missed costs reputation; so does a crew lost
+- Real events (`programme/events.py`), optional missions on their days
+  (missed: no reputation lost): the total solar eclipses of 12 August 2026
+  (Greenland, Iceland, Spain) and 2 August 2027 (the century's longest,
+  over Luxor), met where the Moon hides 90% of the Sun (worked out from the
+  bodies' real positions: standing in Luxor at 10:07 UTC the Moon covers
+  it); a lander on the Moon through the total lunar eclipse of 31 December
+  2028 (in the Earth's shadow, on its batteries); and Apophis's pass 38,000
+  km from the Earth's center at 21:46 UTC on 13 April 2029, modeled as its
+  hyperbola about the Earth and drawn on the map in the weeks round it:
+  be within 2,000 km. Checked every frame (an eclipse is soon over)
 - Launch windows: the panel lists the next cheap departures from home's
   orbit to Venus, Mars and Jupiter (the Lambert window search on the
   planets' real orbits), with the flight time and the speed beyond

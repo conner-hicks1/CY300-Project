@@ -262,6 +262,76 @@
         "funds": 400,
         "reputation": 30
       }
+    },
+    {
+      "id": "eclipse_2026",
+      "title": "The total solar eclipse of 12 August 2026",
+      "kind": "eclipse",
+      "body": "moon",
+      "value": 0.9,
+      "optional": true,
+      "opens": "2026-08-12",
+      "deadline": "2026-08-12",
+      "about": "The Moon's shadow crosses Greenland, Iceland and Spain in the evening (UTC): be where it hides at least 90% of the Sun, on the ground under it or flying through it.",
+      "reward": {
+        "funds": 60,
+        "reputation": 15,
+        "science": 10
+      }
+    },
+    {
+      "id": "eclipse_2027",
+      "title": "The great eclipse of 2 August 2027",
+      "kind": "eclipse",
+      "body": "moon",
+      "value": 0.9,
+      "optional": true,
+      "opens": "2027-08-02",
+      "deadline": "2027-08-02",
+      "about": "The century's longest total eclipse (6 min 23 s over Luxor), across Spain, north Africa and Arabia around 10:00 UTC: be where the Moon hides at least 90% of the Sun.",
+      "reward": {
+        "funds": 80,
+        "reputation": 20,
+        "science": 15
+      }
+    },
+    {
+      "id": "lunar_eclipse_2028",
+      "title": "A lander through the lunar eclipse of 31 December 2028",
+      "kind": "eclipse",
+      "body": "earth",
+      "value": 0.99,
+      "optional": true,
+      "opens": "2028-12-31",
+      "deadline": "2028-12-31",
+      "requires": [
+        "moon_landing"
+      ],
+      "about": "The Moon passes through the Earth's shadow around 16:50 UTC: a lander on the Moon's near side goes dark for over an hour. Be landed there in the Earth's shadow (with batteries to see it through).",
+      "reward": {
+        "funds": 120,
+        "reputation": 20,
+        "science": 20
+      },
+      "landed": "moon"
+    },
+    {
+      "id": "apophis_2029",
+      "title": "Meet Apophis, 13 April 2029",
+      "kind": "apophis",
+      "value": 2000,
+      "optional": true,
+      "opens": "2029-04-06",
+      "deadline": "2029-04-20",
+      "requires": [
+        "first_orbit"
+      ],
+      "about": "The 340 m asteroid passes 38,000 km from the Earth's center at 21:46 UTC, inside the geostationary ring, at 7.4 km/s: be within 2,000 km of it (it shows on the map in the weeks round its pass).",
+      "reward": {
+        "funds": 300,
+        "reputation": 40,
+        "science": 40
+      }
     }
   ]
 }

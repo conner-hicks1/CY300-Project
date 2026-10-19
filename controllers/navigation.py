@@ -14,6 +14,7 @@ from game.map_view import ScreenProjection
 from systems.vessel_system import Suggestion
 
 from planet import weather
+from programme import events
 
 from science.survey import direction_of as survey_direction
 
@@ -227,6 +228,28 @@ class NavigationController:
                     orbit = body_world[reference] + cached[1] @ self.orbit_system.inertial_to_world.T
 
                 others.append((point, other.vessel.name, orbit, self.map_view.target == ("vessel", other_entity)))
+
+        # Apophis, near its pass by the Earth.
+        now = self.orbit_system.time
+
+        if events.apophis_near(now) and reference is not None and reference in body_world and self.science_system.body_id(self.scene, reference) == "earth":
+
+            to_world = self.orbit_system.inertial_to_world
+
+            here = events.apophis_position(now)
+
+            point = body_world[reference] + to_world @ here
+
+            distance = None
+
+            found = self.vessel_system.find(self.scene)
+
+            if found is not None and found[1].body == reference:
+                distance = float(np.linalg.norm(here - found[1].state.position))
+
+            label = "Apophis" + (f" ({distance / 1000.0:,.0f} km)" if distance is not None else "")
+
+            others.append((point, label, body_world[reference] + events.apophis_path(now) @ to_world.T, False))
 
         # The science sites on the body, where they are now.
         sites = []
