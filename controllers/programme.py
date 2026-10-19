@@ -3,6 +3,8 @@ from game.research_panel import ResearchInfo
 
 from programme import research
 
+from vessel import propellants
+
 from planet.orbits import date_of
 
 from programme.career import RECOVERY, today_of
@@ -49,12 +51,22 @@ class ProgrammeController:
 
             if any(state.part.isru is not None for state in vessel.parts):
 
+                kind = programme.making_kind
+
                 if programme.making > 0.0:
 
                     source = programme.resources[0].name if programme.resources else ""
 
+                    source = f"{propellants.of(kind).short} from {source}"
+
                     if vessel.isru_share < 0.995:
                         source += f" ({vessel.isru_share:.0%} of its power)"
+
+                elif kind.startswith("needs:"):
+
+                    names = " or ".join(propellants.of(item).short for item in kind[6:].split(","))
+
+                    source = f"{programme.resources[0].name} here, but no {names} tanks with room"
 
                 elif vessel.isru_wanted and programme.resources:
 

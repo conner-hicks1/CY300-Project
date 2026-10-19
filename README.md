@@ -645,6 +645,27 @@ build your own rocket in the part editor, on the pad.
   Moon out of contact, braked at 3.5 km and touched down at 2 m/s on its
   own
 
+**Propellants**
+
+- Four kinds (`vessel/propellants.py`), each tank holding one and each
+  engine burning one (only its own kind's tanks in its section): kerosene
+  / oxygen (RP-1/LOX, the boosters'), methane / oxygen (CH4/LOX, a little
+  better: a 2.3 MN booster engine and a 375 s vacuum one), liquid hydrogen
+  / oxygen (LH2/LOX: a 455 s upper stage engine, in big light tanks that
+  hold a third of kerosene's mass) and storable hypergolics (MMH/NTO: a 60
+  kN lander engine, for a long cruise's last burn)
+- Cryogenic propellant boils off once launched: in full sunlight at 1 AU
+  hydrogen 1.5% a day, methane 0.3%, kerosene's oxygen 0.1%; less in
+  shadow and far from the Sun (with a floor for the vessel's own warmth),
+  less again in an insulated tank (30%); hypergolics keep. A cryocooler
+  (2 kW) keeps 15 t from boiling while it has power. The HUD shows the
+  propellant burning (Fuel: "13.4 t LH2/LOX") and what boils off a day;
+  the editor shows each part's kind and a design's boil-off, and warns of
+  an engine with no tank of its kind
+- New tech nodes: storable propellants, hydrogen upper stages, methane
+  engines, zero boil-off. Mariner's lander now burns storable propellant
+  (60 kN, 3.9 km/s): it keeps through a cruise to Mars
+
 **Power**
 
 - Electric charge in real units (`vessel/power.py`,
@@ -707,8 +728,11 @@ build your own rocket in the part editor, on the pad.
   pole; Mars's caps; Ceres; the icy moons) makes 600 kg a day, or 250 in
   Mars's carbon dioxide air (Venus's and Titan's less), filling the tanks
   as the days pass (time warp included), as fast as its power allows (20
-  kW: a big array or two reactors). Refuel on the Moon or Mars and come
-  home: a sample return
+  kW: a big array or two reactors). Ice makes hydrolox (water split into
+  hydrogen and oxygen), air methalox (the Sabatier process): the plant
+  fills only tanks of what it makes, so a vessel meant to refuel carries
+  hydrogen or methane tanks. Refuel on the Moon or Mars and come home: a
+  sample return
 - Research (`programme/research.py`, `assets/programme/tech.json`): a
   tech tree of 12 nodes in five columns, bought with science. Basic
   rocketry is known from the start (Pathfinder); then side boosters, small
@@ -792,11 +816,12 @@ build your own rocket in the part editor, on the pad.
   there and changes as you edit; right mouse turns the view
 - Parts on the left by kind (command, tanks, engines, separators,
   parachutes, science, antennas, utility, power, landing legs, structure:
-  40, at 1.25 m
+  52, at 1.25 m
   and 2.5 m, with adapters, a nose cone, heat shields, science instruments,
   antennas, a propellant plant, docking ports (end and side), a habitat, a radial
   separator, a 1.25 m booster engine, batteries, solar wings and arrays, an
-  RTG, a reactor and two landing legs; tooltips with cost, mass, propellant, thrust and Isp); a click adds one below the selected part, or
+  RTG, a reactor, two landing legs, hydrogen, methane and storable tanks
+  and engines and a cryocooler; tooltips with cost, mass, propellant, thrust and Isp); a click adds one below the selected part, or
   into the selected radial group
 - The stack on the right: select a part (it lights up) to move it, remove
   it or change its stage; automatic staging (from the bottom up, each

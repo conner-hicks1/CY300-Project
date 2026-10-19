@@ -12,7 +12,7 @@ from vessel.design import (
     open_design,
     save_draft
 )
-from vessel import landing, power
+from vessel import landing, power, propellants
 from vessel.parts import PartDefinition, PartError
 from vessel.vessel import Vessel
 
@@ -101,12 +101,24 @@ def part_summary(
     lines = [part.name, f"Mass {part.mass:,.0f} kg", f"{part.radius * 2:.2f} m wide, {part.height:.2f} m tall"]
 
     if part.propellant:
-        lines.append(f"Propellant {part.propellant:,.0f} kg")
+
+        kind = propellants.of(part.propellant_type)
+
+        lines.append(f"Propellant {part.propellant:,.0f} kg of {kind.name.lower()} ({kind.short})")
+
+        if kind.boil > 0.0:
+            lines.append(f"Boils off {kind.boil * part.insulation * 100.0:.2g}% a day in sunlight at 1 AU" + (" (insulated)" if part.insulation < 1.0 else ""))
+        else:
+            lines.append("Keeps for years (storable)")
+
+    if part.cooling:
+        lines.append(f"Keeps {part.cooling / 1000.0:,.0f} t of cryogenic propellant from boiling off (powered)")
 
     if part.engine is not None:
         engine = part.engine
         lines.append(f"Thrust {engine.thrust_vacuum / 1000:,.0f} kN (vacuum)")
         lines.append(f"Isp {engine.isp_sea_level:.0f} s at sea level, {engine.isp_vacuum:.0f} s in vacuum")
+        lines.append(f"Burns {propellants.of(engine.propellant).name.lower()} ({propellants.of(engine.propellant).short})")
 
     if part.parachute is not None:
         lines.append(f"Canopy {part.parachute.area:,.0f} m2, opens below {part.parachute.max_speed:.0f} m/s")
@@ -609,11 +621,31 @@ class PartEditor:
 
         self._draw_landing(vessel)
 
+        self._draw_boiloff(vessel)
+
         for problem in draft.problems() + self._unresearched():
             imgui.text_colored(PROBLEM_COLOR, problem)
 
         for warning in draft.warnings():
             imgui.text_colored(WARNING_COLOR, warning)
+
+    @staticmethod
+    def _draw_boiloff(
+        vessel
+    ):
+        """What boils off in sunlight at 1 AU, a day (once launched)."""
+
+        rate = propellants.boil_rate(vessel, 1.0, 1.0)
+
+        if rate < 0.5:
+            return
+
+        held = vessel.propellant
+
+        imgui.text_colored(
+            WARNING_COLOR if rate > 0.005 * held else (0.75, 0.75, 0.75, 1.0),
+            f"Boil-off in sunlight at 1 AU: {rate:,.0f} kg a day ({rate / max(held, 1.0) * 100.0:.2g}% of its propellant)"
+        )
 
     @staticmethod
     def _draw_landing(

@@ -460,7 +460,14 @@ class FlightHud:
 
                 share = vessel.propellant / vessel.propellant_capacity if vessel.propellant_capacity > 0.0 else 0.0
 
-                style.meter("Fuel", share, f"{vessel.propellant / 1000.0:,.1f} t", "warn" if share < 0.15 else "money", 124.0, 74.0)
+                style.meter(
+                    "Fuel",
+                    share,
+                    f"{vessel.propellant / 1000.0:,.1f} t {vessel.propellant_kind}".rstrip(),
+                    "warn" if share < 0.15 else "money",
+                    124.0,
+                    74.0
+                )
 
                 if vessel.stages_left:
                     style.row("Stage", f"{vessel.next_stage}  ({vessel.stages_left} left)", label_width=74.0)
@@ -472,6 +479,10 @@ class FlightHud:
                 style.row("TWR", f"{vessel.twr:.2f}", "warn" if weak else None, label_width=74.0)
                 style.row("Delta-v", f"{vessel.delta_v:,.0f} m/s", label_width=74.0)
                 style.row("Mass", f"{vessel.mass / 1000.0:,.1f} t", label_width=74.0)
+
+                # Cryogenic propellant boiling away.
+                if power is not None and power.boiloff >= 0.5:
+                    style.row("Boil-off", f"{power.boiloff:,.0f} kg/day", "warn", label_width=74.0)
 
                 # Motion.
                 imgui.table_next_column()

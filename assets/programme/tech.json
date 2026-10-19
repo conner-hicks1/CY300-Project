@@ -24,88 +24,213 @@
       "name": "Side boosters",
       "about": "Strap-on boosters that light with the core and drop away: Pathfinder Heavy's extra 2 km/s.",
       "cost": 15,
-      "requires": ["basic_rocketry"],
-      "parts": ["decoupler_radial", "tank_1m25_xl", "engine_medium", "nose_cone_1m25"]
+      "requires": [
+        "basic_rocketry"
+      ],
+      "parts": [
+        "decoupler_radial",
+        "tank_1m25_xl",
+        "engine_medium",
+        "nose_cone_1m25"
+      ]
     },
     {
       "id": "small_rockets",
       "name": "Small rockets",
       "about": "1.25 m tanks, engines and separators, adapters, a small heat shield and landing legs: landers and upper stages.",
       "cost": 10,
-      "requires": ["basic_rocketry"],
-      "parts": ["tank_1m25_short", "tank_1m25_long", "decoupler_1m25", "engine_small", "adapter_2m5_1m25", "adapter_1m25_2m5", "heat_shield_1m25", "landing_leg", "landing_leg_large"]
+      "requires": [
+        "basic_rocketry"
+      ],
+      "parts": [
+        "tank_1m25_short",
+        "tank_1m25_long",
+        "decoupler_1m25",
+        "engine_small",
+        "adapter_2m5_1m25",
+        "adapter_1m25_2m5",
+        "heat_shield_1m25",
+        "landing_leg",
+        "landing_leg_large"
+      ]
     },
     {
       "id": "instruments",
       "name": "Science instruments",
       "about": "Sample the air and the ground: more science from every place a vessel goes.",
       "cost": 10,
-      "requires": ["basic_rocketry"],
-      "parts": ["air_sampler", "sample_kit"]
+      "requires": [
+        "basic_rocketry"
+      ],
+      "parts": [
+        "air_sampler",
+        "sample_kit"
+      ]
     },
     {
       "id": "electrics",
       "name": "Electrics",
       "about": "Battery packs and a small solar wing: flights longer than the capsule's batteries last.",
       "cost": 12,
-      "requires": ["basic_rocketry"],
-      "parts": ["battery_1m25", "battery_2m5", "solar_wing"]
+      "requires": [
+        "basic_rocketry"
+      ],
+      "parts": [
+        "battery_1m25",
+        "battery_2m5",
+        "solar_wing"
+      ]
     },
     {
       "id": "probes",
       "name": "Uncrewed probes",
       "about": "A probe core flown from home through the link, and a medium-gain antenna to reach the inner planets.",
       "cost": 25,
-      "requires": ["small_rockets", "electrics"],
-      "parts": ["probe_core", "antenna_medium"]
+      "requires": [
+        "small_rockets",
+        "electrics"
+      ],
+      "parts": [
+        "probe_core",
+        "antenna_medium"
+      ]
     },
     {
       "id": "survey",
       "name": "Orbital survey",
       "about": "A survey camera that maps the ground from orbit: sharper maps, and science for every percent mapped.",
       "cost": 30,
-      "requires": ["instruments", "electrics"],
-      "parts": ["survey_camera"]
+      "requires": [
+        "instruments",
+        "electrics"
+      ],
+      "parts": [
+        "survey_camera"
+      ]
     },
     {
       "id": "docking",
       "name": "Docking",
       "about": "Docking ports to join vessels in orbit, and a 4 kW solar array.",
       "cost": 35,
-      "requires": ["electrics"],
-      "parts": ["docking_port", "docking_port_2m5", "solar_array_1m25"]
+      "requires": [
+        "electrics"
+      ],
+      "parts": [
+        "docking_port",
+        "docking_port_2m5",
+        "solar_array_1m25"
+      ]
+    },
+    {
+      "id": "storable",
+      "name": "Storable propellants",
+      "about": "Hypergolic tanks and a lander engine: propellants that keep for years, for a long cruise's last burn.",
+      "cost": 20,
+      "requires": [
+        "small_rockets"
+      ],
+      "parts": [
+        "tank_1m25_hypergolic",
+        "tank_1m25_hypergolic_long",
+        "engine_hypergolic"
+      ]
+    },
+    {
+      "id": "hydrolox",
+      "name": "Hydrogen upper stages",
+      "about": "Liquid hydrogen: by far the best upper stage (455 s), in big light tanks that boil off in sunlight.",
+      "cost": 40,
+      "requires": [
+        "small_rockets",
+        "electrics"
+      ],
+      "parts": [
+        "tank_2m5_hydrolox_short",
+        "tank_2m5_hydrolox_long",
+        "engine_hydrolox"
+      ]
+    },
+    {
+      "id": "methalox",
+      "name": "Methane engines",
+      "about": "Methane and oxygen: a little better than kerosene, and what a plant can make from Mars's air.",
+      "cost": 45,
+      "requires": [
+        "side_boosters"
+      ],
+      "parts": [
+        "tank_2m5_methalox_medium",
+        "tank_2m5_methalox_long",
+        "engine_methalox",
+        "engine_methalox_vacuum"
+      ]
+    },
+    {
+      "id": "zero_boiloff",
+      "name": "Zero boil-off",
+      "about": "Insulated hydrogen tanks and a cryocooler that keeps 15 t from boiling, on 2 kW.",
+      "cost": 60,
+      "requires": [
+        "hydrolox",
+        "docking"
+      ],
+      "parts": [
+        "tank_2m5_hydrolox_insulated",
+        "cryocooler"
+      ]
     },
     {
       "id": "deep_space",
       "name": "Deep space communications",
       "about": "A high-gain dish that reaches home from the outer planets.",
       "cost": 45,
-      "requires": ["probes"],
-      "parts": ["antenna_dish"]
+      "requires": [
+        "probes"
+      ],
+      "parts": [
+        "antenna_dish"
+      ]
     },
     {
       "id": "stations",
       "name": "Space stations",
       "about": "A habitat for four, side ports to build out from, and a 28 kW array to run it all.",
       "cost": 60,
-      "requires": ["docking"],
-      "parts": ["habitat_module", "side_port", "solar_array_2m5"]
+      "requires": [
+        "docking"
+      ],
+      "parts": [
+        "habitat_module",
+        "side_port",
+        "solar_array_2m5"
+      ]
     },
     {
       "id": "nuclear_power",
       "name": "Nuclear power",
       "about": "A radioisotope generator for where the Sun is weak, and a 10 kW fission reactor.",
       "cost": 70,
-      "requires": ["deep_space"],
-      "parts": ["rtg", "reactor_10kw"]
+      "requires": [
+        "deep_space"
+      ],
+      "parts": [
+        "rtg",
+        "reactor_10kw"
+      ]
     },
     {
       "id": "isru",
       "name": "Living off the land",
       "about": "A propellant plant: land on ice or in Mars's air, refuel and come home.",
       "cost": 90,
-      "requires": ["probes", "stations"],
-      "parts": ["isru_plant"]
+      "requires": [
+        "probes",
+        "stations"
+      ],
+      "parts": [
+        "isru_plant"
+      ]
     }
   ]
 }

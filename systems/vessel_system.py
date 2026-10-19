@@ -39,7 +39,7 @@ from resources.resources import Resources
 
 from scene.scene import Scene
 
-from vessel import docking, heating, kepler, landing, looks, maneuver, power, soi
+from vessel import docking, heating, kepler, landing, looks, maneuver, power, propellants, soi
 from vessel.parts import VesselDesign
 from vessel.physics import (
     Controls,
@@ -163,6 +163,10 @@ class VesselReadout:
     legs: str = ""
     toppled: bool = False
     fell: str = ""
+
+    # What the burning (or next) engines burn: its short name
+    # (vessel/propellants.py), "" without engines.
+    propellant_kind: str = ""
 
 
 def copy_positions(
@@ -3421,5 +3425,6 @@ class VesselSystem:
             standing=landing.standing_angle(vessel),
             legs=landing.leg_state(vessel),
             toppled=state.toppled,
-            fell=state.fell
+            fell=state.fell,
+            propellant_kind=propellants.of(kind).short if (kind := vessel.section_kind()) is not None else ""
         )

@@ -409,11 +409,12 @@ class Vessel:
 
     def draw_propellant(
         self,
-        amount: float
+        amount: float,
+        kind: str | None = None
     ) -> float:
-        """Take up to `amount` kg from every tank, evenly by what each holds (the thrusters); returns what came out."""
+        """Take up to `amount` kg from every tank (of a propellant: None, any), evenly by what each holds (the thrusters); returns what came out."""
 
-        tanks = [state for state in self.parts if state.propellant > 1e-9]
+        tanks = [state for state in self.parts if state.propellant > 1e-9 and (kind is None or state.part.propellant_type == kind)]
 
         held = sum(state.propellant * state.count for state in tanks)
 
@@ -512,14 +513,48 @@ class Vessel:
         self,
         index: int
     ) -> list[PartState]:
+        """The tanks an engine draws on: its section's, of what it burns."""
 
         section = self._section_of(index)
+
+        engine = self.parts[index].part.engine
+
+        kind = engine.propellant if engine is not None else None
 
         return [
             state
             for i, state in enumerate(self.parts)
-            if state.part.propellant > 0.0 and self._section_of(i) == section
+            if state.part.propellant > 0.0
+            and (kind is None or state.part.propellant_type == kind)
+            and self._section_of(i) == section
         ]
+
+    def _feed_of(
+        self,
+        index: int
+    ) -> tuple:
+        """An engine's section and what it burns: engines sharing it share their tanks."""
+
+        engine = self.parts[index].part.engine
+
+        return self._section_of(index), engine.propellant if engine is not None else None
+
+    def section_kind(
+        self
+    ) -> str | None:
+        """What the burning (or next) engines burn."""
+
+        engines = self.burning_engines()
+
+        if engines:
+            return engines[0][1].part.engine.propellant
+
+        lowest = max(
+            (i for i, state in enumerate(self.parts) if state.part.engine is not None and not state.radial),
+            default=None
+        )
+
+        return self.parts[lowest].part.engine.propellant if lowest is not None else None
 
     def burning_engines(
         self
@@ -850,7 +885,7 @@ class Vessel:
 
         for index, state in engines:
 
-            key = self._section_of(index)
+            key = self._feed_of(index)
 
             if key not in sections:
                 sections[key] = [0.0, sum(tank.propellant for tank in self._section_tanks(index))]

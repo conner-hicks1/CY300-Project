@@ -1,7 +1,7 @@
 {
   "format": 1,
   "name": "Mariner",
-  "description": "An uncrewed lander on Pathfinder Heavy's stages: a probe core with a high-gain dish, a survey camera and a sample kit on a small engine stage, under a parachute, over a heat shield. Far from home its commands take minutes to arrive: fly it with the flight computer (C). Stages: 0-2 as Pathfinder Heavy, 3 lander separation, 4 parachute, 5 heat shield off and the lander engine lit. Power: a battery and two solar wings on the lander stage (U unfolds them; fold them before coming into air). Four landing legs between the wings (G lowers them before touchdown).",
+  "description": "An uncrewed lander on Pathfinder Heavy's stages: a probe core with a high-gain dish, a survey camera and a sample kit on a small engine stage, under a parachute, over a heat shield. Far from home its commands take minutes to arrive: fly it with the flight computer (C). Stages: 0-2 as Pathfinder Heavy, 3 lander separation, 4 parachute, 5 heat shield off and the lander engine lit. Power: a battery and two solar wings on the lander stage (U unfolds them; fold them before coming into air). Four landing legs between the wings (G lowers them before touchdown). Its lander burns storable propellant: it keeps through months of cruise.",
   "notes": "Parts from the top down. stage: the stage (0 first, Space) that ignites an engine or fires a separator, dropping everything below it. radial: groups of parts round a core part (symmetry copies), with a radial separator.",
   "parts": [
     {
@@ -32,7 +32,7 @@
       "part": "battery_1m25"
     },
     {
-      "part": "tank_1m25_short",
+      "part": "tank_1m25_hypergolic",
       "radial": [
         {
           "symmetry": 2,
@@ -56,7 +56,7 @@
       ]
     },
     {
-      "part": "engine_small",
+      "part": "engine_hypergolic",
       "stage": 5
     },
     {

@@ -112,7 +112,7 @@ def test_a_new_career_researches_before_it_flies_a_probe(play):
     # in the tree's order.
     record.points = 400.0
 
-    needed = ["side_boosters", "small_rockets", "instruments", "electrics", "probes", "survey", "deep_space"]
+    needed = ["side_boosters", "small_rockets", "instruments", "electrics", "probes", "survey", "deep_space", "storable"]
 
     for node_id in needed:
         assert programme.research(node_id, record) == ""

@@ -17,7 +17,13 @@ from dataclasses import dataclass
 #         oxygen with hydrogen made on site, as the Sabatier
 #         process does; Titan's methane air: slower
 #
-# richness scales a plant's rates (1: ordinary).
+# richness scales a plant's rates (1: ordinary). Ice makes
+# hydrolox (water split into hydrogen and oxygen), air
+# methalox (vessel/propellants.py): the plant fills only
+# tanks of what it makes.
+
+# What each resource makes.
+PRODUCTS = {"ice": "hydrolox", "air": "methalox"}
 
 ICE_LATITUDE = 80.0
 MARS_CAP_LATITUDE = 75.0
@@ -69,12 +75,25 @@ def production(
 ) -> float:
     """kg a day a plant makes from the best resource here."""
 
-    best = 0.0
+    return max(products(resources, rate_ice, rate_air).values(), default=0.0)
+
+
+def products(
+    resources: list[Resource],
+    rate_ice: float,
+    rate_air: float
+) -> dict[str, float]:
+    """kg a day a plant could make here of each propellant (vessel/propellants.py)."""
+
+    found: dict[str, float] = {}
 
     for resource in resources:
 
-        rate = rate_ice if resource.kind == "ice" else rate_air
+        rate = (rate_ice if resource.kind == "ice" else rate_air) * resource.richness
 
-        best = max(best, rate * resource.richness)
+        kind = PRODUCTS[resource.kind]
 
-    return best
+        if rate > 0.0:
+            found[kind] = max(found.get(kind, 0.0), rate)
+
+    return found

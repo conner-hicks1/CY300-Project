@@ -81,6 +81,10 @@ class PowerStatus:
     # shadow): its wings turn to it.
     sun_local: object = None
 
+    # kg a day of propellant boiling off now
+    # (vessel/propellants.py).
+    boiloff: float = 0.0
+
     @property
     def net(
         self

@@ -8,9 +8,9 @@ from planet.orbits import date_of
 
 from programme import research
 from programme.career import Campaign, Career, Flight, today_of
-from programme.resources import production, resources_at
+from programme.resources import products, resources_at
 
-from vessel import soi
+from vessel import propellants, soi
 from vessel.docking import modules
 from vessel.transfer import find_window
 
@@ -94,8 +94,11 @@ class ProgrammeSystem:
         # Tanks full (noted once).
         self._full = False
 
-        # kg a day the plant makes here now (for the panel).
+        # kg a day the plant makes here now, and of what (for
+        # the panel); "" when it has no tanks for what it could
+        # make.
         self.making = 0.0
+        self.making_kind = ""
         self.resources = []
 
     # =====================================================
@@ -285,6 +288,7 @@ class ProgrammeSystem:
     ):
 
         self.making = 0.0
+        self.making_kind = ""
         self.resources = []
 
         vessel = component.vessel
@@ -307,24 +311,45 @@ class ProgrammeSystem:
         if flight.situation != "Landed":
             return
 
-        rate = sum(
-            production(self.resources, state.part.isru.rate_ice, state.part.isru.rate_air) * state.count
-            for state in plants
-        )
+        # What it could make here (kg a day of each), and of
+        # that what it has tanks with room for: the fastest.
+        could: dict[str, float] = {}
 
-        # Running while there is room in the tanks, as fast as
-        # its power lets it.
-        vessel.isru_wanted = rate > 0.0 and vessel.propellant < vessel.propellant_capacity - 1e-3
+        for state in plants:
+            for kind, rate in products(self.resources, state.part.isru.rate_ice, state.part.isru.rate_air).items():
+                could[kind] = could.get(kind, 0.0) + rate * state.count
 
-        if vessel.isru_wanted:
-            rate *= vessel.isru_share
+        room = {
+            kind: rate
+            for kind, rate in could.items()
+            if (aboard := propellants.held(vessel, kind))[1] - aboard[0] > 1e-3
+        }
+
+        if not room:
+
+            # (Something to make, nowhere to put it: the panel
+            # says which tanks it needs.)
+            self.making_kind = "" if not could else "needs:" + ",".join(sorted(could))
+
+            return
+
+        kind = max(room, key=room.get)
+
+        rate = room[kind]
+
+        # Running while there is room, as fast as its power
+        # lets it.
+        vessel.isru_wanted = True
+
+        rate *= vessel.isru_share
 
         self.making = rate
+        self.making_kind = kind
 
         if rate <= 0.0 or simulated <= 0.0:
             return
 
-        made = fill_tanks(vessel, rate * simulated / 86_400.0)
+        made = fill_tanks(vessel, rate * simulated / 86_400.0, kind)
 
         self.career.made += made
 
@@ -338,7 +363,7 @@ class ProgrammeSystem:
 
             self._full = True
 
-            self.news.append("Propellant plant: tanks full")
+            self.news.append(f"Propellant plant: {propellants.of(kind).short} tanks full")
 
     # =====================================================
     # Launch Windows
@@ -503,11 +528,12 @@ class ProgrammeSystem:
 
 def drain_tanks(
     vessel,
-    amount: float
+    amount: float,
+    kind: str | None = None
 ) -> float:
-    """Take up to `amount` kg of propellant from the tanks, evenly by what each holds; returns what came out."""
+    """Take up to `amount` kg of propellant (of a kind: None, any) from the tanks, evenly by what each holds; returns what came out."""
 
-    return vessel.draw_propellant(amount)
+    return vessel.draw_propellant(amount, kind)
 
 
 def move_propellant(
@@ -515,28 +541,52 @@ def move_propellant(
     taker,
     amount: float
 ) -> float:
-    """From one vessel's tanks to another's (a depot): what fits, of what there is, up to `amount` kg."""
+    """
+    From one vessel's tanks to another's (a depot): up to
+    `amount` kg in all, each propellant into tanks of its own
+    kind, what fits of what there is.
+    """
 
-    room = taker.propellant_capacity - taker.propellant
+    moved = 0.0
 
-    taken = drain_tanks(giver, min(amount, room))
+    for kind in propellants.kinds_aboard(giver):
 
-    put = fill_tanks(taker, taken)
+        if amount - moved <= 1e-6:
+            break
 
-    # (Anything that did not fit goes back.)
-    if taken - put > 1e-6:
-        fill_tanks(giver, taken - put)
+        have, _ = propellants.held(giver, kind)
+        aboard, capacity = propellants.held(taker, kind)
 
-    return put
+        wanted = min(amount - moved, have, capacity - aboard)
+
+        if wanted <= 1e-6:
+            continue
+
+        taken = drain_tanks(giver, wanted, kind)
+
+        put = fill_tanks(taker, taken, kind)
+
+        # (Anything that did not fit goes back.)
+        if taken - put > 1e-6:
+            fill_tanks(giver, taken - put, kind)
+
+        moved += put
+
+    return moved
 
 
 def fill_tanks(
     vessel,
-    amount: float
+    amount: float,
+    kind: str | None = None
 ) -> float:
-    """Put up to `amount` kg of propellant into the tanks with room, evenly by room; returns what went in."""
+    """Put up to `amount` kg of propellant (into tanks of a kind: None, any) into the tanks with room, evenly by room; returns what went in."""
 
-    tanks = [state for state in vessel.parts if state.part.propellant > state.propellant + 1e-9]
+    tanks = [
+        state
+        for state in vessel.parts
+        if state.part.propellant > state.propellant + 1e-9 and (kind is None or state.part.propellant_type == kind)
+    ]
 
     room = sum((state.part.propellant - state.propellant) * state.count for state in tanks)
 

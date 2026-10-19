@@ -3,6 +3,8 @@ import json
 from dataclasses import dataclass
 from pathlib import Path
 
+from vessel.propellants import DEFAULT as DEFAULT_PROPELLANT, PROPELLANTS
+
 
 # =========================================================
 # Parts
@@ -33,6 +35,7 @@ class EngineSpec:
     isp_vacuum: float               # s
     isp_sea_level: float            # s, at 1 atm
     gimbal: float                   # deg the nozzle can swing
+    propellant: str = DEFAULT_PROPELLANT   # what it burns (vessel/propellants.py)
 
 
 @dataclass(frozen=True, slots=True)
@@ -107,6 +110,9 @@ class PartDefinition:
     metallic: float = 0.0
     roughness: float = 0.5
     propellant: float = 0.0         # kg a full tank holds
+    propellant_type: str = DEFAULT_PROPELLANT   # of which (vessel/propellants.py)
+    insulation: float = 1.0         # its boil-off, of a plain tank's
+    cooling: float = 0.0            # kg of cryogenic propellant a cryocooler keeps cold (powered)
     engine: EngineSpec | None = None
     parachute: ParachuteSpec | None = None
     reaction_wheel_torque: float = 0.0
@@ -205,6 +211,20 @@ def _number(
     return float(value)
 
 
+def _propellant(
+    data: dict,
+    where: str,
+    key: str = "propellant"
+) -> str:
+
+    kind = data.get(key, DEFAULT_PROPELLANT)
+
+    if kind not in PROPELLANTS:
+        raise PartError(f"{where}: '{key}' must be one of {', '.join(PROPELLANTS)}")
+
+    return kind
+
+
 def parse_part(
     data: dict
 ) -> PartDefinition:
@@ -236,7 +256,8 @@ def parse_part(
             thrust_vacuum=_number(raw, "thrust_vacuum", where, minimum=1.0),
             isp_vacuum=_number(raw, "isp_vacuum", where, minimum=1.0),
             isp_sea_level=_number(raw, "isp_sea_level", where),
-            gimbal=_number(raw, "gimbal", where, default=0.0)
+            gimbal=_number(raw, "gimbal", where, default=0.0),
+            propellant=_propellant(raw, where)
         )
 
     parachute = None
@@ -338,6 +359,9 @@ def parse_part(
         metallic=_number(data, "metallic", where, default=0.0),
         roughness=_number(data, "roughness", where, default=0.5),
         propellant=_number(data, "propellant", where, default=0.0),
+        propellant_type=_propellant(data, where, "propellant_type"),
+        insulation=_number(data, "insulation", where, default=1.0),
+        cooling=_number(data, "cooling", where, default=0.0),
         engine=engine,
         parachute=parachute,
         reaction_wheel_torque=_number(data, "reaction_wheel_torque", where, default=0.0),

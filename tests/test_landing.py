@@ -47,14 +47,17 @@ def test_legs_widen_the_stance(lander):
     assert landing.leg_state(lander) == "up"
 
     # On its engine's bell: a narrow stance.
-    assert landing.feet(lander) == pytest.approx(0.5)
-    assert landing.standing_angle(lander) == pytest.approx(math.degrees(math.atan2(0.5, lander.center_of_mass)))
+    bell = lander.core[-1].part.radius_bottom
+
+    assert lander.core[-1].part.kind == "engine"
+    assert landing.feet(lander) == pytest.approx(bell)
+    assert landing.standing_angle(lander) == pytest.approx(math.degrees(math.atan2(bell, lander.center_of_mass)))
 
     landing.set_legs(lander, True)
     landing.move_legs(lander, 0.5 * landing.LEG_TIME)
 
     # Half way: still on the bell.
-    assert landing.leg_state(lander) == "lowering" and landing.feet(lander) == pytest.approx(0.5)
+    assert landing.leg_state(lander) == "lowering" and landing.feet(lander) == pytest.approx(bell)
 
     landing.move_legs(lander, landing.LEG_TIME)
 

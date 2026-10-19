@@ -137,7 +137,7 @@ class ProgrammePanel:
             rate, source, made = info.plant
 
             if rate > 0.0:
-                imgui.text_colored(GOOD, f"Propellant plant: {rate:,.0f} kg/day from {source}")
+                imgui.text_colored(GOOD, f"Propellant plant: {rate:,.0f} kg/day of {source}")
             else:
                 imgui.text_colored(NOTE, f"Propellant plant: {source}")
 

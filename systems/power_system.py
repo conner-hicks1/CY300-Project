@@ -6,7 +6,7 @@ from math3d import quaternion
 
 from scene.scene import Scene
 
-from vessel import kepler, power
+from vessel import kepler, power, propellants
 
 
 # =========================================================
@@ -26,6 +26,10 @@ from vessel import kepler, power
 # average over the step, sampled round the orbit (the
 # vessel holding its attitude, as on rails) or round the
 # day (the Sun going round the sky).
+#
+# The same sunlight warms the tanks: cryogenic propellant
+# boils off (vessel/propellants.py), once launched (on the
+# pad it is topped off).
 
 SUN = None
 
@@ -120,6 +124,12 @@ class PowerSystem:
             status.sunlight = sunlight
             status.flux = flux
             status.sun_local = sun_local
+
+            if component.paid:
+
+                status.boiloff = propellants.boil_rate(vessel, sunlight, flux)
+
+                propellants.boil(vessel, sunlight, flux, dt)
 
             component.power = status
 

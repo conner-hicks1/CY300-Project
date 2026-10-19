@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from vessel import propellants
 from vessel.parts import (
     SYMMETRIES,
     VESSELS_DIRECTORY,
@@ -503,6 +504,19 @@ class DesignDraft:
             if engines and not tanks:
                 found.append(f"{engines[0].part.name}: no tank in its section to burn from.")
 
+            elif engines:
+
+                # Each engine burns its own propellant
+                # (vessel/propellants.py).
+                held = {tank.part.propellant_type for tank in tanks}
+
+                for engine in engines:
+
+                    kind = engine.part.engine.propellant
+
+                    if kind not in held:
+                        found.append(f"{engine.part.name} burns {propellants.of(kind).short}: no {propellants.of(kind).short} tank in its section.")
+
         for entry in self.entries:
 
             for group in entry.radial:
@@ -512,6 +526,9 @@ class DesignDraft:
 
                 if engines and not tanks:
                     found.append(f"Radial {engines[0].part.name}: no tank in its group to burn from.")
+
+                elif engines and engines[0].part.engine.propellant not in {tank.part.propellant_type for tank in tanks}:
+                    found.append(f"Radial {engines[0].part.name}: no {propellants.of(engines[0].part.engine.propellant).short} tank in its group.")
 
                 if group.decoupler is None and (engines or tanks):
                     found.append(f"A radial group on {entry.part.name} has no separator: it stays on all the way.")
