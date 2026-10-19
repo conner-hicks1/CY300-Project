@@ -25,10 +25,11 @@ log Braking
 throttle full
 
 # Slow: come down briskly (hovering costs fuel), then
-# gently, then touch down softly.
+# gently (legs down), then touch down softly.
 wait until speed < 40 m/s
 descend 25 m/s
 wait until altitude < 1 km
+legs down
 descend 8 m/s
 wait until altitude < 100 m
 descend 2 m/s

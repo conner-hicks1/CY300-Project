@@ -39,7 +39,7 @@ from resources.resources import Resources
 
 from scene.scene import Scene
 
-from vessel import docking, heating, kepler, looks, maneuver, power, soi
+from vessel import docking, heating, kepler, landing, looks, maneuver, power, soi
 from vessel.parts import VesselDesign
 from vessel.physics import (
     Controls,
@@ -153,6 +153,16 @@ class VesselReadout:
     # The part nearest its heat limit: (skin K, limit K,
     # name); None without parts.
     heat: tuple[float, float, str] | None = None
+
+    # Landing (vessel/landing.py): the ground's slope under
+    # it (deg; None: not near the ground), the slope it still
+    # stands on, its legs ("", "up", "lowering", "down",
+    # "raising"); fallen over, and why.
+    slope: float | None = None
+    standing: float = 0.0
+    legs: str = ""
+    toppled: bool = False
+    fell: str = ""
 
 
 def copy_positions(
@@ -302,6 +312,11 @@ class VesselSystem:
         # The landing burn's estimate: (clock time, Braking or
         # None).
         self._braking = None
+
+        # The ground's slope under the vessel (deg), near the
+        # ground; else None. Where it was found: (body, position).
+        self._slope: float | None = None
+        self._slope_at: tuple | None = None
 
         # Where the vessel was launched from: (body, start),
         # for the part editor to rebuild it there.
@@ -1110,6 +1125,28 @@ class VesselSystem:
 
         column = physics.column
 
+        # The ground's slope (vessel/landing.py), from the
+        # heights round a point (as fine as the vessel's height
+        # needs).
+        normal = None
+
+        if physics.solid and planet_system is not None and body in orbit_system.states:
+
+            _, body_frame = orbit_system.states[body]
+
+            accuracy = self.ground_accuracy
+
+            def ground_at(where):
+
+                found = planet_system.ground(body, body_frame.T @ where, accuracy)
+
+                return physics.radius + found[0] + found[1] if found is not None else ground_radius
+
+            def normal_at(where):
+                return landing.ground_normal(ground_at, where, max(3.0, 4.0 * accuracy))
+
+            normal = normal_at
+
         if column is not None:
 
             gas_constant = column.gas_constant
@@ -1145,7 +1182,8 @@ class VesselSystem:
             air=air,
             ground=lambda d: ground_radius,
             air_top=air_top,
-            temperature=temperature
+            temperature=temperature,
+            normal=normal
         )
 
     def _extent(
@@ -2053,9 +2091,44 @@ class VesselSystem:
 
             extent = self._extent(component.body, planet_system, scene, orbit_system)
 
+            was_toppled = state.toppled
+
+            landing.move_legs(vessel, dt)
+
             self._fly(vessel, state, environment, component.controls, dt, extent)
 
             self._height = float(np.linalg.norm(state.position)) - environment.ground(direction)
+
+            # The slope below, near the ground (looked up again
+            # once it has moved a little: five lookups of the
+            # fine ground are not cheap).
+            if environment.normal is not None and self._height < self.SLOPE_HEIGHT and not state.destroyed:
+
+                last = self._slope_at
+
+                # (In the body's own turning frame: landed, it
+                # stays put.)
+                local = orbit_system.states[component.body][1].T @ state.position
+
+                moved = math.inf if last is None or last[0] is not component.body else float(np.linalg.norm(local - last[1]))
+
+                if moved > max(5.0, 0.05 * self._height):
+
+                    up = state.position / float(np.linalg.norm(state.position))
+
+                    self._slope = landing.slope_of(environment.normal(up), up)
+                    self._slope_at = (component.body, local)
+
+            else:
+
+                self._slope = None
+                self._slope_at = None
+
+            if state.toppled and not was_toppled:
+
+                events.append("toppled")
+
+                Logger.info("[Vessels] %s fell over: %s.", vessel.name, state.fell)
 
             if state.destroyed:
 
@@ -2063,6 +2136,8 @@ class VesselSystem:
 
                 if state.burned_up:
                     Logger.info("[Vessels] %s burned up (its %s overheated).", vessel.name, state.burned_up)
+                elif state.fell:
+                    Logger.info("[Vessels] %s %s.", vessel.name, state.fell)
                 else:
                     Logger.info("[Vessels] %s hit the ground at %.0f m/s.", vessel.name, state.impact_speed)
 
@@ -2112,6 +2187,7 @@ class VesselSystem:
 
         for _, any_component in self.vessels(scene):
             self._update_wings(scene, any_component)
+            self._update_legs(scene, any_component)
 
         self.place(scene, orbit_system)
 
@@ -2995,6 +3071,81 @@ class VesselSystem:
             transform.position = (0.0, chute.bottom + chute.part.height + lines, 0.0)
             transform.scale = (radius, radius, radius)
 
+    # Below this height (m) the slope under the vessel is
+    # looked up (for the HUD, and the landing).
+    SLOPE_HEIGHT = 3_000.0
+
+    # =====================================================
+    # Landing Legs
+    # =====================================================
+    #
+    # Each leg hangs from the top of its place (its pivot);
+    # swinging down, its foot reaches out its span and down
+    # level with the vessel's bottom (where it stands);
+    # folded, it lies along the side.
+
+    def _update_legs(
+        self,
+        scene: Scene,
+        component: VesselComponent
+    ):
+
+        up = np.array([0.0, 1.0, 0.0])
+
+        for state in component.vessel.parts:
+
+            spec = state.part.legs
+
+            if spec is None or not state.radial:
+                continue
+
+            copies = component.part_entities.get(id(state), [])
+
+            out = state.extended
+
+            height = state.part.height
+
+            pivot = state.bottom + height
+
+            reach = spec.span * out
+            foot = state.bottom * (1.0 - out)
+
+            base = math.radians(state.angle)
+
+            for k, child in enumerate(copies):
+
+                angle = base + 2.0 * math.pi * k / max(state.count, 1)
+
+                radial = np.array([math.cos(angle), 0.0, math.sin(angle)])
+
+                # From the foot up to the pivot.
+                along = up * (pivot - foot) - radial * reach
+
+                length = float(np.linalg.norm(along))
+
+                if length <= 1e-6:
+                    continue
+
+                along = along / length
+
+                turn = np.cross(up, along)
+
+                sine = float(np.linalg.norm(turn))
+
+                orientation = (
+                    quaternion.from_axis_angle(turn / sine, math.degrees(math.atan2(sine, float(up @ along))))
+                    if sine > 1e-9
+                    else np.array([0.0, 0.0, 0.0, 1.0])
+                )
+
+                where = radial * (state.distance + reach) + up * foot
+
+                transform = scene.get_component(child, TransformComponent).transform
+
+                transform.position = (float(where[0]), float(where[1]), float(where[2]))
+                transform.orientation = orientation
+                transform.scale = (1.0, length / height, 1.0)
+
     # =====================================================
     # Solar Wings
     # =====================================================
@@ -3265,5 +3416,10 @@ class VesselSystem:
             impact_speed=state.impact_speed,
             parachute=parachute,
             burned_up=state.burned_up,
-            heat=(hot.temperature, hot.part.max_temperature, hot.part.name) if (hot := heating.hottest(vessel)) is not None else None
+            heat=(hot.temperature, hot.part.max_temperature, hot.part.name) if (hot := heating.hottest(vessel)) is not None else None,
+            slope=self._slope if not state.destroyed else None,
+            standing=landing.standing_angle(vessel),
+            legs=landing.leg_state(vessel),
+            toppled=state.toppled,
+            fell=state.fell
         )

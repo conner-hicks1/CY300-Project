@@ -56,6 +56,7 @@ class DraftGroup:
     offset: float = 0.0
     decoupler: "DraftEntry | None" = None
     entries: list["DraftEntry"] = field(default_factory=list)
+    angle: float = 0.0              # deg round the core of its first copy
 
 
 @dataclass(slots=True)
@@ -78,7 +79,8 @@ def _entry_from(
                 group.symmetry,
                 group.offset,
                 DraftEntry(group.decoupler.part, group.decoupler.stage) if group.decoupler is not None else None,
-                [DraftEntry(member.part, member.stage) for member in group.stack]
+                [DraftEntry(member.part, member.stage) for member in group.stack],
+                group.angle
             )
             for group in entry.radial
         ]
@@ -543,7 +545,8 @@ class DesignDraft:
                         group.symmetry,
                         group.offset,
                         StackEntry(group.decoupler.part, group.decoupler.stage) if group.decoupler is not None else None,
-                        tuple(StackEntry(member.part, member.stage) for member in group.entries)
+                        tuple(StackEntry(member.part, member.stage) for member in group.entries),
+                        group.angle
                     )
                     for group in entry.radial
                     if group.entries
@@ -596,6 +599,7 @@ class DesignDraft:
                     {
                         "symmetry": group.symmetry,
                         "offset": group.offset,
+                        **({"angle": group.angle} if group.angle else {}),
                         **({"decoupler": entry_json(group.decoupler)} if group.decoupler is not None else {}),
                         "parts": [entry_json(member) for member in group.entries],
                     }
@@ -723,6 +727,7 @@ def open_design(
             entry.radial.append(DraftGroup(
                 symmetry=symmetry if symmetry in SYMMETRIES else 2,
                 offset=float(group.get("offset", 0.0) or 0.0),
+                angle=float(group.get("angle", 0.0) or 0.0),
                 decoupler=entry_from(group["decoupler"], f"{where} separator") if group.get("decoupler") else None,
                 entries=[entry_from(member, f"{where} part {j}") for j, member in enumerate(group.get("parts", []))]
             ))

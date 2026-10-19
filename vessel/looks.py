@@ -160,6 +160,9 @@ def pieces(
     if kind == "power":
         return _power(part)
 
+    if kind == "legs":
+        return _leg(part)
+
     if part.max_temperature >= 2_500.0:
         return _heat_shield(part)
 
@@ -393,6 +396,23 @@ def _instrument(part) -> list[Piece]:
         looks.append(Piece(_cylinder(r_top * 0.9, 0.85 * h, h), "metal", ALUMINIUM, tile=None))
 
     return looks
+
+
+def _leg(part) -> list[Piece]:
+
+    h, r = part.height, part.radius
+
+    pad = 0.08 * h
+
+    # A strut with a shock absorber, a hinge at the top, a
+    # wide pad at the foot (drawn swung out from the hinge,
+    # systems/vessel_system.py).
+    return [
+        Piece(_frustum(r, r * 0.5, 0.0, pad), "metal", ALUMINIUM, segments=16, tile=None),
+        Piece(_cylinder(r * 0.22, pad, 0.55 * h), "steel", STEEL, segments=12, tile=None),
+        Piece(_cylinder(r * 0.32, 0.55 * h, 0.92 * h), "paint", segments=12, tile=None),
+        Piece(_cylinder(r * 0.4, 0.92 * h, h), "metal", ALUMINIUM, segments=12, tile=None),
+    ]
 
 
 def _power(part) -> list[Piece]:

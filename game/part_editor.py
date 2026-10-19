@@ -12,7 +12,7 @@ from vessel.design import (
     open_design,
     save_draft
 )
-from vessel import power
+from vessel import landing, power
 from vessel.parts import PartDefinition, PartError
 from vessel.vessel import Vessel
 
@@ -60,6 +60,8 @@ KIND_TITLES = (
     ("science", "Science"),
     ("antenna", "Antennas"),
     ("utility", "Utility"),
+    ("power", "Power"),
+    ("legs", "Landing legs"),
     ("structure", "Structure"),
 )
 
@@ -137,6 +139,9 @@ def part_summary(
 
     if part.antenna_range:
         lines.append(f"Antenna: reaches home from {part.antenna_range / 1.495978707e11:,.3g} AU ({part.antenna_range / 1e9:,.3g} million km)")
+
+    if part.legs is not None:
+        lines.append(f"Landing leg: its pad {part.legs.span:g} m out when down (G); lands at up to {part.crash_speed:.0f} m/s")
 
     if part.battery:
         lines.append(f"Battery {format.energy(part.battery)}")
@@ -602,11 +607,59 @@ class PartEditor:
 
         self._draw_power(vessel)
 
+        self._draw_landing(vessel)
+
         for problem in draft.problems() + self._unresearched():
             imgui.text_colored(PROBLEM_COLOR, problem)
 
         for warning in draft.warnings():
             imgui.text_colored(WARNING_COLOR, warning)
+
+    @staticmethod
+    def _draw_landing(
+        vessel
+    ):
+        """How the last stage stands: the slope it holds, legs down and up, what it lands at."""
+
+        lander = vessel._copy()
+
+        for _ in range(len(lander.parts) + 16):
+            if lander.stage() is None:
+                break
+
+        if not lander.core:
+            return
+
+        imgui.spacing()
+
+        if landing.legs(lander):
+
+            landing.set_legs(lander, False)
+            landing.move_legs(lander, landing.LEG_TIME)
+
+            folded = landing.standing_angle(lander)
+
+            landing.set_legs(lander, True)
+            landing.move_legs(lander, landing.LEG_TIME)
+
+            imgui.text(
+                f"Landing: stands on slopes up to {landing.standing_angle(lander):,.0f} deg with its legs down "
+                f"({folded:,.0f} up), touching down at up to {landing.crash_speed(lander):,.0f} m/s"
+            )
+
+        else:
+
+            bottom = lander.core[-1].part
+
+            text = (
+                f"Landing on its {bottom.name.lower()}: slopes up to {landing.standing_angle(lander):,.0f} deg, "
+                f"at up to {landing.crash_speed(lander):,.0f} m/s"
+            )
+
+            if bottom.kind == "engine":
+                imgui.text_colored(WARNING_COLOR, text + "; landing legs stand on more.")
+            else:
+                imgui.text_disabled(text)
 
     def _unresearched(
         self

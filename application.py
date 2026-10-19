@@ -101,6 +101,7 @@ from controllers.docking import DockingController
 from controllers.editor import EditorController
 from controllers.fleet import FleetController
 from controllers.maneuvers import ManeuverController
+from controllers.landing import LandingController
 from controllers.navigation import NavigationController
 from controllers.power import PowerController
 from controllers.programme import ProgrammeController
@@ -135,6 +136,7 @@ from ui.panels import PanelRegistry
 
 
 class Application(
+    LandingController,
     PowerController,
     EditorController,
     FleetController,
@@ -1365,7 +1367,7 @@ class Application(
                 self.planet_system
             )
 
-            if "destroyed" in events or "landed" in events:
+            if "destroyed" in events or "landed" in events or "toppled" in events:
                 self.time_warp.stop()
 
             self._notify(events)
@@ -1559,7 +1561,14 @@ class Application(
             self.hud.notify("Maneuver done: throttle cut")
 
         if "landed" in events:
+
             self.hud.notify(f"Landed on {readout.body}")
+
+            if readout.slope is not None and not readout.toppled:
+                self.hud.notify(f"Standing on a {readout.slope:,.0f} deg slope")
+
+        if "toppled" in events:
+            self.hud.notify(f"{readout.name} fell over: {readout.fell}. It cannot lift off again")
 
         if readout.parachute == "open" and self._parachute != "open":
             self.hud.notify("Parachute opening")
@@ -1669,6 +1678,9 @@ class Application(
 
         if Input.is_key_pressed(Key.U) and self.vessel_system.find(self.scene) is not None:
             self._toggle_panels()
+
+        if Input.is_key_pressed(Key.G) and self.vessel_system.find(self.scene) is not None:
+            self._toggle_legs()
 
         if Input.is_key_pressed(Key.LEFT_BRACKET):
             self._cycle_vessel(-1)

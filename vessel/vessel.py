@@ -192,7 +192,8 @@ class Vessel:
                         count=radial.symmetry,
                         group=group,
                         offset=radial.offset,
-                        source=(index, number, "separator")
+                        source=(index, number, "separator"),
+                        angle=radial.angle
                     ))
 
                 for position, member in enumerate(radial.stack):
@@ -204,7 +205,8 @@ class Vessel:
                         group=group,
                         offset=radial.offset,
                         source=(index, number, position),
-                        charge=member.part.battery
+                        charge=member.part.battery,
+                        angle=radial.angle
                     ))
 
                 group += 1

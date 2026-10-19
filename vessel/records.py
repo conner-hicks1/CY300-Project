@@ -110,6 +110,9 @@ def state_to_json(
         "angular_velocity": [float(x) for x in state.angular_velocity],
         "landed": state.landed,
         "thrust_dv": [float(x) for x in state.thrust_dv],
+        "toppled": state.toppled,
+        "rest_height": state.rest_height,
+        "fell": state.fell,
     }
 
 
@@ -124,6 +127,9 @@ def state_from_json(
         angular_velocity=np.array(data.get("angular_velocity", [0.0, 0.0, 0.0]), dtype=np.float64),
         landed=bool(data.get("landed", False)),
         thrust_dv=np.array(data.get("thrust_dv", [0.0, 0.0, 0.0]), dtype=np.float64),
+        toppled=bool(data.get("toppled", False)),
+        rest_height=float(data.get("rest_height", 0.0)),
+        fell=str(data.get("fell", "")),
     )
 
 

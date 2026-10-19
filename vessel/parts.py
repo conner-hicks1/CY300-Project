@@ -16,7 +16,7 @@ from pathlib import Path
 PARTS_PATH = Path("assets/parts/parts.json")
 VESSELS_DIRECTORY = Path("assets/vessels")
 
-KINDS = ("command", "tank", "engine", "decoupler", "parachute", "science", "antenna", "utility", "structure", "power")
+KINDS = ("command", "tank", "engine", "decoupler", "parachute", "science", "antenna", "utility", "structure", "power", "legs")
 
 # Where an experiment works (science/record.py).
 SITUATIONS = ("landed", "flying", "space_low", "space_high")
@@ -64,6 +64,17 @@ class IsruSpec:
     rate_ice: float
     rate_air: float
     power: float = 0.0              # W it draws making it (vessel/power.py)
+
+
+@dataclass(frozen=True, slots=True)
+class LegSpec:
+    """
+    A landing leg (vessel/landing.py), on a radial group: down,
+    its pad stands `span` m further out than its mount, level
+    with the vessel's bottom.
+    """
+
+    span: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -120,6 +131,9 @@ class PartDefinition:
     power_draw: float = 0.0
     wheel_power: float = 0.0
 
+    # A landing leg (vessel/landing.py).
+    legs: LegSpec | None = None
+
     @property
     def radius(
         self
@@ -142,6 +156,10 @@ class RadialGroup:
     offset: float
     decoupler: "StackEntry | None"
     stack: tuple["StackEntry", ...]
+
+    # Where round the core the first copy stands (deg; the
+    # others evenly after it): groups apart on one part.
+    angle: float = 0.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -292,6 +310,17 @@ def parse_part(
             wings=int(_number(raw, "wings", where, default=2.0, minimum=1.0))
         )
 
+    legs = None
+
+    if data.get("legs") is not None:
+
+        raw = data["legs"]
+
+        if not isinstance(raw, dict):
+            raise PartError(f"{where}: 'legs' must be an object")
+
+        legs = LegSpec(span=_number(raw, "span", where, minimum=0.1))
+
     color = data.get("color", [0.7, 0.7, 0.7])
 
     if not (isinstance(color, list) and len(color) == 3 and all(isinstance(c, (int, float)) for c in color)):
@@ -326,7 +355,8 @@ def parse_part(
         solar=solar,
         generator=_number(data, "generator", where, default=0.0),
         power_draw=_number(data, "power_draw", where, default=0.0),
-        wheel_power=_number(data, "wheel_power", where, default=0.0)
+        wheel_power=_number(data, "wheel_power", where, default=0.0),
+        legs=legs
     )
 
 
@@ -398,6 +428,11 @@ def _parse_entry(
         if isinstance(offset, bool) or not isinstance(offset, (int, float)):
             raise PartError(f"{place}: offset must be a number (m)")
 
+        angle = raw.get("angle", 0.0)
+
+        if isinstance(angle, bool) or not isinstance(angle, (int, float)):
+            raise PartError(f"{place}: angle must be a number (deg)")
+
         decoupler = None
 
         if raw.get("decoupler") is not None:
@@ -418,7 +453,7 @@ def _parse_entry(
         if any(member.part.kind == "decoupler" for member in members):
             raise PartError(f"{place}: separators go in its 'decoupler', not its parts")
 
-        groups.append(RadialGroup(int(symmetry), float(offset), decoupler, members))
+        groups.append(RadialGroup(int(symmetry), float(offset), decoupler, members, float(angle)))
 
     return StackEntry(part, stage, tuple(groups))
 

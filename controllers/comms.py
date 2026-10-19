@@ -259,6 +259,10 @@ class CommsController:
 
             self.set_panels(component, payload)
 
+        elif kind == "legs":
+
+            self.set_legs(component, payload)
+
         elif kind == "program":
 
             component.computer = FlightComputer(payload)
@@ -314,7 +318,7 @@ class CommsController:
             crewed=link.crewed
         )
 
-        names = {"program": "the program", "stop": "Stop", "controls": "controls", "stage": "Stage", "science": "Run experiments", "panels": "the solar wings"}
+        names = {"program": "the program", "stop": "Stop", "controls": "controls", "stage": "Stage", "science": "Run experiments", "panels": "the solar wings", "legs": "the landing legs"}
 
         info.in_flight = [(names.get(kind, kind), when - now) for when, kind, _ in component.uplink if when > now and kind != "controls"]
 

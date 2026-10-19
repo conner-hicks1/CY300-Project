@@ -7,7 +7,7 @@ import numpy as np
 
 from math3d import quaternion
 
-from vessel import heating, kepler
+from vessel import heating, kepler, landing
 from vessel.vessel import BODY_DRAG_COEFFICIENT, G0, Vessel
 
 
@@ -30,10 +30,12 @@ from vessel.vessel import BODY_DRAG_COEFFICIENT, G0, Vessel
 #   attitude  pitch / yaw / roll commands spin the vessel
 #             (reaction wheels and engine gimbal); SAS holds
 #             it still
-#   ground    below the surface: landed (at most the bottom
-#             part's crash speed) or destroyed; a landed
-#             vessel turns with the body until the engines
-#             lift it
+#   ground    below the surface: landed (at most what it
+#             lands on stands: its legs, else its bottom
+#             part) or destroyed; standing square to the
+#             slope, or fallen over (vessel/landing.py); a
+#             landed vessel turns with the body until the
+#             engines lift it (not on its side)
 #   heat      fast through the air, the leading part's skin
 #             heats (vessel/heating.py); past its limit the
 #             vessel burns up
@@ -71,6 +73,13 @@ class VesselState:
     # burn has done.
     thrust_dv: np.ndarray = field(default_factory=lambda: np.zeros(3))
 
+    # Fallen over landing (vessel/landing.py): on its side,
+    # its origin this far (m) above the ground; why (also
+    # why, when the fall broke it).
+    toppled: bool = False
+    rest_height: float = 0.0
+    fell: str = ""
+
     def copy(self) -> "VesselState":
 
         return VesselState(
@@ -82,7 +91,10 @@ class VesselState:
             self.destroyed,
             self.impact_speed,
             self.burned_up,
-            self.thrust_dv.copy()
+            self.thrust_dv.copy(),
+            self.toppled,
+            self.rest_height,
+            self.fell
         )
 
     @property
@@ -150,6 +162,10 @@ class Environment:
 
     # The air's temperature (K) at a radius (m); None: no air.
     temperature: Callable[[float], float] | None = None
+
+    # The ground's unit normal under a direction (inertial);
+    # None: level (square to the direction).
+    normal: Callable[[np.ndarray], np.ndarray] | None = None
 
 
 # =========================================================
@@ -262,14 +278,16 @@ def step(
 
     if state.landed:
 
-        # Lifts off once the push up beats the weight.
-        if float(np.dot(acceleration, direction)) <= 0.0:
+        # Lifts off once the push up beats the weight (never
+        # lying on its side).
+        if state.toppled or float(np.dot(acceleration, direction)) <= 0.0:
 
             _ride_the_ground(state, environment, dt)
 
             return
 
         state.landed = False
+        state.rest_height = 0.0
 
     # -------------------------------------------------
     # Moving (semi-implicit Euler: keeps orbits closed)
@@ -505,7 +523,7 @@ def _ride_the_ground(
 
     direction = state.position / radius
 
-    state.position = direction * environment.ground(direction)
+    state.position = direction * (environment.ground(direction) + state.rest_height)
     state.velocity = surface_velocity(environment, state.position)
     state.angular_velocity = np.zeros(3)
 
@@ -527,21 +545,64 @@ def _touch_ground(
 
     relative = state.velocity - surface_velocity(environment, state.position)
 
-    impact = float(np.linalg.norm(relative))
-
     state.position = direction * ground
 
-    if impact > vessel.crash_speed:
+    normal = environment.normal(direction) if environment.normal is not None else direction
+
+    weight = environment.mu / (ground * ground)
+
+    axis = state.up
+
+    result = landing.touch_down(vessel, axis, normal, direction, relative, weight)
+
+    state.velocity = surface_velocity(environment, state.position)
+    state.angular_velocity = np.zeros(3)
+
+    if result.outcome == "crash":
 
         state.destroyed = True
-        state.impact_speed = impact
-        state.velocity = surface_velocity(environment, state.position)
+        state.impact_speed = result.impact
 
         return
 
+    if result.outcome == "topple":
+
+        fall = landing.fall_speed(vessel, weight)
+
+        if fall > landing.TOPPLE_CRASH:
+
+            state.destroyed = True
+            state.impact_speed = fall
+            state.fell = f"fell over ({result.reason}) and broke up"
+
+            return
+
+        # On its side, along the ground.
+        lying = landing.fallen_axis(normal, direction, axis, relative)
+
+        state.orientation = quaternion.look_rotation(-normal, lying)
+        state.toppled = True
+        state.fell = result.reason
+        state.rest_height = max((part.part.radius for part in vessel.core), default=0.5)
+        state.position = direction * (ground + state.rest_height)
+        state.landed = True
+
+        return
+
+    # Standing: square to the ground.
+    turn = np.cross(axis, normal)
+
+    sine = float(np.linalg.norm(turn))
+
+    if sine > 1e-9:
+
+        angle = math.degrees(math.atan2(sine, float(axis @ normal)))
+
+        state.orientation = quaternion.normalize(
+            quaternion.multiply(quaternion.from_axis_angle(turn / sine, angle), state.orientation)
+        )
+
     state.landed = True
-    state.velocity = surface_velocity(environment, state.position)
-    state.angular_velocity = np.zeros(3)
 
 
 def land(
@@ -558,6 +619,8 @@ def land(
     state.velocity = surface_velocity(environment, state.position)
     state.angular_velocity = np.zeros(3)
     state.landed = True
+    state.toppled = False
+    state.rest_height = 0.0
 
 
 def upright(

@@ -22,6 +22,8 @@ from pathlib import Path
 #   transmit                           send the results home
 #   panels out | in                    unfold (or fold) the solar
 #                                      wings (also: unfold, fold)
+#   legs down | up                     lower (or raise) the landing
+#                                      legs
 #   burn                               fly the maneuver node: point
 #                                      along it, wait for its start,
 #                                      full throttle until done
@@ -43,6 +45,7 @@ from pathlib import Path
 #   brake     s until a landing burn must start (suicide burn)
 #   node      s until the maneuver node
 #   charge    the batteries' share full (0-1, or %)
+#   slope     deg of the ground below (near it)
 #
 # Units: m, km, m/s, km/s, s, min, h, d, %, bar.
 #
@@ -64,8 +67,10 @@ class SequenceError(ValueError):
 
 QUANTITIES = (
     "altitude", "apoapsis", "periapsis", "speed", "vertical", "orbital",
-    "pressure", "fuel", "heat", "brake", "node", "charge"
+    "pressure", "fuel", "heat", "brake", "node", "charge", "slope"
 )
+
+LEG_WORDS = {"down": True, "lower": True, "deploy": True, "up": False, "raise": False, "retract": False, "stow": False}
 
 PANEL_WORDS = {
     "out": True, "unfold": True, "extend": True, "open": True, "deploy": True,
@@ -353,6 +358,13 @@ def parse(
 
             add("panels", PANEL_WORDS[rest])
 
+        elif head in ("legs", "gear"):
+
+            if rest not in LEG_WORDS:
+                raise SequenceError(number, "legs takes down or up")
+
+            add("legs", LEG_WORDS[rest])
+
         elif head == "log":
             add("log", raw.split("#", 1)[0].strip()[3:].strip())
 
@@ -456,6 +468,8 @@ class FlightContext:
     def transmit(self): ...
 
     def panels(self, out: bool): ...
+
+    def legs(self, down: bool): ...
 
 
 @dataclass(slots=True)
@@ -623,6 +637,10 @@ class FlightComputer:
         elif kind == "panels":
 
             context.panels(statement.value)
+
+        elif kind == "legs":
+
+            context.legs(statement.value)
 
         elif kind == "log":
 

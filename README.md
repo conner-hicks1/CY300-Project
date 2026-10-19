@@ -496,6 +496,24 @@ build your own rocket in the part editor, on the pad.
   and when the ground comes without it. The impact is found on the real
   terrain along the path ahead (the elevation map sampled under the
   predicted track, the body turning meanwhile), not the ground below now
+- Touching down (`vessel/landing.py`): the vessel stands on its landing
+  legs' pads (**G** lowers them; a small leg's pad 1.4 m out, a large
+  one's 2.6 m) or, without them, the bottom of its lowest part (an engine
+  bell, a heat shield). Faster than what it lands on stands (legs 12-14
+  m/s) it breaks up. Otherwise it settles square to the ground: the slope
+  comes from the real heights and the fine detail on them, sampled round
+  the touchdown point. It tips over if the slope is steeper than its feet
+  hold (its center of mass past their edge: Mariner's lander stands on 44
+  deg with its legs down, 13 on its bell), if it comes down tilted past
+  that, or if it slides sideways hard enough to roll over its downhill
+  feet (about 1.7 m/s on the Moon, more in stronger gravity). On its side
+  it cannot lift off again but can still do its science and report (as
+  IM-1 Odysseus did in 2024); a tall vessel falling over in strong gravity
+  breaks up. Below 3 km the HUD shows the slope below and the slope it
+  stands on (amber when too steep, a reminder when its legs are up); chips
+  for the legs and for lying on its side; the part editor shows how the
+  last stage stands. Radial groups can be turned round the core (`angle`
+  in a design): Mariner's four legs stand between its two wings
 - Prograde and retrograde follow the motion over the ground below 30 km
   (and in air), so retrograde points straight up for a vertical landing
 - Attitude control works coasting too: SAS and the pilot's keys turn the
@@ -604,12 +622,13 @@ build your own rocket in the part editor, on the pad.
   Statements: `throttle` (full, off, 0.6, 60%), `hover`, `descend <m/s>`,
   `stage`, `sas` (on, off, hold, prograde, retrograde, maneuver),
   `science`, `transmit`, `burn` (fly the maneuver node: point, wait for its
-  start, burn until done), `panels out | in` (the solar wings), `log`,
+  start, burn until done), `panels out | in` (the solar wings), `legs
+  down | up`, `log`,
   `wait <duration>`, `wait until <condition>`, `at node | periapsis |
   apoapsis [- 30 s]`, `repeat n ... end`. Conditions compare altitude,
   apoapsis, periapsis, speed, vertical, orbital, pressure, fuel, heat,
-  brake (s to the landing burn), node (s to it) or charge (the batteries'
-  share) with units (m, km, m/s, s, min, h, %, bar), or name a
+  brake (s to the landing burn), node (s to it), charge (the batteries'
+  share) or slope (deg of the ground below) with units (m, km, m/s, s, min, h, %, bar), or name a
   situation (landed, orbiting...), with and / or / not. Errors name the
   line. Time warp holds back for what the computer waits on (a time, the
   braking point, the node)
@@ -772,11 +791,12 @@ build your own rocket in the part editor, on the pad.
 - Build on the launch pad (pause menu > Build vessel): the rocket stands
   there and changes as you edit; right mouse turns the view
 - Parts on the left by kind (command, tanks, engines, separators,
-  parachutes, science, antennas, utility, structure, power: 38, at 1.25 m
+  parachutes, science, antennas, utility, power, landing legs, structure:
+  40, at 1.25 m
   and 2.5 m, with adapters, a nose cone, heat shields, science instruments,
   antennas, a propellant plant, docking ports (end and side), a habitat, a radial
   separator, a 1.25 m booster engine, batteries, solar wings and arrays, an
-  RTG and a reactor; tooltips with cost, mass, propellant, thrust and Isp); a click adds one below the selected part, or
+  RTG, a reactor and two landing legs; tooltips with cost, mass, propellant, thrust and Isp); a click adds one below the selected part, or
   into the selected radial group
 - The stack on the right: select a part (it lights up) to move it, remove
   it or change its stage; automatic staging (from the bottom up, each
@@ -893,6 +913,7 @@ planet streams in over the first few seconds.
 | **[** / **]** | Fly the previous / next vessel |
 | **B** | Auto-dock with the targeted vessel |
 | **U** | Unfold / fold the solar wings |
+| **G** | Lower / raise the landing legs |
 | Arrows, **H** / **N** | Translate (RCS): forward / back, left / right, fore / aft |
 | **V** | Free camera: hold right mouse, **W A S D** move, **Space** up, **Shift** down (along the ground, around the planet from orbit; speed grows with altitude) |
 | **.** / **,** | Time warp faster / slower |

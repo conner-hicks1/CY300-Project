@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together). Kinds: command (needed to fly), tank, engine, decoupler (drops what is below it), parachute, structure (adapters, nose cones). max_temperature: K a part's skin stands (default 1400); a heat shield under a capsule stands ~3300 for coming in from orbit or the Moon. experiment: what science a part does (id, name, value, situations: landed / flying / space_low / space_high; needs_air; maps: maps the ground from orbit). crew: people aboard (crewed vessels fly without a link home). antenna_range: m from home the part's antenna still links (built into command parts: ~the Moon). cost: $ millions. isru: a propellant plant: kg a day it makes landed on ice (rate_ice) or in a usable air (rate_air). docking: a docking port (at a stack's top or bottom). rcs_thrust: N of translation thrust (docking). side: a side docking port, put on a radial group: it faces straight out from the core; a plain stack docks to it and hangs off it. Power (W and Wh): battery: Wh it stores; power_draw: W it draws all the time (avionics, life support, an instrument, a transmitter); wheel_power: W its reaction wheels draw turning hard; experiment energy: Wh a run takes; isru power: W the plant draws running; generator: W made day and night (an RTG, a reactor); solar: wings unfolding from it (power: W at 1 AU square to the Sun, length and width m of each wing, wings: 2 out both sides of a stack part, 1 straight out from a radial copy). Kind power: batteries, solar wings, generators.",
+  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together). Kinds: command (needed to fly), tank, engine, decoupler (drops what is below it), parachute, structure (adapters, nose cones). max_temperature: K a part's skin stands (default 1400); a heat shield under a capsule stands ~3300 for coming in from orbit or the Moon. experiment: what science a part does (id, name, value, situations: landed / flying / space_low / space_high; needs_air; maps: maps the ground from orbit). crew: people aboard (crewed vessels fly without a link home). antenna_range: m from home the part's antenna still links (built into command parts: ~the Moon). cost: $ millions. isru: a propellant plant: kg a day it makes landed on ice (rate_ice) or in a usable air (rate_air). docking: a docking port (at a stack's top or bottom). rcs_thrust: N of translation thrust (docking). side: a side docking port, put on a radial group: it faces straight out from the core; a plain stack docks to it and hangs off it. Power (W and Wh): battery: Wh it stores; power_draw: W it draws all the time (avionics, life support, an instrument, a transmitter); wheel_power: W its reaction wheels draw turning hard; experiment energy: Wh a run takes; isru power: W the plant draws running; generator: W made day and night (an RTG, a reactor); solar: wings unfolding from it (power: W at 1 AU square to the Sun, length and width m of each wing, wings: 2 out both sides of a stack part, 1 straight out from a radial copy). Kind power: batteries, solar wings, generators. Kind legs: landing legs (legs: span, m their pads stand out beyond the mount when down; crash_speed: what landing on them stands), on a radial group; G lowers them.",
   "parts": [
     {
       "id": "capsule",
@@ -911,6 +911,52 @@
       "generator": 10000,
       "crash_speed": 8,
       "cost": 60.0
+    },
+    {
+      "id": "landing_leg",
+      "name": "Landing leg",
+      "kind": "legs",
+      "mass": 45,
+      "shape": {
+        "radius_top": 0.15,
+        "radius_bottom": 0.15,
+        "height": 1.8
+      },
+      "color": [
+        0.85,
+        0.85,
+        0.83
+      ],
+      "metallic": 0.4,
+      "roughness": 0.4,
+      "legs": {
+        "span": 1.4
+      },
+      "crash_speed": 12,
+      "cost": 2.0
+    },
+    {
+      "id": "landing_leg_large",
+      "name": "Landing leg, large",
+      "kind": "legs",
+      "mass": 160,
+      "shape": {
+        "radius_top": 0.25,
+        "radius_bottom": 0.25,
+        "height": 3.2
+      },
+      "color": [
+        0.85,
+        0.85,
+        0.83
+      ],
+      "metallic": 0.4,
+      "roughness": 0.4,
+      "legs": {
+        "span": 2.6
+      },
+      "crash_speed": 14,
+      "cost": 5.0
     }
   ]
 }

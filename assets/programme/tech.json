@@ -30,10 +30,10 @@
     {
       "id": "small_rockets",
       "name": "Small rockets",
-      "about": "1.25 m tanks, engines and separators, adapters and a small heat shield: landers and upper stages.",
+      "about": "1.25 m tanks, engines and separators, adapters, a small heat shield and landing legs: landers and upper stages.",
       "cost": 10,
       "requires": ["basic_rocketry"],
-      "parts": ["tank_1m25_short", "tank_1m25_long", "decoupler_1m25", "engine_small", "adapter_2m5_1m25", "adapter_1m25_2m5", "heat_shield_1m25"]
+      "parts": ["tank_1m25_short", "tank_1m25_long", "decoupler_1m25", "engine_small", "adapter_2m5_1m25", "adapter_1m25_2m5", "heat_shield_1m25", "landing_leg", "landing_leg_large"]
     },
     {
       "id": "instruments",

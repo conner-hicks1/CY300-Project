@@ -37,7 +37,7 @@ NOTICE_SECONDS = 4.0
 
 # Words that color a notice.
 NOTICE_TONES = (
-    (("lost", "destroyed", "burned up", "missed", "out of power", "torn off"), "bad"),
+    (("lost", "destroyed", "burned up", "missed", "out of power", "torn off", "fell over"), "bad"),
     (("no link", "not enough", "cannot", "too far", "could not", "nothing", "no power"), "warn"),
     (("mission done", "recovered", "docked", "landed", "science", "transmitted", "budget", "mapped", "done", "power again"), "good"),
 )
@@ -56,12 +56,21 @@ CONTROLS = (
     ("L, [ ]", "vessels"),
     ("B", "auto-dock"),
     ("U", "solar wings"),
+    ("G", "landing legs"),
     (", . /", "time warp"),
     ("V", "free camera"),
     ("Esc", "menu"),
     ("F1 / F2", "these keys / the HUD"),
 )
 
+
+# The landing legs, as a chip: (text, tone).
+LEG_CHIPS = {
+    "up": ("Legs up", "faint"),
+    "lowering": ("Legs lowering", "accent"),
+    "raising": ("Legs raising", "accent"),
+    "down": ("Legs down", "good"),
+}
 
 # The solar wings, as a chip: (text, tone).
 PANEL_CHIPS = {
@@ -229,7 +238,11 @@ class FlightHud:
             self._draw_banner(
                 f"{vessel.name} burned up coming in: its {vessel.burned_up.lower()} overheated."
                 if vessel.burned_up
-                else f"{vessel.name} hit the ground at {vessel.impact_speed:,.0f} m/s and was destroyed.",
+                else (
+                    f"{vessel.name} {vessel.fell}."
+                    if vessel.fell
+                    else f"{vessel.name} hit the ground at {vessel.impact_speed:,.0f} m/s and was destroyed."
+                ),
                 "Esc > Revert to launch",
                 (x + width * 0.5, y + height * 0.3)
             )
@@ -512,6 +525,14 @@ class FlightHud:
             elif vessel.parachute == "open":
                 style.chip("Parachute open", "good", same_line=True)
 
+            legs = LEG_CHIPS.get(vessel.legs)
+
+            if legs is not None:
+                style.chip(legs[0], legs[1], same_line=True)
+
+            if vessel.toppled:
+                style.chip("On its side", "bad", same_line=True)
+
             if power is not None:
 
                 if not power.powered:
@@ -548,6 +569,27 @@ class FlightHud:
             elif braking is not None:
 
                 style.say("Engines cannot stop the fall", "bad")
+
+            # The ground below: will it stand there?
+            if vessel.slope is not None and not vessel.destroyed and not vessel.toppled:
+
+                steep = vessel.slope > vessel.standing
+
+                if vessel.situation == "Landed":
+                    style.say(f"Standing on a {vessel.slope:,.0f} deg slope (holds {vessel.standing:,.0f})", "muted")
+                else:
+
+                    style.say(
+                        f"Ground below: {vessel.slope:,.0f} deg slope; stands on {vessel.standing:,.0f}"
+                        + ("  (too steep)" if steep else ""),
+                        "warn" if steep else "muted"
+                    )
+
+                    if vessel.legs in ("up", "raising"):
+
+                        imgui.same_line()
+
+                        imgui.text_colored(style.tone("warn"), "  legs up: G")
 
             heat = vessel.heat
 

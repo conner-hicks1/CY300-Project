@@ -109,6 +109,9 @@ class GameFlightContext(FlightContext):
         if name == "heat":
             return readout.heat[0] / readout.heat[1] if readout.heat is not None else 0.0
 
+        if name == "slope":
+            return readout.slope
+
         if name == "charge":
 
             vessel = self.component.vessel
@@ -208,6 +211,10 @@ class GameFlightContext(FlightContext):
     def panels(self, out: bool):
 
         self.app.set_panels(self.component, out)
+
+    def legs(self, down: bool):
+
+        self.app.set_legs(self.component, down)
 
 
 def hold_sink_rate(
