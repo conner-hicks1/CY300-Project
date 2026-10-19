@@ -235,7 +235,8 @@ class MapView:
         node_label: str = "",
         sites: list | None = None,
         others: list | None = None,
-        storms: list | None = None
+        storms: list | None = None,
+        debris: list | None = None
     ):
         """
         planned: the path after the maneuver node's burn
@@ -298,6 +299,22 @@ class MapView:
 
                 draw.add_quad_filled((x, y - 4.0), (x + 4.0, y), (x, y + 4.0), (x - 4.0, y), color)
                 draw.add_text((x + 6.0, y - 7.0), _color(SITE_COLOR, 0.75), name)
+
+        # Orbital debris: grey specks.
+        for point in debris or ():
+
+            hidden = any(
+                bool(hidden_by_sphere(projection.position, point[None, :], center, body_radius.get(key, 0.0) * 0.999)[0])
+                for key, center in body_world.items()
+            )
+
+            if hidden:
+                continue
+
+            pixel, front = projection.project(point[None, :])
+
+            if front[0]:
+                draw.add_circle_filled((pixel[0, 0], pixel[0, 1]), 2.0, _color((0.7, 0.7, 0.72, 0.85)))
 
         for edge, label, center in storms or ():
 

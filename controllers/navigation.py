@@ -316,6 +316,16 @@ class NavigationController:
 
                 storms.append((np.array(ring), label, center))
 
+        # Orbital debris round the body.
+        debris_points = []
+
+        if reference is not None and reference in body_world:
+
+            to_world = self.orbit_system.inertial_to_world
+
+            for _, piece in self.vessel_system.orbital_debris(self.scene, reference):
+                debris_points.append(body_world[reference] + to_world @ piece.state.position)
+
         self.map_view.draw(
             projection,
             self.orbit_system.inertial_to_world,
@@ -331,7 +341,8 @@ class NavigationController:
             node_label=f"Node {self.maneuver_dv:,.0f} m/s" if self.maneuver_dv is not None else "",
             sites=sites,
             others=others,
-            storms=storms
+            storms=storms,
+            debris=debris_points
         )
 
         targets = sorted(

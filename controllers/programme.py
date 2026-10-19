@@ -126,6 +126,16 @@ class ProgrammeController:
 
         info.mars = mars_forecast(now)
 
+        counts: dict = {}
+
+        for _, piece in self.vessel_system.orbital_debris(self.scene):
+
+            name = self.vessel_system.body_name(self.scene, piece.body)
+
+            counts[name] = counts.get(name, 0) + 1
+
+        info.debris = sorted(counts.items())
+
         if not programme.sandbox:
             info.astronauts = [
                 (a.name, a.role, a.status, a.flights, a.days, a.dose)

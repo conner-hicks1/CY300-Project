@@ -8,6 +8,9 @@ from ecs.components import BodyComponent, VesselComponent
 
 from science.record import ScienceResult
 
+from ecs.components import DebrisComponent
+from vessel.debris import FRAGMENT
+
 from vessel.records import (
     node_from_json,
     node_to_json,
@@ -85,6 +88,17 @@ def snapshot(
             "active": entity == active_entity,
         })
 
+    # Debris in lasting orbits (vessel/debris.py).
+    for _, debris in vessel_system.orbital_debris(scene):
+
+        records.append({
+            "debris": True,
+            "vessel": vessel_to_json(debris.vessel),
+            "state": state_to_json(debris.state),
+            "body": science_system.body_id(scene, debris.body),
+            "epoch": now,
+        })
+
     return records
 
 
@@ -120,10 +134,24 @@ def restore(
             continue
 
         try:
-            vessel = vessel_from_json(record["vessel"], parts)
+            vessel = vessel_from_json(record["vessel"], dict(parts, fragment=FRAGMENT))
             state = state_from_json(record["state"])
         except (KeyError, ValueError, TypeError) as error:
             Logger.warning("[Fleet] A saved vessel could not be restored: %s", error)
+            continue
+
+        if record.get("debris"):
+
+            entity = vessel_system.add_debris(scene, vessel, state, body, orbit_system, orbital=True)
+
+            debris = scene.get_component(entity, DebrisComponent)
+
+            # Up to now, on rails (come down meanwhile: gone).
+            elapsed = now - float(record.get("epoch", now))
+
+            if elapsed > 0.0 and vessel_system._orbit_debris(scene, debris, elapsed, orbit_system):
+                vessel_system._destroy_tree(scene, entity)
+
             continue
 
         entity = vessel_system.add_vessel(

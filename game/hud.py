@@ -614,6 +614,13 @@ class FlightHud:
                     else ("warn" if life.days < 3.0 or life.rate > 10.0 else "muted")
                 )
 
+            # Debris coming close.
+            if vessel.conjunction is not None:
+
+                seconds, miss = vessel.conjunction
+
+                style.say(f"Debris passes {format.distance(miss)} away in {format.countdown(seconds)}", "bad" if miss < 200.0 else "warn")
+
             # Mars's weather, low or landed there.
             if sky is not None:
 

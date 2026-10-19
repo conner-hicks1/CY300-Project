@@ -1,4 +1,5 @@
 import math
+import zlib
 
 from collections.abc import Hashable
 from dataclasses import dataclass
@@ -44,6 +45,7 @@ from planet import weather
 from science.survey import latitude_longitude
 
 from vessel import collision, docking, heating, kepler, landing, looks, maneuver, power, propellants, soi
+from vessel import debris as debris_model
 from vessel.layout import copy_orientations, copy_positions
 from vessel.parts import VesselDesign
 from vessel.physics import (
@@ -179,6 +181,10 @@ class VesselReadout:
     # Mars's weather over it (planet/weather.py), low or
     # landed there; else None.
     weather: object = None
+
+    # The nearest debris pass coming within WARN_DISTANCE in
+    # WARN_TIME: (s until, m apart), or None.
+    conjunction: tuple | None = None
 
     # Its failed parts' names (vessel/reliability.py).
     failed: tuple = ()
@@ -2149,7 +2155,7 @@ class VesselSystem:
 
                     events.append("node done")
 
-        self._update_debris(scene, component, environment, dt, planet_system, orbit_system)
+        events.extend(self._update_debris(scene, component, environment, dt, planet_system, orbit_system))
 
         for other, background in self.vessels(scene):
 
@@ -2170,7 +2176,7 @@ class VesselSystem:
 
         was_destroyed = state.destroyed
 
-        events.extend(self._collide(scene, entity, component, dt))
+        events.extend(self._collide(scene, entity, component, dt, orbit_system))
 
         if state.destroyed and not was_destroyed:
 
@@ -2394,9 +2400,26 @@ class VesselSystem:
         planet_system,
         orbit_system
     ):
-        """Spent stages fall (gravity, air) until they land, are left behind, or the vessel moves on."""
+        """
+        Spent stages fall (gravity, air) until they land, are
+        left behind, or the vessel moves on; those in a lasting
+        orbit stay, on rails, until they come down (vessel/
+        debris.py). Events "reentered:<name>".
+        """
+
+        events = []
 
         for entity, debris in list(scene.registry.view_with(DebrisComponent)):
+
+            if debris.orbital:
+
+                if self._orbit_debris(scene, debris, dt, orbit_system):
+
+                    events.append(f"reentered:{debris.vessel.name}")
+
+                    self._destroy_tree(scene, entity)
+
+                continue
 
             gone = (
                 debris.body is not component.body
@@ -2418,6 +2441,13 @@ class VesselSystem:
 
                 distance = float(np.linalg.norm(debris.state.position - component.state.position))
 
+                # In a lasting orbit: kept.
+                if not debris.state.destroyed and self._in_lasting_orbit(scene, debris.body, debris.state, orbit_system, planet_system):
+
+                    debris.orbital = True
+
+                    continue
+
                 gone = (
                     debris.state.landed
                     or debris.state.destroyed
@@ -2428,6 +2458,134 @@ class VesselSystem:
             if gone:
 
                 self._destroy_tree(scene, entity)
+
+        return events
+
+    def _in_lasting_orbit(
+        self,
+        scene: Scene,
+        body: Hashable,
+        state: VesselState,
+        orbit_system,
+        planet_system
+    ) -> bool:
+        """Its orbit clears the air (and the ground) with room to spare."""
+
+        if self.reference_state(orbit_system, body) is None or body is SUN:
+            return False
+
+        physics = self._body_physics(scene, body, orbit_system)
+
+        shape = kepler.orbit_shape(state.position, state.velocity, physics.mu)
+
+        if shape.period is None:
+            return False
+
+        extent = self._extent(body, planet_system, scene, orbit_system) - physics.radius if planet_system is not None else 0.0
+
+        floor = physics.radius + max(debris_model.REENTRY_HEIGHT if physics.column is not None else 0.0, extent, 0.0)
+
+        return shape.periapsis > floor + 10_000.0
+
+    def _orbit_debris(
+        self,
+        scene: Scene,
+        debris,
+        dt: float,
+        orbit_system
+    ) -> bool:
+        """An orbital piece's step on rails, the Earth's upper air dragging it down. True: it has come down."""
+
+        state = debris.state
+
+        if state.destroyed:
+            return True
+
+        if dt <= 0.0 or self.reference_state(orbit_system, debris.body) is None:
+            return False
+
+        physics = self._body_physics(scene, debris.body, orbit_system)
+
+        state.position, state.velocity = kepler.propagate(state.position, state.velocity, physics.mu, dt)
+
+        if physics.column is not None and self.body_name(scene, debris.body) == "Earth":
+            state.position, state.velocity = debris_model.decay(state.position, state.velocity, physics.mu, physics.radius, debris_model.ballistic(debris.vessel), dt)
+
+        shape = kepler.orbit_shape(state.position, state.velocity, physics.mu)
+
+        floor = physics.radius + (debris_model.REENTRY_HEIGHT if physics.column is not None else 0.0)
+
+        return shape.periapsis < floor
+
+    # A debris pass worth a warning: within this many m, this
+    # many s ahead (straight lines: good for minutes).
+    WARN_DISTANCE = 2_000.0
+    WARN_TIME = 600.0
+
+    def conjunction(
+        self,
+        scene: Scene,
+        component: VesselComponent
+    ) -> tuple[float, float] | None:
+        """The nearest coming pass of orbital debris: (s until, m apart), or None."""
+
+        state = component.state
+
+        best = None
+
+        for _, debris in self.orbital_debris(scene, component.body):
+
+            relative = debris.state.position - state.position
+
+            # (Far off: it cannot come close in WARN_TIME.)
+            if float(np.linalg.norm(relative)) > 20_000.0 * self.WARN_TIME / 60.0:
+                continue
+
+            found = debris_model.closest_approach(relative, debris.state.velocity - state.velocity, self.WARN_TIME)
+
+            if found is not None and found[1] < self.WARN_DISTANCE and (best is None or found[0] < best[0]):
+                best = found
+
+        return best
+
+    def add_debris(
+        self,
+        scene: Scene,
+        vessel: Vessel,
+        state: VesselState,
+        body: Hashable,
+        orbit_system,
+        orbital: bool = False
+    ) -> Entity:
+        """A piece of debris (a fragment, a saved stage), drawn."""
+
+        entity = scene.create_entity()
+
+        scene.add_component(entity, NameComponent(vessel.name))
+        scene.add_component(entity, TransformComponent(transform=Transform()))
+
+        component = DebrisComponent(vessel=vessel, state=state, body=body, orbital=orbital)
+
+        scene.add_component(entity, component)
+
+        self._build_parts(scene, entity, component)
+
+        self.place(scene, orbit_system)
+
+        return entity
+
+    def orbital_debris(
+        self,
+        scene: Scene,
+        body: Hashable | None = None
+    ) -> list:
+        """The pieces in lasting orbits (round a body: None, all): (entity, DebrisComponent)."""
+
+        return [
+            (entity, debris)
+            for entity, debris in scene.registry.view_with(DebrisComponent)
+            if debris.orbital and not debris.state.destroyed and (body is None or debris.body == body)
+        ]
 
     def _destroy_tree(
         self,
@@ -3114,12 +3272,42 @@ class VesselSystem:
 
     COLLIDE_SPAN = 1.0
 
+    def _shatter(
+        self,
+        scene: Scene,
+        body: Hashable,
+        vessel: Vessel,
+        state: VesselState,
+        speed: float,
+        orbit_system
+    ):
+        """A vessel broken up: its fragments flung apart (lasting in orbit if their orbits clear the air)."""
+
+        if body is SUN or self.reference_state(orbit_system, body) is None:
+            return
+
+        seed = zlib.crc32(f"{vessel.name}|{float(state.position[0]):.1f}|{speed:.1f}".encode())
+
+        for piece, position, velocity in debris_model.fragments(state.position, state.velocity, speed, vessel.mass, seed):
+
+            fragment_state = VesselState(
+                position=position,
+                velocity=velocity,
+                orientation=np.asarray(state.orientation, dtype=np.float64).copy(),
+                angular_velocity=np.random.default_rng(seed).normal(0.0, 0.5, 3)
+            )
+
+            orbital = self._in_lasting_orbit(scene, body, fragment_state, orbit_system, None)
+
+            self.add_debris(scene, piece, fragment_state, body, orbit_system, orbital=orbital)
+
     def _collide(
         self,
         scene: Scene,
         entity: Entity,
         component: VesselComponent,
-        dt: float
+        dt: float,
+        orbit_system
     ) -> list[str]:
         """Events: "bump:<other>:<m/s>", the other's "lost:<name>" when it broke up."""
 
@@ -3148,8 +3336,37 @@ class VesselSystem:
 
         for vessel, other_state, name, named in candidates:
 
+            relative = other_state.position - state.position
+            closing = other_state.velocity - state.velocity
+
+            reach = 0.5 * (size + vessel.height + vessel.radius)
+
+            # Fast (orbital speeds): did they pass through each
+            # other over the step? Both break up.
+            if float(np.linalg.norm(closing)) * dt > 2.0:
+
+                if not debris_model.swept_hit(relative, closing, dt, reach):
+                    continue
+
+                speed = float(np.linalg.norm(closing))
+
+                for hit_state, hit_vessel, who in ((state, component.vessel, name), (other_state, vessel, component.vessel.name)):
+
+                    hit_state.destroyed = True
+                    hit_state.impact_speed = speed
+                    hit_state.fell = f"hit {who} at {speed:,.0f} m/s and broke up"
+
+                    self._shatter(scene, component.body, hit_vessel, hit_state, speed, orbit_system)
+
+                if named:
+                    events.append(f"lost:{name}")
+
+                Logger.info("[Vessels] %s and %s collided at %.0f m/s.", component.vessel.name, name, speed)
+
+                continue
+
             # (Far apart: nothing to look at.)
-            if float(np.linalg.norm(other_state.position - state.position)) > size + vessel.height + vessel.radius + 5.0:
+            if float(np.linalg.norm(relative)) > size + vessel.height + vessel.radius + 5.0:
                 continue
 
             if mine is None:
@@ -3178,11 +3395,15 @@ class VesselSystem:
                 state.impact_speed = impact.speed
                 state.fell = f"hit {name} at {impact.speed:,.1f} m/s and broke up"
 
+                self._shatter(scene, component.body, component.vessel, state, impact.speed, orbit_system)
+
             if impact.broke_b:
 
                 other_state.destroyed = True
                 other_state.impact_speed = impact.speed
                 other_state.fell = f"was hit at {impact.speed:,.1f} m/s and broke up"
+
+                self._shatter(scene, component.body, vessel, other_state, impact.speed, orbit_system)
 
                 if named:
                     events.append(f"lost:{name}")
@@ -3761,6 +3982,7 @@ class VesselSystem:
             fell=state.fell,
             propellant_kind=propellants.of(kind).short if (kind := vessel.section_kind()) is not None else "",
             failed=tuple(state.part.name for state in vessel.parts if state.failed),
+            conjunction=self.conjunction(scene, component) if not state.landed else None,
             weather=(
                 self.weather_here(orbit_system.states[component.body][1], orbit_system.time, state.position)
                 if physics.mars and component.body in orbit_system.states and radius - physics.radius < self.WEATHER_HEIGHT

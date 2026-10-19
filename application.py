@@ -1397,6 +1397,11 @@ class Application(
                     if float(speed) >= 1.0:
                         self.hud.notify(f"Bumped {other} at {float(speed):,.1f} m/s")
 
+                elif kind == "reentered":
+
+                    if not name.startswith("Fragment"):
+                        self.hud.notify(f"{name} came down through the air and burned up")
+
                 elif kind == "lost":
                     self.hud.notify(f"{name} came down and was lost")
                 elif kind == "landed" and name:

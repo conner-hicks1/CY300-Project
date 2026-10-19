@@ -54,6 +54,9 @@ class ProgrammeInfo:
     # Astronauts: (name, role, status, flights, days, dose mSv).
     astronauts: list = field(default_factory=list)
 
+    # Orbital debris: (body name, pieces) round each body.
+    debris: list = field(default_factory=list)
+
     # This vessel: (name, cost, recovery value, paid).
     vessel: tuple | None = None
 
@@ -237,6 +240,12 @@ class ProgrammePanel:
                     imgui.text_disabled(f"      {flown}")
 
                 imgui.tree_pop()
+
+        if info.debris:
+
+            imgui.separator()
+
+            imgui.text_colored(WARN, "Orbital debris: " + ", ".join(f"{count} round {name}" for name, count in info.debris))
 
         if info.mars is not None:
 

@@ -505,6 +505,16 @@ build your own rocket in the part editor, on the pad.
   glancing blow sets them turning, and the overlap is pushed out; a landed
   vessel does not move. Closing faster than a part stands, the vessel it
   is on breaks up. Not in fast time warp (on rails)
+- Orbital debris (`vessel/debris.py`): a spent stage whose orbit clears
+  the air stays in orbit, on rails, saved with the fleet, and the Earth's
+  upper air brings it down in time (the thermosphere's real density: days
+  from 200 km, about a year from 400, decades from 600, centuries higher;
+  the orbit shrinks keeping its shape). Two things meeting fast break into
+  a cloud of fragments flung at up to a fifth of the speed they met at,
+  each able to hit something else (the Kessler syndrome); at orbital
+  closing speeds a hit is found along the frame's motion, not by overlap.
+  The map shows the debris round the body, the Programme panel counts it,
+  and the HUD warns of a piece passing within 2 km in the next 10 minutes
 - Touching down (`vessel/landing.py`): the vessel stands on its landing
   legs' pads (**G** lowers them; a small leg's pad 1.4 m out, a large
   one's 2.6 m) or, without them, the bottom of its lowest part (an engine

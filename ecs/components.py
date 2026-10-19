@@ -308,6 +308,15 @@ class DebrisComponent:
     body: object
     age: float = 0.0
 
+    # In a lasting orbit (vessel/debris.py): kept, on rails,
+    # saved with the fleet, until the upper air brings it down.
+    orbital: bool = False
+
+    # Its drawn parts (as VesselComponent's).
+    part_entities: dict = field(default_factory=dict)
+    pieces: dict = field(default_factory=dict)
+    panel_entities: dict = field(default_factory=dict)
+
 
 # =========================================================
 # Camera Controller
