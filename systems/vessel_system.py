@@ -43,7 +43,8 @@ from scene.scene import Scene
 from planet import weather
 from science.survey import latitude_longitude
 
-from vessel import docking, heating, kepler, landing, looks, maneuver, power, propellants, soi
+from vessel import collision, docking, heating, kepler, landing, looks, maneuver, power, propellants, soi
+from vessel.layout import copy_orientations, copy_positions
 from vessel.parts import VesselDesign
 from vessel.physics import (
     Controls,
@@ -181,65 +182,6 @@ class VesselReadout:
 
     # Its failed parts' names (vessel/reliability.py).
     failed: tuple = ()
-
-
-def copy_positions(
-    state
-) -> list[tuple[float, float, float]]:
-    """
-    Where a part's copies stand in the vessel's frame: the
-    core's on the axis; a radial group's evenly round it,
-    the first on +X (to the sides as the camera first sees
-    a vessel on the pad).
-    """
-
-    if not state.radial:
-
-        # (Turned over in a docked stack: its own bottom at
-        # the top of its place.)
-        return [(0.0, state.bottom + (state.part.height if state.flipped else 0.0), 0.0)]
-
-    base = math.radians(state.angle)
-
-    return [
-        (
-            state.distance * math.cos(base + 2.0 * math.pi * k / state.count),
-            state.bottom,
-            state.distance * math.sin(base + 2.0 * math.pi * k / state.count)
-        )
-        for k in range(state.count)
-    ]
-
-
-def copy_orientations(
-    state
-) -> list:
-    """
-    How a part's copies are turned in the vessel's frame:
-    upright, or (sideways: side ports, modules docked to them)
-    their own axis straight out from the core (or in).
-    """
-
-    if not state.outward:
-
-        if state.flipped:
-            return [quaternion.from_axis_angle(np.array([1.0, 0.0, 0.0]), 180.0)] * max(state.count, 1)
-
-        return [np.array([0.0, 0.0, 0.0, 1.0])] * max(state.count, 1)
-
-    base = math.radians(state.angle)
-
-    turned = []
-
-    for k in range(state.count):
-
-        angle = base + 2.0 * math.pi * k / state.count
-
-        out = np.array([math.cos(angle), 0.0, math.sin(angle)]) * state.outward
-
-        turned.append(quaternion.look_rotation(np.array([0.0, 1.0, 0.0]), out))
-
-    return turned
 
 
 class VesselSystem:
@@ -2219,6 +2161,18 @@ class VesselSystem:
                 if background.state.destroyed:
                     self.remove(scene, other)
 
+        was_destroyed = state.destroyed
+
+        events.extend(self._collide(scene, entity, component, dt))
+
+        if state.destroyed and not was_destroyed:
+
+            events.append("destroyed")
+
+            Logger.info("[Vessels] %s %s.", vessel.name, state.fell)
+
+            self._clear_parts(scene, component)
+
         self._update_plumes(scene, entity, component, orbit_system, planet_system)
         self._update_canopies(scene, entity, component)
         self._update_reentry_glow(scene, entity, component)
@@ -3140,6 +3094,98 @@ class VesselSystem:
     # Below this height (m) the slope under the vessel is
     # looked up (for the HUD, and the landing).
     SLOPE_HEIGHT = 3_000.0
+
+    # =====================================================
+    # Collisions
+    # =====================================================
+    #
+    # The flown vessel against the others round the same body
+    # and the falling stages (vessel/collision.py): bumping
+    # apart, or breaking up past a part's crash speed. Not in
+    # time warp past COLLIDE_SPAN a frame (on rails, as in
+    # KSP: nothing touches).
+
+    COLLIDE_SPAN = 1.0
+
+    def _collide(
+        self,
+        scene: Scene,
+        entity: Entity,
+        component: VesselComponent,
+        dt: float
+    ) -> list[str]:
+        """Events: "bump:<other>:<m/s>", the other's "lost:<name>" when it broke up."""
+
+        state = component.state
+
+        if dt <= 0.0 or dt > self.COLLIDE_SPAN or state.destroyed:
+            return []
+
+        candidates = [
+            (other.vessel, other.state, other.vessel.name, True)
+            for other_entity, other in self.vessels(scene)
+            if other_entity != entity and other.body == component.body and not other.state.destroyed
+        ]
+
+        candidates += [
+            (debris.vessel, debris.state, "a spent stage", False)
+            for _, debris in scene.registry.view_with(DebrisComponent)
+            if debris.body == component.body and not debris.state.destroyed and debris.vessel.parts
+        ]
+
+        events = []
+
+        mine = None
+
+        size = component.vessel.height + component.vessel.radius
+
+        for vessel, other_state, name, named in candidates:
+
+            # (Far apart: nothing to look at.)
+            if float(np.linalg.norm(other_state.position - state.position)) > size + vessel.height + vessel.radius + 5.0:
+                continue
+
+            if mine is None:
+                mine = collision.body_of(component.vessel, state)
+
+            theirs = collision.body_of(vessel, other_state)
+
+            found = collision.contacts(mine, theirs)
+
+            if not found:
+                continue
+
+            impact = collision.resolve(mine, theirs, found)
+
+            collision.store(theirs, other_state)
+
+            if impact is None or impact.speed <= 0.0:
+                continue
+
+            if impact.speed > 0.3:
+                events.append(f"bump:{name}:{impact.speed:.1f}")
+
+            if impact.broke_a:
+
+                state.destroyed = True
+                state.impact_speed = impact.speed
+                state.fell = f"hit {name} at {impact.speed:,.1f} m/s and broke up"
+
+            if impact.broke_b:
+
+                other_state.destroyed = True
+                other_state.impact_speed = impact.speed
+                other_state.fell = f"was hit at {impact.speed:,.1f} m/s and broke up"
+
+                if named:
+                    events.append(f"lost:{name}")
+
+                Logger.info("[Vessels] %s broke up in a collision (%.1f m/s).", name, impact.speed)
+
+        if mine is not None:
+            collision.store(mine, state)
+
+        return events
 
     # Below this height (m) over Mars the HUD shows its
     # weather.

@@ -496,6 +496,15 @@ build your own rocket in the part editor, on the pad.
   and when the ground comes without it. The impact is found on the real
   terrain along the path ahead (the elevation map sampled under the
   predicted track, the body turning meanwhile), not the ground below now
+- Rigid collisions (`vessel/collision.py`): every part is a capsule along
+  its axis (a flat one a sphere; docking ports, solar wings and legs left
+  out, so ports still meet to dock). The flown vessel against the others
+  round the same body and the falling stages: touching, an impulse at the
+  contact by both bodies' masses and moments of inertia stops them closing
+  and bounces them a little apart (restitution 0.25, friction 0.4), a
+  glancing blow sets them turning, and the overlap is pushed out; a landed
+  vessel does not move. Closing faster than a part stands, the vessel it
+  is on breaks up. Not in fast time warp (on rails)
 - Touching down (`vessel/landing.py`): the vessel stands on its landing
   legs' pads (**G** lowers them; a small leg's pad 1.4 m out, a large
   one's 2.6 m) or, without them, the bottom of its lowest part (an engine

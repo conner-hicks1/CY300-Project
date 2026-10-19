@@ -1384,7 +1384,14 @@ class Application(
 
                 kind, _, name = event.partition(":")
 
-                if kind == "lost":
+                if kind == "bump":
+
+                    other, _, speed = name.rpartition(":")
+
+                    if float(speed) >= 1.0:
+                        self.hud.notify(f"Bumped {other} at {float(speed):,.1f} m/s")
+
+                elif kind == "lost":
                     self.hud.notify(f"{name} came down and was lost")
                 elif kind == "landed" and name:
                     self.hud.notify(f"{name} landed under its parachute")
