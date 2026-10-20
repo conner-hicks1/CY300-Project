@@ -1,6 +1,6 @@
 {
   "format": 1,
-  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together). Kinds: command (needed to fly), tank, engine, decoupler (drops what is below it), parachute, structure (adapters, nose cones). max_temperature: K a part's skin stands (default 1400); a heat shield under a capsule stands ~3300 for coming in from orbit or the Moon. experiment: what science a part does (id, name, value, situations: landed / flying / space_low / space_high; needs_air; maps: maps the ground from orbit). crew: people aboard (crewed vessels fly without a link home). antenna_range: m from home the part's antenna still links (built into command parts: ~the Moon). cost: $ millions. isru: a propellant plant: kg a day it makes landed on ice (rate_ice) or in a usable air (rate_air). docking: a docking port (at a stack's top or bottom). rcs_thrust: N of translation thrust (docking). side: a side docking port, put on a radial group: it faces straight out from the core; a plain stack docks to it and hangs off it. Power (W and Wh): battery: Wh it stores; power_draw: W it draws all the time (avionics, life support, an instrument, a transmitter); wheel_power: W its reaction wheels draw turning hard; experiment energy: Wh a run takes; isru power: W the plant draws running; generator: W made day and night (an RTG, a reactor); solar: wings unfolding from it (power: W at 1 AU square to the Sun, length and width m of each wing, wings: 2 out both sides of a stack part, 1 straight out from a radial copy). Kind power: batteries, solar wings, generators. Kind legs: landing legs (legs: span, m their pads stand out beyond the mount when down; crash_speed: what landing on them stands), on a radial group; G lowers them. Propellants (vessel/propellants.py): a tank's propellant_type and an engine's propellant are one of kerolox (the default), methalox, hydrolox, hypergolic; an engine burns only tanks of its own kind in its section. Cryogenic propellants boil off in sunlight (hydrolox fastest); insulation scales a tank's boil-off; cooling: kg of cryogenic propellant a cryocooler keeps from boiling (while powered). Life (vessel/life.py): supplies: kg of oxygen, water and food it holds (in its mass; 5 kg a person a day); recycling: the share its life support recycles while powered; shielding: the share of radiation that gets through (1: all).",
+  "notes": "Masses kg, lengths m, thrust N, Isp s, torque N m. Shapes are frustums: radius at the top and bottom, height; a part's origin is the center of its bottom. Tanks hold kerosene and liquid oxygen (~1,030 kg/m3 together). Kinds: command (needed to fly), tank, engine, decoupler (drops what is below it), parachute, structure (adapters, nose cones). max_temperature: K a part's skin stands (default 1400); a heat shield under a capsule stands ~3300 for coming in from orbit or the Moon. experiment: what science a part does (id, name, value, situations: landed / flying / space_low / space_high; needs_air; maps: maps the ground from orbit). crew: people aboard (crewed vessels fly without a link home). antenna_range: m from home the part's antenna still links (built into command parts: ~the Moon). cost: $ millions. isru: a propellant plant: kg a day it makes landed on ice (rate_ice) or in a usable air (rate_air). docking: a docking port (at a stack's top or bottom). rcs_thrust: N of translation thrust (docking). side: a side docking port, put on a radial group: it faces straight out from the core; a plain stack docks to it and hangs off it. Power (W and Wh): battery: Wh it stores; power_draw: W it draws all the time (avionics, life support, an instrument, a transmitter); wheel_power: W its reaction wheels draw turning hard; experiment energy: Wh a run takes; isru power: W the plant draws running; generator: W made day and night (an RTG, a reactor); solar: wings unfolding from it (power: W at 1 AU square to the Sun, length and width m of each wing, wings: 2 out both sides of a stack part, 1 straight out from a radial copy). Kind power: batteries, solar wings, generators. Kind legs: landing legs (legs: span, m their pads stand out beyond the mount when down; crash_speed: what landing on them stands), on a radial group; G lowers them. Propellants (vessel/propellants.py): a tank's propellant_type and an engine's propellant are one of kerolox (the default), methalox, hydrolox, hypergolic; an engine burns only tanks of its own kind in its section. Cryogenic propellants boil off in sunlight (hydrolox fastest); insulation scales a tank's boil-off; cooling: kg of cryogenic propellant a cryocooler keeps from boiling (while powered). Life (vessel/life.py): supplies: kg of oxygen, water and food it holds (in its mass; 5 kg a person a day); recycling: the share its life support recycles while powered; shielding: the share of radiation that gets through (1: all). Kind wheels (wheels: top speed m/s, power W at it): on a radial group of 2 or 4 copies, in pairs across the vessel, for driving landed (vessel/rover.py). Kind rotor (rotor: lift N per kg/m^3 of air at full throttle, power W): lift along the stack in air, on battery power.",
   "parts": [
     {
       "id": "capsule",
@@ -1268,6 +1268,115 @@
       "supplies": 4000,
       "crash_speed": 8,
       "cost": 6.0
+    },
+    {
+      "id": "rover_wheel",
+      "name": "Rover wheel",
+      "kind": "wheels",
+      "mass": 25,
+      "shape": {
+        "radius_top": 0.35,
+        "radius_bottom": 0.35,
+        "height": 0.22
+      },
+      "color": [
+        0.15,
+        0.15,
+        0.16
+      ],
+      "metallic": 0.1,
+      "roughness": 0.85,
+      "wheels": {
+        "speed": 4.0,
+        "power": 60
+      },
+      "crash_speed": 6,
+      "cost": 1.5
+    },
+    {
+      "id": "rover_chassis",
+      "name": "Rover chassis",
+      "kind": "structure",
+      "mass": 120,
+      "shape": {
+        "radius_top": 0.7,
+        "radius_bottom": 0.7,
+        "height": 0.5
+      },
+      "color": [
+        0.82,
+        0.82,
+        0.8
+      ],
+      "metallic": 0.3,
+      "roughness": 0.5,
+      "crash_speed": 6,
+      "cost": 2.0
+    },
+    {
+      "id": "helicopter_rotor",
+      "name": "Helicopter rotor",
+      "kind": "rotor",
+      "mass": 1.0,
+      "shape": {
+        "radius_top": 0.6,
+        "radius_bottom": 0.6,
+        "height": 0.25
+      },
+      "color": [
+        0.2,
+        0.2,
+        0.22
+      ],
+      "metallic": 0.2,
+      "roughness": 0.5,
+      "rotor": {
+        "lift": 650,
+        "power": 350
+      },
+      "crash_speed": 3,
+      "cost": 3.0
+    },
+    {
+      "id": "helicopter_body",
+      "name": "Helicopter body",
+      "kind": "command",
+      "mass": 1.0,
+      "shape": {
+        "radius_top": 0.12,
+        "radius_bottom": 0.12,
+        "height": 0.16
+      },
+      "color": [
+        0.8,
+        0.75,
+        0.6
+      ],
+      "metallic": 0.5,
+      "roughness": 0.4,
+      "battery": 40,
+      "power_draw": 4,
+      "reaction_wheel_torque": 0.2,
+      "wheel_power": 2,
+      "solar": {
+        "power": 12,
+        "length": 0.3,
+        "width": 0.18,
+        "wings": 2
+      },
+      "antenna_range": 5000000.0,
+      "experiment": {
+        "id": "aerial",
+        "name": "Aerial survey",
+        "value": 6,
+        "situations": [
+          "landed",
+          "flying"
+        ],
+        "energy": 2
+      },
+      "crash_speed": 4,
+      "cost": 8.0
     }
   ]
 }

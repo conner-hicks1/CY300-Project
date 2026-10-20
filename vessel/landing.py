@@ -72,6 +72,11 @@ def feet(
         for state in legs(vessel):
             reach = max(reach, state.distance + state.part.legs.span)
 
+    # Wheels: out at their outer faces, front and back.
+    for state in vessel.parts:
+        if state.part.wheels is not None and state.outward:
+            reach = max(reach, math.hypot(state.distance + state.part.height, 0.75 * state.distance) if state.count > 2 else state.distance + state.part.height)
+
     core = vessel.core
 
     bottom = core[-1].part.radius_bottom if core else 0.5
@@ -85,6 +90,12 @@ def crash_speed(
     """m/s it survives touching down at: on its legs, theirs; else its lowest part's."""
 
     speed = vessel.crash_speed
+
+    # (On wheels: theirs.)
+    rolling = [state.part.crash_speed for state in vessel.parts if state.part.wheels is not None]
+
+    if rolling:
+        speed = max(speed, max(rolling))
 
     if legs_down(vessel):
         speed = max(speed, max(state.part.crash_speed for state in legs(vessel)))

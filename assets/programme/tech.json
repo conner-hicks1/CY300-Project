@@ -181,6 +181,21 @@
       ]
     },
     {
+      "id": "mobility",
+      "name": "Surface mobility",
+      "about": "Wheels and a chassis for rovers, and a rotor and body for a small helicopter (Ingenuity's kind) for thin air.",
+      "cost": 35,
+      "requires": [
+        "probes"
+      ],
+      "parts": [
+        "rover_wheel",
+        "rover_chassis",
+        "helicopter_rotor",
+        "helicopter_body"
+      ]
+    },
+    {
       "id": "deep_space",
       "name": "Deep space communications",
       "about": "A high-gain dish that reaches home from the outer planets.",

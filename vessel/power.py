@@ -241,7 +241,10 @@ def base_draw(
 
     wheels = sum(state.part.wheel_power * state.count for state in vessel.parts) * min(max(vessel.wheel_use, 0.0), 1.0)
 
-    return steady + wheels
+    # Driving wheels and turning rotors (vessel/rover.py).
+    moving = vessel.drive_power + sum(state.part.rotor.power * state.count for state in vessel.parts if state.part.rotor is not None) * vessel.throttle
+
+    return steady + wheels + moving
 
 
 def isru_draw(

@@ -183,6 +183,9 @@ class Vessel:
     # them covered: planet/weather.py).
     panel_dust: float = 0.0
 
+    # W its wheels draw driving now (vessel/rover.py).
+    drive_power: float = 0.0
+
     @classmethod
     def from_design(
         cls,
@@ -261,9 +264,10 @@ class Vessel:
 
         for parent, members in groups.values():
 
-            # Side ports: straight out from the parent's skin,
-            # their axis halfway up it (plus the offset).
-            if members and all(member.part.side for member in members):
+            # Side ports (and wheels): straight out from the
+            # parent's skin, their axis halfway up it (plus the
+            # offset).
+            if members and all(member.part.side or member.part.wheels is not None for member in members):
 
                 for member in members:
                     member.outward = 1

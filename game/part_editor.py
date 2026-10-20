@@ -62,6 +62,8 @@ KIND_TITLES = (
     ("utility", "Utility"),
     ("power", "Power"),
     ("legs", "Landing legs"),
+    ("wheels", "Wheels"),
+    ("rotor", "Rotors"),
     ("structure", "Structure"),
 )
 
@@ -151,6 +153,12 @@ def part_summary(
 
     if part.antenna_range:
         lines.append(f"Antenna: reaches home from {part.antenna_range / 1.495978707e11:,.3g} AU ({part.antenna_range / 1e9:,.3g} million km)")
+
+    if part.wheels is not None:
+        lines.append(f"Wheel: up to {part.wheels.speed:g} m/s on the ground (W / S, A / D), drawing {format.watts(part.wheels.power)}; on a radial group, in pairs")
+
+    if part.rotor is not None:
+        lines.append(f"Rotor: {part.rotor.lift * 1.225:,.0f} N of lift in Earth's air, {part.rotor.lift * 0.015:,.1f} N in Mars's; draws {format.watts(part.rotor.power)}")
 
     if part.supplies:
         lines.append(f"Supplies {part.supplies:,.0f} kg (a person uses 5 kg a day)")

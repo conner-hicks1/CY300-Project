@@ -1,0 +1,143 @@
+{
+  "format": 1,
+  "name": "Mariner Helicopter",
+  "description": "Mariner with a 2 kg helicopter (Ingenuity's size) at the lander's side: once landed, stage 6 sets it down beside it. Its rotor lifts it in Mars's thin air on its battery for a minute or two at a time; its small radio reaches home through the lander (a relay: keep the lander powered).",
+  "notes": "Parts from the top down. stage: the stage (0 first, Space) that ignites an engine or fires a separator, dropping everything below it. radial: groups of parts round a core part (symmetry copies), with a radial separator.",
+  "parts": [
+    {
+      "part": "parachute_main",
+      "stage": 4
+    },
+    {
+      "part": "probe_core",
+      "radial": [
+        {
+          "symmetry": 1,
+          "offset": 0.0,
+          "parts": [
+            {
+              "part": "antenna_dish"
+            },
+            {
+              "part": "survey_camera"
+            },
+            {
+              "part": "sample_kit"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "part": "battery_1m25"
+    },
+    {
+      "part": "tank_1m25_hypergolic",
+      "radial": [
+        {
+          "symmetry": 2,
+          "offset": 0.0,
+          "parts": [
+            {
+              "part": "solar_wing"
+            }
+          ]
+        },
+        {
+          "symmetry": 4,
+          "offset": 0.0,
+          "angle": 45.0,
+          "parts": [
+            {
+              "part": "landing_leg"
+            }
+          ]
+        },
+        {
+          "symmetry": 1,
+          "offset": 0.4,
+          "angle": 90.0,
+          "decoupler": {
+            "part": "decoupler_radial",
+            "stage": 6
+          },
+          "parts": [
+            {
+              "part": "helicopter_rotor"
+            },
+            {
+              "part": "helicopter_body"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "part": "engine_hypergolic",
+      "stage": 5
+    },
+    {
+      "part": "decoupler_1m25",
+      "stage": 5
+    },
+    {
+      "part": "heat_shield_1m25"
+    },
+    {
+      "part": "decoupler_1m25",
+      "stage": 3
+    },
+    {
+      "part": "adapter_2m5_1m25"
+    },
+    {
+      "part": "tank_2m5_medium"
+    },
+    {
+      "part": "engine_vacuum",
+      "stage": 2
+    },
+    {
+      "part": "decoupler_2m5",
+      "stage": 2
+    },
+    {
+      "part": "tank_2m5_long"
+    },
+    {
+      "part": "tank_2m5_long"
+    },
+    {
+      "part": "tank_2m5_long",
+      "radial": [
+        {
+          "symmetry": 2,
+          "offset": 0.0,
+          "decoupler": {
+            "part": "decoupler_radial",
+            "stage": 1
+          },
+          "parts": [
+            {
+              "part": "nose_cone_1m25"
+            },
+            {
+              "part": "tank_1m25_xl"
+            },
+            {
+              "part": "tank_1m25_xl"
+            },
+            {
+              "part": "engine_medium",
+              "stage": 0
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "part": "engine_booster",
+      "stage": 0
+    }
+  ]
+}

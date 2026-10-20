@@ -46,6 +46,7 @@ from science.survey import latitude_longitude
 
 from vessel import collision, docking, heating, kepler, landing, looks, maneuver, power, propellants, soi
 from vessel import debris as debris_model
+from vessel import rover
 from vessel.layout import copy_orientations, copy_positions
 from vessel.parts import VesselDesign
 from vessel.physics import (
@@ -188,6 +189,10 @@ class VesselReadout:
 
     # Its failed parts' names (vessel/reliability.py).
     failed: tuple = ()
+
+    # Landed on wheels: m/s driving (vessel/rover.py); else
+    # None.
+    driving: float | None = None
 
 
 class VesselSystem:
@@ -351,7 +356,7 @@ class VesselSystem:
 
             environment = Environment(mu, spin, lambda r, d: (0.0, 0.0), lambda d: start.radius)
 
-            land(state, environment)
+            land(state, environment, vessel)
 
         else:
 
@@ -1749,7 +1754,13 @@ class VesselSystem:
         if cached is not None and cached[0] == key:
             return cached[1]
 
-        found = self._find_braking(scene, orbit_system, planet_system)
+        flown = self.find(scene)
+
+        # (A rotorcraft hovers on its rotors: no landing burn.)
+        if flown is not None and rover.rotors(flown[1].vessel):
+            found = None
+        else:
+            found = self._find_braking(scene, orbit_system, planet_system)
 
         self._braking = (key, found)
 
@@ -2195,6 +2206,7 @@ class VesselSystem:
         for _, any_component in self.vessels(scene):
             self._update_wings(scene, any_component)
             self._update_legs(scene, any_component)
+            self._update_turning(scene, any_component, dt)
 
         self.place(scene, orbit_system)
 
@@ -2924,14 +2936,62 @@ class VesselSystem:
 
         separated = any(part.part.kind == "command" for part in dropped)
 
-        if separated and not state.destroyed and not state.landed:
+        if separated and not state.destroyed:
 
-            # It can fly itself: a new vessel (a relay, a probe).
+            # It can fly itself: a new vessel (a relay, a probe,
+            # a helicopter or a rover set down beside a lander).
             others = sum(1 for _ in scene.registry.view_with(VesselComponent))
 
-            section = Vessel(f"{vessel.name} {others + 1}", dropped)
+            kept = list(dropped)
+
+            beside = None
+
+            if all(part.radial for part in dropped):
+
+                # Off a side group: its separator stays behind;
+                # the rest a stack of its own, where it hung.
+                command = next(part for part in dropped if part.part.kind == "command")
+
+                beside = np.asarray(copy_positions(command)[0], dtype=np.float64)
+
+                for part in [part for part in dropped if part.part.kind == "decoupler"]:
+
+                    kept.remove(part)
+
+                    for entity_left in dropped_map.pop(id(part), []):
+                        self._destroy_tree(scene, entity_left)
+
+                    dropped_pieces.pop(id(part), None)
+
+                for part in kept:
+                    part.group = None
+                    part.count = 1
+                    part.offset = 0.0
+                    part.distance = 0.0
+                    part.angle = 0.0
+                    part.outward = 0
+
+                dropped_entities = [child for copies in dropped_map.values() for child in copies]
+
+            section = Vessel(f"{vessel.name} {others + 1}", kept)
 
             section._restack()
+
+            if state.landed:
+
+                # Set down on the ground beside it.
+                rotation = quaternion.to_matrix3(state.orientation)
+
+                out = np.array([beside[0], 0.0, beside[2]]) if beside is not None else np.array([1.0, 0.0, 0.0])
+
+                length = float(np.linalg.norm(out))
+
+                out = out / max(length, 1e-9) * (length + 1.5)
+
+                debris_state = state.copy()
+                debris_state.position = state.position + rotation @ out
+                debris_state.landed = True
+                debris_state.rest_height = 0.0
 
             child_entity = scene.create_entity()
 
@@ -3634,6 +3694,55 @@ class VesselSystem:
         transform.scale = (size, size * 0.28, size)
 
     # =====================================================
+    # Wheels and Rotors, Drawn
+    # =====================================================
+
+    # Rad/s a rotor turns at full throttle (drawn: a blur).
+    ROTOR_SPIN = 40.0
+
+    def _update_turning(
+        self,
+        scene: Scene,
+        component: VesselComponent,
+        dt: float
+    ):
+        """Wheels turned as far as it has driven; rotors spinning with the throttle."""
+
+        vessel = component.vessel
+
+        spinning = vessel.throttle if vessel.powered else 0.0
+
+        if dt > 0.0 and spinning > 0.0:
+            component.rotor_angle = (component.rotor_angle + self.ROTOR_SPIN * spinning * min(dt, 0.1)) % (2.0 * math.pi)
+
+        up = np.array([0.0, 1.0, 0.0])
+
+        for state in vessel.parts:
+
+            copies = component.part_entities.get(id(state))
+
+            if not copies:
+                continue
+
+            if state.part.wheels is not None:
+
+                for k, (child, turned) in enumerate(zip(copies, copy_orientations(state))):
+
+                    side = 1.0 if k % 2 == 0 else -1.0
+
+                    roll = quaternion.from_axis_angle(up, math.degrees(component.state.wheel_turn * side))
+
+                    scene.get_component(child, TransformComponent).transform.orientation = quaternion.multiply(turned, roll)
+
+            elif state.part.rotor is not None:
+
+                for child, turned in zip(copies, copy_orientations(state)):
+
+                    spin = quaternion.from_axis_angle(up, math.degrees(component.rotor_angle))
+
+                    scene.get_component(child, TransformComponent).transform.orientation = quaternion.multiply(turned, spin)
+
+    # =====================================================
     # Landing Legs
     # =====================================================
     #
@@ -3901,7 +4010,7 @@ class VesselSystem:
 
         up = state.position / radius
 
-        pressure, _ = environment.air(radius, up)
+        pressure, density = environment.air(radius, up)
 
         relative = state.velocity - np.cross(environment.spin, state.position)
 
@@ -3963,7 +4072,8 @@ class VesselSystem:
             propellant_capacity=capacity,
             mass=vessel.mass,
             thrust=vessel.thrust(pressure)[0],
-            twr=vessel.max_thrust(pressure) / weight if weight > 0.0 else 0.0,
+            twr=(vessel.max_thrust(pressure) + rover.rotor_lift(vessel, density)) / weight if weight > 0.0 else 0.0,
+            driving=state.drive if state.landed and not state.toppled and rover.wheels(vessel) else None,
             delta_v=vessel.delta_v(),
             surface_speed=float(np.linalg.norm(relative)),
             orbital_speed=float(np.linalg.norm(state.velocity)),

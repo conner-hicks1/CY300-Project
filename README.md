@@ -505,6 +505,19 @@ build your own rocket in the part editor, on the pad.
   glancing blow sets them turning, and the overlap is pushed out; a landed
   vessel does not move. Closing faster than a part stands, the vessel it
   is on breaks up. Not in fast time warp (on rails)
+- Rovers and helicopters (`vessel/rover.py`): wheels on a radial group (in
+  pairs across the vessel, front and back with four) drive a landed vessel
+  over the real ground: W / S forward and back, A / D steer (on the spot
+  when stopped), up to the wheels' top speed (4 m/s), drawing their power;
+  every 5 m the slope underneath is looked at, and steeper than it stands
+  it rolls over; its wheels turn as it goes. Rotors lift along the stack in
+  proportion to the air's density (plenty on Earth, a third more than its
+  weight on Mars, none in vacuum), on battery power (minutes of flight, as
+  Ingenuity's). A command part on a side group with a separator, staged
+  landed, is set down beside its lander as a vessel of its own: the
+  Mariner Helicopter (2 kg, Ingenuity's size) lands on Mars and leaves its
+  helicopter beside it, its small radio reaching home through the lander.
+  The Rover design drives off the pad. Surface mobility in the tech tree
 - Orbital debris (`vessel/debris.py`): a spent stage whose orbit clears
   the air stays in orbit, on rails, saved with the fleet, and the Earth's
   upper air brings it down in time (the thermosphere's real density: days

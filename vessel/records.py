@@ -123,6 +123,8 @@ def state_to_json(
         "toppled": state.toppled,
         "rest_height": state.rest_height,
         "fell": state.fell,
+        "drive": state.drive,
+        "wheel_turn": state.wheel_turn,
     }
 
 
@@ -140,6 +142,8 @@ def state_from_json(
         toppled=bool(data.get("toppled", False)),
         rest_height=float(data.get("rest_height", 0.0)),
         fell=str(data.get("fell", "")),
+        drive=float(data.get("drive", 0.0)),
+        wheel_turn=float(data.get("wheel_turn", 0.0)),
     )
 
 

@@ -18,7 +18,7 @@ from vessel.propellants import DEFAULT as DEFAULT_PROPELLANT, PROPELLANTS
 PARTS_PATH = Path("assets/parts/parts.json")
 VESSELS_DIRECTORY = Path("assets/vessels")
 
-KINDS = ("command", "tank", "engine", "decoupler", "parachute", "science", "antenna", "utility", "structure", "power", "legs")
+KINDS = ("command", "tank", "engine", "decoupler", "parachute", "science", "antenna", "utility", "structure", "power", "legs", "wheels", "rotor")
 
 # Where an experiment works (science/record.py).
 SITUATIONS = ("landed", "flying", "space_low", "space_high")
@@ -78,6 +78,22 @@ class LegSpec:
     """
 
     span: float
+
+
+@dataclass(frozen=True, slots=True)
+class WheelSpec:
+    """A wheel (vessel/rover.py): its top speed (m/s) and the W it draws at it; on a radial group, its axle across the vessel."""
+
+    speed: float
+    power: float
+
+
+@dataclass(frozen=True, slots=True)
+class RotorSpec:
+    """A rotor (vessel/rover.py): N of lift at full throttle per kg/m^3 of air, the W it draws then."""
+
+    lift: float
+    power: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -146,6 +162,10 @@ class PartDefinition:
     supplies: float = 0.0
     recycling: float = 0.0
     shielding: float = 1.0
+
+    # Wheels and rotors (vessel/rover.py).
+    wheels: WheelSpec | None = None
+    rotor: RotorSpec | None = None
 
     @property
     def radius(
@@ -338,6 +358,28 @@ def parse_part(
             wings=int(_number(raw, "wings", where, default=2.0, minimum=1.0))
         )
 
+    wheels = None
+
+    if data.get("wheels") is not None:
+
+        raw = data["wheels"]
+
+        if not isinstance(raw, dict):
+            raise PartError(f"{where}: 'wheels' must be an object")
+
+        wheels = WheelSpec(speed=_number(raw, "speed", where, minimum=0.1), power=_number(raw, "power", where, default=0.0))
+
+    rotor = None
+
+    if data.get("rotor") is not None:
+
+        raw = data["rotor"]
+
+        if not isinstance(raw, dict):
+            raise PartError(f"{where}: 'rotor' must be an object")
+
+        rotor = RotorSpec(lift=_number(raw, "lift", where, minimum=1.0), power=_number(raw, "power", where, default=0.0))
+
     legs = None
 
     if data.get("legs") is not None:
@@ -390,7 +432,9 @@ def parse_part(
         legs=legs,
         supplies=_number(data, "supplies", where, default=0.0),
         recycling=min(_number(data, "recycling", where, default=0.0), 0.95),
-        shielding=_number(data, "shielding", where, default=1.0)
+        shielding=_number(data, "shielding", where, default=1.0),
+        wheels=wheels,
+        rotor=rotor
     )
 
 

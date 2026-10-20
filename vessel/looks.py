@@ -177,6 +177,12 @@ def pieces(
     if kind == "legs":
         return _leg(part)
 
+    if kind == "wheels":
+        return _wheel(part)
+
+    if kind == "rotor":
+        return _rotor(part)
+
     if part.max_temperature >= 2_500.0:
         return _heat_shield(part)
 
@@ -415,6 +421,31 @@ def _instrument(part) -> list[Piece]:
     return looks
 
 
+def _wheel(part) -> list[Piece]:
+
+    h, r = part.height, part.radius
+
+    # Along its axle (out from the vessel): a tyre with a
+    # rounded tread, a hub.
+    tyre = ((0.0, 0.0), (r * 0.6, 0.0), (r * 0.93, 0.02 * h), (r, 0.18 * h), (r, 0.82 * h), (r * 0.93, 0.98 * h), (r * 0.6, h), (0.0, h))
+
+    return [
+        Piece(tyre, "fabric", (0.13, 0.13, 0.14), segments=32, tile=None),
+        Piece(_cylinder(r * 0.42, 0.0, h), "metal", ALUMINIUM, segments=16, tile=None),
+    ]
+
+
+def _rotor(part) -> list[Piece]:
+
+    h, r = part.height, part.radius
+
+    # The hub and mast (the blades: details).
+    return [
+        Piece(_cylinder(0.08 * r + 0.01, 0.0, 0.7 * h), "steel", STEEL, segments=12, tile=None),
+        Piece(_cylinder(0.14 * r + 0.015, 0.7 * h, h), "metal", ALUMINIUM, segments=12, tile=None),
+    ]
+
+
 def _leg(part) -> list[Piece]:
 
     h, r = part.height, part.radius
@@ -524,7 +555,16 @@ def details(
 
     found = []
 
-    if part.docking or part.legs is not None or part.solar is not None:
+    if part.docking or part.legs is not None or (part.solar is not None and kind != "command") or part.wheels is not None:
+        return found
+
+    if kind == "rotor":
+
+        # Two blades, out from the hub.
+        r = part.radius
+
+        found.append(Detail("box", (0.12 * r, 0.02, 0.92 * r), 0.5 * r, 0.85 * part.height, "paint", count=2))
+
         return found
 
     if kind == "command":
@@ -553,7 +593,9 @@ def details(
 
             r = part.radius
 
-            found.append(Detail("box", (0.26, 0.26, 0.14), r * 0.97 + 0.07, 0.5 * h, "foil", GOLD, count=4, angle=45.0))
+            size = min(0.26, 0.6 * r)
+
+            found.append(Detail("box", (size, min(size, 0.8 * h), 0.55 * size), r * 0.97 + 0.27 * size, 0.5 * h, "foil", GOLD, count=4, angle=45.0))
 
         if part.rcs_thrust > 0.0:
 

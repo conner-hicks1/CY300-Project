@@ -1,0 +1,43 @@
+{
+  "format": 1,
+  "name": "Rover",
+  "description": "A probe rover on four wheels: a probe core over a battery with two solar wings, on a chassis. Driven landed (W / S, A / D) at up to 4 m/s, as long as its power lasts; it has no engine (set it down with a lander: a radial group with a separator, dropped landed, sets it down beside it).",
+  "notes": "Parts from the top down.",
+  "parts": [
+    {
+      "part": "antenna_medium"
+    },
+    {
+      "part": "probe_core"
+    },
+    {
+      "part": "battery_1m25",
+      "radial": [
+        {
+          "symmetry": 2,
+          "offset": 0.0,
+          "angle": 90.0,
+          "parts": [
+            {
+              "part": "solar_wing"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "part": "rover_chassis",
+      "radial": [
+        {
+          "symmetry": 4,
+          "offset": 0.0,
+          "parts": [
+            {
+              "part": "rover_wheel"
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

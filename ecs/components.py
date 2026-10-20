@@ -269,6 +269,9 @@ class VesselComponent:
     unpowered: float = 0.0
     life: object = None
 
+    # Its rotors' turn (rad, drawn).
+    rotor_angle: float = 0.0
+
     # Each part's drawn pieces (vessel/looks.py): id(PartState)
     # -> [(entity, finish)], the copies themselves and their
     # children.

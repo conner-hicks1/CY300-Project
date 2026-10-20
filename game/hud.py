@@ -614,6 +614,10 @@ class FlightHud:
                     else ("warn" if life.days < 3.0 or life.rate > 10.0 else "muted")
                 )
 
+            # On wheels: driving.
+            if vessel.driving is not None:
+                style.say(f"Driving {abs(vessel.driving):,.1f} m/s{' backward' if vessel.driving < -0.05 else ''}  (W / S drive, A / D steer)", "muted")
+
             # Debris coming close.
             if vessel.conjunction is not None:
 

@@ -7,7 +7,7 @@ import numpy as np
 
 from math3d import quaternion
 
-from vessel import heating, kepler, landing
+from vessel import heating, kepler, landing, rover
 from vessel.vessel import BODY_DRAG_COEFFICIENT, G0, Vessel
 
 
@@ -80,6 +80,13 @@ class VesselState:
     rest_height: float = 0.0
     fell: str = ""
 
+    # Driving (vessel/rover.py): m/s along its front, its
+    # wheels' turn (rad), m driven since the slope was looked
+    # at.
+    drive: float = 0.0
+    wheel_turn: float = 0.0
+    driven: float = 0.0
+
     def copy(self) -> "VesselState":
 
         return VesselState(
@@ -94,7 +101,10 @@ class VesselState:
             self.thrust_dv.copy(),
             self.toppled,
             self.rest_height,
-            self.fell
+            self.fell,
+            self.drive,
+            self.wheel_turn,
+            self.driven
         )
 
     @property
@@ -261,6 +271,13 @@ def step(
 
     thrust, flow = vessel.thrust(pressure)
 
+    # (Driving sets it again, landed on wheels.)
+    vessel.drive_power = 0.0
+
+    # Rotors: lift by the air's density, on battery power.
+    if vessel.powered and vessel.throttle > 0.0:
+        thrust += rover.rotor_lift(vessel, density) * vessel.throttle
+
     mass = vessel.mass
 
     push = state.up * (thrust / mass) + rcs_push(vessel, state, controls, dt)
@@ -299,6 +316,10 @@ def step(
         # Lifts off once the push up beats the weight (never
         # lying on its side).
         if state.toppled or float(np.dot(acceleration, direction)) <= 0.0:
+
+            # Driving on its wheels (W / S, A / D).
+            if not state.toppled and rover.wheels(vessel):
+                _drive(vessel, state, environment, controls, dt)
 
             _ride_the_ground(state, environment, dt)
 
@@ -549,6 +570,59 @@ def _ride_the_ground(
     state.angular_velocity = np.zeros(3)
 
 
+def _drive(
+    vessel: Vessel,
+    state: VesselState,
+    environment: Environment,
+    controls: Controls,
+    dt: float
+):
+    """A landed vessel's wheels driving it; every SLOPE_CHECK m the slope it is on (steeper than it stands: over it goes)."""
+
+    up = state.position / float(np.linalg.norm(state.position))
+
+    # (In time warp: not across the map in a frame.)
+    state.driven += rover.drive(vessel, state, -controls.pitch, controls.yaw, up, min(dt, 0.5))
+
+    vessel.drive_power = rover.wheel_power(vessel, state.drive)
+
+    if state.driven < rover.SLOPE_CHECK or environment.normal is None:
+        return
+
+    state.driven = 0.0
+
+    direction = state.position / float(np.linalg.norm(state.position))
+
+    normal = environment.normal(direction)
+
+    slope = landing.slope_of(normal, direction)
+
+    if slope > landing.standing_angle(vessel):
+
+        lying = landing.fallen_axis(normal, direction, state.up, state.velocity - surface_velocity(environment, state.position))
+
+        state.orientation = quaternion.look_rotation(-normal, lying)
+        state.toppled = True
+        state.drive = 0.0
+        state.fell = f"drove onto a {slope:,.0f} deg slope and rolled over"
+        state.rest_height = max((part.part.radius for part in vessel.core), default=0.5)
+
+        return
+
+    # Square to the ground it is on.
+    axis = state.up
+
+    turn = np.cross(axis, normal)
+
+    sine = float(np.linalg.norm(turn))
+
+    if sine > 1e-9:
+
+        angle = math.degrees(math.atan2(sine, float(axis @ normal)))
+
+        state.orientation = quaternion.normalize(quaternion.multiply(quaternion.from_axis_angle(turn / sine, angle), state.orientation))
+
+
 def _touch_ground(
     vessel: Vessel,
     state: VesselState,
@@ -625,12 +699,16 @@ def _touch_ground(
 
     state.landed = True
 
+    # On its wheels: held up by them.
+    state.rest_height = rover.clearance(vessel)
+
 
 def land(
     state: VesselState,
-    environment: Environment
+    environment: Environment,
+    vessel: Vessel | None = None
 ):
-    """Settle a vessel on the ground under it (a launch)."""
+    """Settle a vessel on the ground under it (a launch; on its wheels, if it has them)."""
 
     radius = float(np.linalg.norm(state.position))
 
@@ -641,7 +719,9 @@ def land(
     state.angular_velocity = np.zeros(3)
     state.landed = True
     state.toppled = False
-    state.rest_height = 0.0
+    state.rest_height = rover.clearance(vessel) if vessel is not None else 0.0
+
+    state.position = direction * (environment.ground(direction) + state.rest_height)
 
 
 def upright(

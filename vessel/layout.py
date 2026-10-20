@@ -25,6 +25,14 @@ def copy_positions(
     a vessel on the pad).
     """
 
+    # Wheels: in pairs, left and right (+X / -X), four of them
+    # front and back too; their axles across the vessel.
+    if state.part.wheels is not None and state.outward:
+        return [
+            (side * state.distance, state.bottom, row * 0.75 * state.distance)
+            for side, row in _wheel_places(state.count)
+        ]
+
     if not state.radial:
 
         # (Turned over in a docked stack: its own bottom at
@@ -59,6 +67,12 @@ def copy_orientations(
 
         return [np.array([0.0, 0.0, 0.0, 1.0])] * max(state.count, 1)
 
+    if state.part.wheels is not None:
+        return [
+            quaternion.look_rotation(np.array([0.0, 1.0, 0.0]), np.array([side, 0.0, 0.0]))
+            for side, _ in _wheel_places(state.count)
+        ]
+
     base = math.radians(state.angle)
 
     turned = []
@@ -72,3 +86,16 @@ def copy_orientations(
         turned.append(quaternion.look_rotation(np.array([0.0, 1.0, 0.0]), out))
 
     return turned
+
+
+def _wheel_places(
+    count: int
+) -> list[tuple[float, float]]:
+    """(side +1 / -1, row +1 front / -1 back / 0) for each wheel copy."""
+
+    if count <= 2:
+        return [(1.0, 0.0), (-1.0, 0.0)][:max(count, 1)]
+
+    places = [(1.0, -1.0), (-1.0, -1.0), (1.0, 1.0), (-1.0, 1.0)]
+
+    return (places * (count // 4 + 1))[:count]
