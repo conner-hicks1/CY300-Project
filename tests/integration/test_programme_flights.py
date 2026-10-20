@@ -43,7 +43,7 @@ def test_no_funds_no_launch(play):
     game.stage()
 
     assert not game.vessel.paid and game.vessel.vessel.next_stage == 0
-    assert any("Not enough funds" in notice for notice in game.notices())
+    assert any("Not enough funds" in notice and "enough on 01 " in notice for notice in game.notices())
 
 
 def test_a_revert_keeps_the_calendar(play):

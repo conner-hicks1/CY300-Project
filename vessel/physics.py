@@ -642,6 +642,13 @@ def _touch_ground(
 
     state.position = direction * ground
 
+    # Climbing away from it: the ground only found higher
+    # under the vessel (a finer terrain tile streamed in, a
+    # metre or two up), not come down on. Lifted onto it and
+    # on its way.
+    if float(relative @ direction) > 0.0:
+        return
+
     normal = environment.normal(direction) if environment.normal is not None else direction
 
     weight = environment.mu / (ground * ground)

@@ -1,3 +1,4 @@
+import math
 import time
 
 from dataclasses import dataclass
@@ -116,6 +117,29 @@ class ProgrammeSystem:
     # Flights
     # =====================================================
 
+    def until_affordable(
+        self,
+        cost: float
+    ) -> str:
+        """When the monthly budget will have brought enough, in words."""
+
+        career = self.career
+
+        monthly = career.budget(self.campaign)
+
+        if monthly <= 0.0:
+            return "Missions done bring funds."
+
+        months = max(math.ceil((cost - career.funds) / monthly), 1)
+
+        today = today_of(date_of(career.clock))
+
+        index = today.year * 12 + (today.month - 1) + months
+
+        when = today.replace(year=index // 12, month=index % 12 + 1, day=1)
+
+        return f"The budget brings ${monthly:,.1f}M on the 1st of each month: enough on {when:%d %b %Y} (time warp with .), or build something cheaper."
+
     def pay_launch(
         self,
         component
@@ -154,7 +178,7 @@ class ProgrammeSystem:
 
         if not self.career.can_afford(cost):
 
-            self.news.append(f"Not enough funds: {component.vessel.name} costs ${cost:,.1f}M, ${self.career.funds:,.1f}M left")
+            self.news.append(f"Not enough funds: {component.vessel.name} costs ${cost:,.1f}M, ${self.career.funds:,.1f}M left. {self.until_affordable(cost)}")
 
             return False
 
@@ -849,9 +873,13 @@ class ProgrammeSystem:
         if save_now:
             self.save()
 
-    def save(self):
+    def save(
+        self,
+        force: bool = False
+    ):
+        """Written if anything changed (force: anyway; the clock moves on)."""
 
-        if self.path is None or not self._unsaved:
+        if self.path is None or not (self._unsaved or force):
             return
 
         try:

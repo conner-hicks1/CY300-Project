@@ -282,6 +282,47 @@ def test_a_tall_rocket_falling_over_in_strong_gravity_breaks_up(parts):
     assert state.destroyed and "fell over" in state.fell
 
 
+def test_finer_ground_under_a_rocket_lifting_off_is_not_a_crash(parts):
+
+    rocket = Vessel.from_design(load_design("pathfinder", parts))
+
+    rocket.stage()
+    rocket.throttle = 1.0
+
+    up = np.array([1.0, 0.0, 0.0])
+
+    # Just off a slope steeper than it stands on, climbing.
+    state = VesselState(
+        position=up * (MOON_RADIUS + 0.05),
+        velocity=up * 0.3,
+        orientation=upright(up),
+        angular_velocity=np.zeros(3)
+    )
+
+    tilted = np.array([math.cos(math.radians(5.0)), math.sin(math.radians(5.0)), 0.0])
+
+    ground = {"height": MOON_RADIUS}
+
+    environment = Environment(
+        mu=9.81 * MOON_RADIUS ** 2,
+        spin=np.zeros(3),
+        air=lambda r, d: (0.0, 0.0),
+        ground=lambda d: ground["height"],
+        normal=lambda d: tilted
+    )
+
+    step(rocket, state, environment, Controls(sas=False), 0.02)
+
+    # A finer tile: the ground 1.6 m higher than thought.
+    ground["height"] = MOON_RADIUS + 1.6
+
+    for _ in range(100):
+        step(rocket, state, environment, Controls(sas=False), 0.02)
+
+    assert not state.destroyed and not state.landed and not state.toppled
+    assert float(np.linalg.norm(state.position)) > MOON_RADIUS + 3.0
+
+
 def test_the_computer_lowers_legs():
 
     program = parse("legs down\ngear up\nwait until slope < 10")
