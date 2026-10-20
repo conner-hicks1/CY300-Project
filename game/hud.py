@@ -109,6 +109,9 @@ class FlightHud:
         # (text, seconds left), newest last.
         self.notices: list[list] = []
 
+        # Told of each notice (the sound of it), or None.
+        self.on_notice = None
+
     def notify(
         self,
         text: str
@@ -117,6 +120,9 @@ class FlightHud:
         self.notices.append([text, NOTICE_SECONDS])
 
         del self.notices[:-4]
+
+        if self.on_notice is not None:
+            self.on_notice(text)
 
     def tick(
         self,

@@ -138,6 +138,8 @@ class DockingController:
 
             self.hud.notify(f"Docked with {name}")
 
+            self.sound.play("dock", 1.0)
+
             return
 
         if self._docking != target[1] or paused:

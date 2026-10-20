@@ -33,6 +33,8 @@ class PowerController:
 
                 self.hud.notify(f"{name} is out of power: no reaction wheels, no link, no computer")
 
+                self.sound.play("power down", 0.8, alert=True)
+
                 if name == self._flown_name():
                     self.time_warp.stop()
 

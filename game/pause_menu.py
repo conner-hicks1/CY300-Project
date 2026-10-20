@@ -93,6 +93,7 @@ class PauseMenu:
     TRAVEL = "travel"
     CAMERA = "camera"
     GRAPHICS = "graphics"
+    SOUND = "sound"
     CONTROLS = "controls"
 
     def __init__(
@@ -145,9 +146,12 @@ class PauseMenu:
         quality: str | None,
         free_camera: bool = False,
         vessel: bool = False,
-        travel: bool = True
+        travel: bool = True,
+        sound=None
     ):
-        """travel: whether Travel is open (a sandbox; a career flies there)."""
+        """travel: whether Travel is open (a sandbox; a career flies there). sound: audio/sound.py SoundEngine (its settings)."""
+
+        self._sound = sound
 
         if not self.open:
             return
@@ -169,6 +173,7 @@ class PauseMenu:
             self.TRAVEL: "Travel",
             self.CAMERA: "Camera",
             self.GRAPHICS: "Graphics",
+            self.SOUND: "Sound",
             self.CONTROLS: "Controls",
         }
 
@@ -182,6 +187,8 @@ class PauseMenu:
             self._draw_camera(actions, body, free_camera, vessel)
         elif self.page == self.GRAPHICS:
             self._draw_graphics(actions, quality)
+        elif self.page == self.SOUND:
+            self._draw_sound()
         else:
             self._draw_controls()
 
@@ -218,6 +225,7 @@ class PauseMenu:
             ("Travel...", self.TRAVEL),
             ("Camera...", self.CAMERA),
             ("Graphics...", self.GRAPHICS),
+            ("Sound...", self.SOUND),
             ("Controls", self.CONTROLS),
         ):
 
@@ -323,6 +331,49 @@ class PauseMenu:
             "Low: no rocks, trees or grass, short shadows, fewer\n"
             "atmosphere samples. High: mountains' shadows too."
         )
+
+    def _draw_sound(self):
+
+        sound = self._sound
+
+        if sound is None:
+
+            imgui.text_disabled("No sound.")
+
+            return
+
+        settings = sound.settings
+
+        if not sound.playing:
+            imgui.text_disabled("No sound device (or not Windows): silent.")
+
+        changed = False
+
+        moved, settings.muted = imgui.checkbox("Mute", settings.muted)
+        changed |= moved
+
+        for label, name, about in (
+            ("Master", "master", "Everything."),
+            ("Effects", "effects", "Engines, wind, staging, landings."),
+            ("Alerts", "alerts", "Notices' chimes and alarms."),
+        ):
+
+            imgui.set_next_item_width(BUTTON_WIDTH - 70.0)
+
+            moved, value = imgui.slider_float(label, getattr(settings, name), 0.0, 1.0, "%.2f")
+
+            if moved:
+                setattr(settings, name, value)
+
+            imgui.set_item_tooltip(about)
+
+            changed |= imgui.is_item_deactivated_after_edit()
+
+        if changed:
+            sound.save()
+
+        if imgui.button("Test", (BUTTON_WIDTH, 0)):
+            sound.play("chime", alert=True)
 
     @staticmethod
     def _draw_controls():

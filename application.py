@@ -102,6 +102,7 @@ from controllers.editor import EditorController
 from controllers.fleet import FleetController
 from controllers.maneuvers import ManeuverController
 from controllers.landing import LandingController
+from controllers.sound import SoundController
 from controllers.navigation import NavigationController
 from controllers.power import PowerController
 from controllers.programme import ProgrammeController
@@ -116,6 +117,9 @@ from systems.render_system import RenderSystem
 from systems.transform_system import TransformSystem
 from systems.comms_system import CommsSystem, Link
 from systems.power_system import PowerSystem
+
+from audio.sound import SoundEngine
+from game.hud import notice_tone
 from systems.crew_system import CrewSystem
 from systems.programme_system import ProgrammeSystem
 from systems.science_system import ScienceSystem
@@ -137,6 +141,7 @@ from ui.panels import PanelRegistry
 
 
 class Application(
+    SoundController,
     LandingController,
     PowerController,
     EditorController,
@@ -563,6 +568,12 @@ class Application(
         self._edited_height = 0.0
 
         apply_quality(self.render_system.settings, DEFAULT_QUALITY)
+
+        # Sound (audio/sound.py): none headless (tests run
+        # quiet).
+        self.sound = SoundEngine(enabled=not headless)
+
+        self.hud.on_notice = lambda text: self.sound.notice(notice_tone(text))
 
         # Headless, nothing is drawn: no terrain meshes, no
         # rocks or trees to build.
@@ -1424,6 +1435,10 @@ class Application(
 
         self.hud.tick(dt)
 
+        self._sound_events(events)
+
+        self._update_sound(paused)
+
         with profiler.scope("Camera"):
 
             if building:
@@ -1590,6 +1605,8 @@ class Application(
 
         if readout.parachute == "open" and self._parachute != "open":
             self.hud.notify("Parachute opening")
+
+            self.sound.play("chute", 0.9)
 
         self._parachute = readout.parachute
 
@@ -1940,7 +1957,8 @@ class Application(
             current_quality(self.render_system.settings),
             free_camera=self.free_camera,
             vessel=found is not None,
-            travel=self.sandbox
+            travel=self.sandbox,
+            sound=self.sound
         )
 
         if not self.dev_tools:
@@ -2231,6 +2249,11 @@ class Application(
         Logger.info(
             "[Application] Shutting down."
         )
+
+        sound = getattr(self, "sound", None)
+
+        if sound is not None:
+            sound.close()
 
         science = getattr(self, "science_system", None)
 

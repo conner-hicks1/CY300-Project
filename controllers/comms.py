@@ -161,6 +161,11 @@ class CommsController:
 
         self.hud.notify(f"Stage {stage}: {', '.join(what) or 'fired'}")
 
+        self.sound.play("stage", 1.0 if "engines lit" in what else 0.6)
+
+        if "separated" in what:
+            self.sound.play("clank", 0.8)
+
         for notice in failures:
             self.hud.notify(notice)
 

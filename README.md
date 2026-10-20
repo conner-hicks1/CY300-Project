@@ -977,7 +977,16 @@ build your own rocket in the part editor, on the pad.
   body in view), Graphics quality (Low / Medium / High, Medium by default:
   the scene's resolution, 70% / 85% / 100% scaled up at the end, since the
   scene's cost is nearly all per pixel; atmosphere samples; rocks, trees and
-  grass; shadow reach and mountain shadows; bloom), Controls, Quit
+  grass; shadow reach and mountain shadows; bloom), Sound, Controls, Quit
+- Sound, made as the game starts (no sound files, nothing to install: Windows'
+  own waveOut): engines roar in air, louder with the thrust and deeper for
+  the big ones, and fade with distance and thin air; in vacuum only a muffled
+  rumble through the structure, heard on board; wind with the dynamic
+  pressure, the plasma crackle of coming in, rotors, wheels and RCS; one-shots
+  for staging, separators, parachutes, touchdowns, crashes, docking and bumps;
+  notices chime, warn or sound the alarm; quiet while paused or in fast warp.
+  Master, effects and alerts volumes and mute in the pause menu (Sound), kept
+  in `data/settings/sound.json`
 - Developer tools (**F3**, or `--dev`): stats, every render setting, a frame
   profiler (CPU + GPU timings) and cProfile capture, shader hot reload
 
@@ -1073,7 +1082,8 @@ planet streams in over the first few seconds.
 | Path | Contents |
 | --- | --- |
 | `main.py`, `application.py` | Entry point, main loop, building a body's scene, keys, the HUD and menus |
-| `controllers/` | The application's parts, apart for size: the map and navigation, maneuver nodes, piloting through the link and the flight computer, science, the programme's panel, the fleet, docking, power, the part editor |
+| `controllers/` | The application's parts, apart for size: the map and navigation, maneuver nodes, piloting through the link and the flight computer, science, the programme's panel, the fleet, docking, power, sound, the part editor |
+| `audio/` | Sound: the output (Windows waveOut through ctypes), sounds made from shaped noise and tones, the mixer, what a moment of flight sounds like |
 | `core/` | Window, input, events, timer, logging, profiler, job system, disk cache |
 | `ecs/` | Entity registry and components |
 | `vessel/` | Parts and vessel designs (and drafts being edited, saved designs), staging, propellant and parachutes, flight physics, heating, Kepler orbits, patched conics, transfers, maneuver nodes, flight computer sequences, vessels in flight as JSON, docking, power |
