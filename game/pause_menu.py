@@ -21,7 +21,7 @@ from game.quality import QUALITY_NAMES
 #   Camera    follow the vessel or fly free; jump to the
 #             surface, low orbit, or the whole body in view
 #   Graphics  quality preset
-#   Controls  the keys
+#   Controls  the keys; hints on / off
 #
 # It only draws and reports; the application acts through
 # MenuActions.
@@ -149,11 +149,13 @@ class PauseMenu:
         free_camera: bool = False,
         vessel: bool = False,
         travel: bool = True,
-        sound=None
+        sound=None,
+        hints=None
     ):
-        """travel: whether Travel is open (a sandbox; a career flies there). sound: audio/sound.py SoundEngine (its settings)."""
+        """travel: whether Travel is open (a sandbox; a career flies there). sound: audio/sound.py SoundEngine (its settings). hints: game/guide.py Hints."""
 
         self._sound = sound
+        self._hints = hints
 
         if not self.open:
             return
@@ -384,8 +386,25 @@ class PauseMenu:
         if imgui.button("Test", (BUTTON_WIDTH, 0)):
             sound.play("chime", alert=True)
 
-    @staticmethod
-    def _draw_controls():
+    def _draw_controls(self):
+
+        hints = self._hints
+
+        if hints is not None:
+
+            changed, enabled = imgui.checkbox("Hints", hints.enabled)
+
+            if changed:
+                hints.set_enabled(enabled)
+
+            imgui.set_item_tooltip("A word the first time something comes up (on the pad, a stage run dry, reentry heat...).")
+
+            imgui.same_line()
+
+            if imgui.small_button("Show them all again"):
+                hints.reset()
+
+            imgui.separator()
 
         if imgui.begin_table("controls", 2, imgui.TableFlags_.row_bg.value):
 

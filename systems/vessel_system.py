@@ -194,6 +194,11 @@ class VesselReadout:
     # None.
     driving: float | None = None
 
+    # m above the ground under it (as last looked up), and
+    # the height the body's air ends at (0: none).
+    height: float = 0.0
+    air_top: float = 0.0
+
 
 class VesselSystem:
 
@@ -4074,6 +4079,8 @@ class VesselSystem:
             thrust=vessel.thrust(pressure)[0],
             twr=(vessel.max_thrust(pressure) + rover.rotor_lift(vessel, density)) / weight if weight > 0.0 else 0.0,
             driving=state.drive if state.landed and not state.toppled and rover.wheels(vessel) else None,
+            height=0.0 if state.landed else max(self._height, 0.0),
+            air_top=max(environment.air_top - sea_radius, 0.0) if environment.air_top > 0.0 else 0.0,
             delta_v=vessel.delta_v(),
             surface_speed=float(np.linalg.norm(relative)),
             orbital_speed=float(np.linalg.norm(state.velocity)),

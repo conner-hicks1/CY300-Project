@@ -68,6 +68,7 @@ from game.map_view import MapView
 from game.part_editor import EditorActions, PartEditor
 from game.pause_menu import Destination, MenuActions, PauseMenu
 from game.title_screen import TitleActions, TitleScreen
+from game.guide import HINTS_PATH, FlightSchool, Hints
 from game.quality import DEFAULT_QUALITY, apply_quality, current_quality
 from game.time_warp import TimeWarp
 
@@ -104,6 +105,7 @@ from controllers.fleet import FleetController
 from controllers.maneuvers import ManeuverController
 from controllers.landing import LandingController
 from controllers.sound import SoundController
+from controllers.guide import GuideController
 from controllers.navigation import NavigationController
 from controllers.power import PowerController
 from controllers.programme import ProgrammeController
@@ -143,6 +145,7 @@ from ui.panels import PanelRegistry
 
 
 class Application(
+    GuideController,
     SoundController,
     LandingController,
     PowerController,
@@ -597,6 +600,12 @@ class Application(
 
         self.hud.on_notice = lambda text: self.sound.notice(notice_tone(text))
 
+        # Flight school and the hints (game/guide.py); the
+        # hints seen kept across games (not headless).
+        self.school = FlightSchool()
+        self.hints = Hints(None if headless else HINTS_PATH)
+        self._guided = 0.0
+
         # Headless, nothing is drawn: no terrain meshes, no
         # rocks or trees to build.
         if headless:
@@ -715,20 +724,24 @@ class Application(
         self,
         slot: games.Slot | None,
         kind: str | None = None,
-        folder: Path | None = None
+        folder: Path | None = None,
+        sandbox: bool | None = None
     ):
         """
         Play a saved game (the one now saved first): as it
         was left, or its quicksave / autosave (kind). slot
-        None: the folder of saves (tests), or the one now.
+        None: a folder of saves (tests; None: nothing kept),
+        a sandbox or not (as now, by default).
         """
 
         self.save_game()
 
         if slot is not None:
             folder, sandbox = slot.folder, slot.sandbox
-        else:
-            folder, sandbox = (folder or self.saves), self.sandbox
+        elif sandbox is None:
+            sandbox = self.sandbox
+
+        self.school.stop()
 
         if kind is not None and folder is not None:
             games.restore(folder, kind)
@@ -812,6 +825,21 @@ class Application(
         except OSError as error:
             Logger.error("[Application] Autosave failed: %s", error)
 
+    def start_flight_school(self):
+        """The first flight to orbit, step by step: a sandbox nothing is kept of."""
+
+        self.title.close()
+
+        self.open_game(None, folder=None, sandbox=True)
+
+        self.school.start()
+
+    def leave_flight_school(self):
+
+        self.school.stop()
+
+        self.show_title()
+
     def show_title(self):
         """Back to the title screen (the game saved, behind it)."""
 
@@ -842,7 +870,8 @@ class Application(
             resume=self.title.close,
             play=play,
             new=new,
-            quit=self.request_quit
+            quit=self.request_quit,
+            school=self.start_flight_school
         )
 
     # =====================================================
@@ -1688,6 +1717,8 @@ class Application(
 
         self._update_sound(paused)
 
+        self._update_guide(paused)
+
         with profiler.scope("Camera"):
 
             if building:
@@ -2223,6 +2254,18 @@ class Application(
 
         self._draw_vessels()
 
+        self.school.draw(self.leave_flight_school)
+
+        if not self.pause_menu.open:
+            self.hints.draw()
+        else:
+            self.hints.height = 0.0
+
+        # (Next frame's notices under them.)
+        above = max(self.school.height, self.hints.height)
+
+        self.hud.notices_below = above + style.GAP if above > 0.0 else 0.0
+
         self.pause_menu.draw(
             self._menu_actions(context),
             context.name() if context.body is not None else "",
@@ -2230,7 +2273,8 @@ class Application(
             free_camera=self.free_camera,
             vessel=found is not None,
             travel=self.sandbox,
-            sound=self.sound
+            sound=self.sound,
+            hints=self.hints
         )
 
         if not self.dev_tools:

@@ -22,8 +22,9 @@ from programme.saves import Slot
 # it, paused), and again from the pause menu (Save and quit
 # to title). Pages:
 #
-#   main   Continue (the game behind), New game, Load game,
-#          Quit
+#   main   Continue (the game behind), New game, Flight
+#          school (a first flight to orbit, step by step:
+#          game/guide.py), Load game, Quit
 #   new    a name, career or sandbox
 #   load   the saved games, the last played first: load one
 #          (or its quicksave / autosave), delete one
@@ -38,6 +39,7 @@ class TitleActions:
     play: Callable[[Slot, str | None], None]        # a game (as saved, or its quicksave / autosave)
     new: Callable[[str, bool], None]                # name, sandbox
     quit: Callable[[], None]
+    school: Callable[[], None] = lambda: None       # flight school
 
 
 def ago(
@@ -248,6 +250,11 @@ class TitleScreen:
 
         if self._button("New game"):
             self._start_new()
+
+        if self._button("Flight school"):
+            actions.school()
+
+        imgui.set_item_tooltip("A first flight to orbit, step by step (a sandbox: nothing is saved).")
 
         if self._button(f"Load game ({len(self.slots)})", bool(self.slots)):
 

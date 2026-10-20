@@ -112,6 +112,10 @@ class FlightHud:
         # Told of each notice (the sound of it), or None.
         self.on_notice = None
 
+        # px the notices go down, under what is drawn at the
+        # top (flight school, a hint: game/guide.py).
+        self.notices_below = 0.0
+
     def notify(
         self,
         text: str
@@ -170,7 +174,7 @@ class FlightHud:
 
         self._draw_clock(readout, warp, (x + width * 0.5, y + margin))
 
-        self._draw_notices((x + width * 0.5, y + margin + 44.0))
+        self._draw_notices((x + width * 0.5, y + margin + 44.0 + self.notices_below))
 
         self._draw_flight(readout, speed, loading, fps, (x + margin, y + height - margin))
 
