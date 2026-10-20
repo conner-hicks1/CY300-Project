@@ -29,7 +29,13 @@ def parse_arguments(argv=None):
     parser.add_argument(
         "--sandbox",
         action="store_true",
-        help="Sandbox: launch anything free, travel anywhere, no missions (its own saves)."
+        help="Play the game called Sandbox (made if there is none): launch anything free, travel anywhere, no missions. Skips the title screen."
+    )
+
+    parser.add_argument(
+        "--slot",
+        metavar="NAME",
+        help="Play the saved game of this name (a new career if there is none, a sandbox with --sandbox). Skips the title screen."
     )
 
     parser.add_argument(
@@ -124,7 +130,9 @@ def main():
         application.initialize(
             body=arguments.body,
             dev=arguments.dev,
-            sandbox=arguments.sandbox
+            sandbox=arguments.sandbox,
+            slot=arguments.slot,
+            title=not (arguments.sandbox or arguments.slot)
         )
 
         if arguments.no_vsync:

@@ -39,6 +39,7 @@ class MenuActions:
     whole_body: Callable[[], None]
     set_quality: Callable[[str], None]
     quit: Callable[[], None]
+    title: Callable[[], None] = lambda: None
 
 
 @dataclass(slots=True)
@@ -72,6 +73,7 @@ CONTROLS: tuple[tuple[str, str], ...] = (
     (". / ,", "Time warp faster / slower (5x at most under thrust or in the air)"),
     ("/", "Back to real time"),
     ("Esc", "This menu (pauses)"),
+    ("F5 / F9", "Quicksave / go back to the quicksave"),
     ("F2", "Hide the HUD"),
     ("F3", "Developer tools (stats, render settings, profiler)"),
 )
@@ -239,12 +241,19 @@ class PauseMenu:
             imgui.end_disabled()
 
             if closed:
-                imgui.set_item_tooltip("A career flies there; travel anywhere in a sandbox (--sandbox).")
+                imgui.set_item_tooltip("A career flies there; travel anywhere in a sandbox game.")
 
         imgui.separator()
 
-        if imgui.button("Quit", (BUTTON_WIDTH, 0)):
+        if imgui.button("Save and quit to title", (BUTTON_WIDTH, 0)):
+            actions.title()
+
+        imgui.set_item_tooltip("The title screen: another game, or a new one. (F5 quicksaves, F9 goes back to it.)")
+
+        if imgui.button("Quit to desktop", (BUTTON_WIDTH, 0)):
             actions.quit()
+
+        imgui.set_item_tooltip("The game is saved as you quit.")
 
     def _draw_travel(
         self,

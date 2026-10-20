@@ -156,14 +156,15 @@ HUD_FLAGS = (
 
 @contextmanager
 def font(
-    name: str
+    name: str,
+    size: float | None = None
 ):
-    """Draw in one of the fonts (regular when not loaded)."""
+    """Draw in one of the fonts (regular when not loaded), at its size or another."""
 
     chosen = FONTS.get(name)
 
     if chosen is not None:
-        imgui.push_font(chosen[0], chosen[1])
+        imgui.push_font(chosen[0], chosen[1] if size is None else size)
 
     try:
         yield

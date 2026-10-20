@@ -75,7 +75,7 @@ class FleetController:
 
     def save_fleet(self):
 
-        if not self._fleet_restored:
+        if not self._fleet_restored or self.fleet_path is None:
             return
 
         try:

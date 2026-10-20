@@ -633,7 +633,7 @@ build your own rocket in the part editor, on the pad.
   experiment would give, the results aboard (recover or transmit), how much
   of the body is mapped and whether the camera is mapping now
 - The Explorer (built in) is Pathfinder Heavy with the instruments on its
-  capsule; progress is saved in `data/science/progress.json`
+  capsule; progress is saved with the game (`science.json`)
 
 **Communications and the flight computer**
 
@@ -867,7 +867,7 @@ build your own rocket in the part editor, on the pad.
   flight data; failures come as notices and a HUD chip. A sandbox has no
   failures
 - The part editor shows the design's cost against the funds. Progress is
-  saved in `data/programme/career.json`, the calendar with it: a revert or a
+  saved with the game (`career.json`), the calendar with it: a revert or a
   trip elsewhere starts from the latest date reached, never earlier
 
 **Many vessels**
@@ -891,7 +891,7 @@ build your own rocket in the part editor, on the pad.
   legs: a lander on the Moon's far side talks through an orbiter above
 - Depots: within 200 m and 2 m/s of another vessel, propellant moves
   between their tanks (Vessels list)
-- Saved in `data/programme/fleet.json` with the time: across reverts, trips
+- Saved with the game (`fleet.json`) with the time: across reverts, trips
   to other bodies and sessions, each brought up to now on rails when it
   comes back (and the one flown when saved is flown again on starting)
 
@@ -972,12 +972,22 @@ build your own rocket in the part editor, on the pad.
   lists every key
 - Time warp in steps from real time to 10,000,000x (**,** and **.**; **/**
   back to real time)
+- Title screen: Continue (the last game played, paused behind the menu),
+  New game (a name; career or sandbox), Load game (each with its date,
+  funds, vessels in flight, science and when it was last played; its
+  quicksave or autosave; delete). Each game is a folder in `data/saves/`
+  (`slot.json`, `career.json`, `science.json`, `fleet.json`); the game
+  saves itself as you play (every 30 s and on quitting), keeps a copy in
+  `autosave/` every 5 minutes of play, and **F5** / **F9** quicksave and go
+  back to the quicksave. Saves from before slots (`data/programme/`,
+  `data/science/`) become the games Career and Sandbox the first time
+  (copied)
 - Pause menu (**Esc**, stops the clock): Revert to launch, Build vessel, Travel to any (in a sandbox)
   body, Camera (follow the vessel or fly free; surface, low orbit, the whole
   body in view), Graphics quality (Low / Medium / High, Medium by default:
   the scene's resolution, 70% / 85% / 100% scaled up at the end, since the
   scene's cost is nearly all per pixel; atmosphere samples; rocks, trees and
-  grass; shadow reach and mountain shadows; bloom), Sound, Controls, Quit
+  grass; shadow reach and mountain shadows; bloom), Sound, Controls, Save and quit to title, Quit to desktop
 - Sound, made as the game starts (no sound files, nothing to install: Windows'
   own waveOut): engines roar in air, louder with the thrust and deeper for
   the big ones, and fade with distance and thin air; in vacuum only a muffled
@@ -1030,12 +1040,14 @@ py -3.14 -m pip install -r requirements.txt
 python main.py
 ```
 
-This starts on Earth, the camera above a valley in the mountains. The
-planet streams in over the first few seconds.
+This opens the title screen, the last game played behind it: continue it,
+start a new career or sandbox, or load another. The planet streams in over
+the first few seconds.
 
 | Option | Meaning |
 | --- | --- |
-| `--sandbox` | Sandbox: launches free, no budget or missions, travel to any body from the pause menu; its own science and fleet saves (a career always starts at home, and its calendar never jumps) |
+| `--sandbox` | Play the game called Sandbox (made if there is none), skipping the title: launches free, no budget or missions, travel to any body from the pause menu (a career always starts at home, and its calendar never jumps) |
+| `--slot NAME` | Play the saved game of this name, skipping the title (a new career if there is none; a sandbox with `--sandbox`) |
 | `--body ID` | In a sandbox, start at another body (`moon`, `mars`, `titan`... any file in `assets/bodies/`) |
 | `--dev` | Start with the developer tools open (**F3** toggles) |
 | `--hide-ui` | Start with the HUD hidden (**F2** toggles) |
@@ -1071,11 +1083,12 @@ planet streams in over the first few seconds.
 | **V** | Free camera: hold right mouse, **W A S D** move, **Space** up, **Shift** down (along the ground, around the planet from orbit; speed grows with altitude) |
 | **.** / **,** | Time warp faster / slower |
 | **/** | Back to real time |
-| **Esc** | Pause menu (travel, camera, graphics, controls, quit) |
+| **Esc** | Pause menu (travel, camera, graphics, sound, controls, title, quit) |
+| **F5** / **F9** | Quicksave / go back to the quicksave |
 | **F1** | List every key on screen |
 | **F2** | Show / hide the HUD |
 | **F3** | Developer tools |
-| **F5** | Reload all shaders (with the developer tools open) |
+| **F6** | Reload all shaders (with the developer tools open) |
 
 ## Project Layout
 
@@ -1089,10 +1102,10 @@ planet streams in over the first few seconds.
 | `vessel/` | Parts and vessel designs (and drafts being edited, saved designs), staging, propellant and parachutes, flight physics, heating, Kepler orbits, patched conics, transfers, maneuver nodes, flight computer sequences, vessels in flight as JSON, docking, power |
 | `systems/` | Transform, camera controller, orbits and clock, vessels, power, science, communications, the space programme, planet streaming and render systems |
 | `science/` | Science sites, regions from the real maps, the orbital survey (mapping masks), the science record |
-| `programme/` | The career (funds, budget, missions on the calendar), the tech tree and research, resources for making propellant, the fleet of vessels in flight |
+| `programme/` | Saved games (slots, quicksave, autosave), the career (funds, budget, missions on the calendar), the tech tree and research, resources for making propellant, the fleet of vessels in flight |
 | `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping, impact craters, dunes, surface climate, terrain, chunk building, level of detail, body shapes, orbits and spin, solar time, real maps |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, clouds, rings, eclipses, bloom |
-| `game/` | The interface's look (`style.py`), flight HUD and readout, attitude ball, map view, maneuver, science, programme and research panels, part editor, piloting keys, chase camera, pause menu, time warp, graphics quality presets |
+| `game/` | The interface's look (`style.py`), flight HUD and readout, attitude ball, map view, maneuver, science, programme and research panels, part editor, piloting keys, chase camera, pause menu, title screen, time warp, graphics quality presets |
 | `scene/` | Scene container and (de)serialization (for save games) |
 | `resources/` | Handle-based resource managers |
 | `math3d/` | Transforms, camera, matrix helpers |

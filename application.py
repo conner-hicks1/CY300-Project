@@ -67,6 +67,7 @@ from game.science_panel import SciencePanel
 from game.map_view import MapView
 from game.part_editor import EditorActions, PartEditor
 from game.pause_menu import Destination, MenuActions, PauseMenu
+from game.title_screen import TitleActions, TitleScreen
 from game.quality import DEFAULT_QUALITY, apply_quality, current_quality
 from game.time_warp import TimeWarp
 
@@ -126,9 +127,10 @@ from systems.science_system import ScienceSystem
 from systems.vessel_system import LaunchSite, OrbitStart, VesselSystem
 
 from programme import fleet
-from programme.career import CAREER_PATH, Career, load_campaign
+from programme.career import Career, load_campaign
+from programme import saves as games
 
-from science.record import PROGRESS_PATH, SANDBOX_PROGRESS_PATH, ScienceRecord
+from science.record import ScienceRecord
 from science.sites import load_sites
 
 from vessel.parts import load_design, load_parts
@@ -322,22 +324,28 @@ class Application(
         dev: bool = False,
         sandbox: bool = False,
         headless: bool = False,
-        saves: Path | None = None
+        saves: Path | None = None,
+        slot: str | None = None,
+        title: bool = False
     ):
         """
         body: where to start (a profile id in assets/bodies/;
             Earth by default; a career always starts at home).
         dev: start with the developer tools open (F3).
         sandbox: no funds, missions or calendar to keep: launch
-            anything free, travel anywhere; its own saves.
+            anything free, travel anywhere.
         headless: a hidden window and a fixed 1/60 s frame, for
             stepping the game with step() (tests: see
             tests/integration/).
-        saves: the folder for the career, science and fleet
-            saves (default: data/).
+        saves: a folder for the career, science and fleet
+            saves (tests); else the game is a saved game in
+            data/saves/ (programme/saves.py): the one named
+            slot (made if there is none), or with title the
+            last played behind the title screen, or the one
+            called Career (Sandbox) otherwise. Headless
+            without saves: nothing kept.
         """
 
-        self.sandbox = sandbox
         self.headless = headless
 
         engine_assert(
@@ -497,14 +505,9 @@ class Application(
 
         self.vessel_design = load_design("pathfinder", self.parts)
 
-        # Science: the sites, the player's record (saved), the
-        # panel (K).
-        science_path = SANDBOX_PROGRESS_PATH if sandbox else PROGRESS_PATH
-
-        if saves is not None:
-            science_path = Path(saves) / "science.json"
-
-        self.science_system = ScienceSystem(load_sites(), ScienceRecord.load(science_path), science_path)
+        # Science: the sites; the panel (K). (The record: with
+        # the saves, below.)
+        self._sites = load_sites()
         self.science_panel = SciencePanel()
 
         # The link home (systems/comms_system.py), this frame;
@@ -519,16 +522,8 @@ class Application(
         # Every crew's life (systems/crew_system.py).
         self.crew_system = CrewSystem()
 
-        # The space programme: funds, missions (saved); its
-        # panel (P).
-        campaign = load_campaign()
-
-        career_path = Path(saves) / "career.json" if saves is not None else CAREER_PATH
-
-        if sandbox:
-            self.programme_system = ProgrammeSystem(campaign, Career(funds=0.0), None, sandbox=True)
-        else:
-            self.programme_system = ProgrammeSystem(campaign, Career.load(campaign, career_path), career_path)
+        # The space programme: its campaign; its panel (P).
+        self._campaign = load_campaign()
 
         self.programme_panel = ProgrammePanel()
 
@@ -537,14 +532,41 @@ class Application(
 
         # Vessels left in flight (programme/fleet.py): saved,
         # brought into every scene; the list (L).
-        self.fleet_path = fleet.SANDBOX_FLEET_PATH if sandbox else fleet.FLEET_PATH
-
-        if saves is not None:
-            self.fleet_path = Path(saves) / "fleet.json"
-        self._fleet_records = fleet.load(self.fleet_path)
         self._fleet_restored = False
         self._fleet_saved = 0.0
         self.vessels_panel = VesselsPanel()
+
+        # The game played (programme/saves.py): its saves,
+        # read; the title screen.
+        self.title = TitleScreen()
+
+        self.slot = None
+
+        if saves is not None:
+            folder = Path(saves)
+        elif headless:
+            folder = None
+        else:
+
+            games.migrate()
+
+            if slot is not None:
+                self.slot = games.find(slot) or games.create(slot, sandbox)
+            elif title:
+                self.slot = next(iter(games.slots()), None)
+            else:
+                name = "Sandbox" if sandbox else "Career"
+                self.slot = games.find(name) or games.create(name, sandbox)
+
+            folder = self.slot.folder if self.slot is not None else None
+
+            # (Behind the title with no game yet: a sandbox,
+            # nothing kept.)
+            sandbox = self.slot.sandbox if self.slot is not None else True
+
+        self._open_saves(folder, sandbox)
+
+        self._autosaved = time.monotonic()
 
         # The vessel flown before the part editor opened (to
         # go back to on Cancel).
@@ -581,10 +603,13 @@ class Application(
             self.planet_system.stream = False
             self.render_system.settings.scatter = False
 
-        if body and body != self.START_BODY and not sandbox:
+        if body and body != self.START_BODY and not self.sandbox:
             Logger.warning("[Application] A career starts at home (%s); --sandbox to start at %s.", self.START_BODY, body)
 
-        self.travel_to((body or self.START_BODY) if sandbox else self.START_BODY)
+        self.travel_to(self._start_body(body))
+
+        if title and not headless:
+            self.title.show()
 
         # Resolve world matrices before the first frame, so
         # everything has valid data even if update() is
@@ -597,6 +622,227 @@ class Application(
 
         Logger.info(
             "[Application] Initialization complete."
+        )
+
+    # =====================================================
+    # Saved Games
+    # =====================================================
+
+    # Every so often (s, real, playing) a copy of the game is
+    # kept in its autosave/ (programme/saves.py).
+    AUTOSAVE_EVERY = 300.0
+
+    def _open_saves(
+        self,
+        folder: Path | None,
+        sandbox: bool
+    ):
+        """The game's record, career and fleet, read from a folder of saves (None: a game nothing is kept of)."""
+
+        self.saves = Path(folder) if folder is not None else None
+        self.sandbox = sandbox
+
+        def path(name):
+            return self.saves / name if self.saves is not None else None
+
+        science_path = path("science.json")
+
+        self.science_system = ScienceSystem(
+            self._sites,
+            ScienceRecord.load(science_path) if science_path is not None else ScienceRecord(),
+            science_path
+        )
+
+        campaign = self._campaign
+
+        career_path = path("career.json")
+
+        if sandbox:
+            self.programme_system = ProgrammeSystem(campaign, Career(funds=0.0), None, sandbox=True)
+        elif career_path is not None:
+            self.programme_system = ProgrammeSystem(campaign, Career.load(campaign, career_path), career_path)
+        else:
+            self.programme_system = ProgrammeSystem(campaign, Career(funds=campaign.start_funds), None)
+
+        self.fleet_path = path("fleet.json")
+
+        self._fleet_records = fleet.load(self.fleet_path) if self.fleet_path is not None else []
+
+    def _start_body(
+        self,
+        wanted: str | None = None
+    ) -> str:
+        """Where a game starts: a career at home; a sandbox where asked, else where the flown vessel was."""
+
+        if not self.sandbox:
+            return self.START_BODY
+
+        if wanted is None:
+            wanted = next((record.get("body") for record in self._fleet_records if record.get("active")), None)
+
+        return wanted if wanted in self.body_presets else self.START_BODY
+
+    def _summary(self) -> dict:
+        """The game in brief, for the title screen."""
+
+        return {
+            "clock": self.orbit_system.time,
+            "funds": None if self.sandbox else self.programme_system.career.funds,
+            "vessels": sum(1 for _, component in self.vessel_system.vessels(self.scene) if component.paid and not component.state.destroyed),
+            "science": self.science_system.record.points,
+            "body": self.body_id,
+        }
+
+    def save_game(self):
+        """Everything written now (the game saves itself as it goes too)."""
+
+        self.science_system.save()
+        self.programme_system.save(force=True)
+        self.save_fleet()
+
+        if self.slot is None:
+            return
+
+        self.slot.played = time.time()
+        self.slot.summary = self._summary()
+
+        try:
+            games.write(self.slot)
+        except OSError as error:
+            Logger.error("[Application] Could not save the game's summary: %s", error)
+
+    def open_game(
+        self,
+        slot: games.Slot | None,
+        kind: str | None = None,
+        folder: Path | None = None
+    ):
+        """
+        Play a saved game (the one now saved first): as it
+        was left, or its quicksave / autosave (kind). slot
+        None: the folder of saves (tests), or the one now.
+        """
+
+        self.save_game()
+
+        if slot is not None:
+            folder, sandbox = slot.folder, slot.sandbox
+        else:
+            folder, sandbox = (folder or self.saves), self.sandbox
+
+        if kind is not None and folder is not None:
+            games.restore(folder, kind)
+
+        self.slot = slot
+
+        self.pause_menu.close()
+        self.part_editor.open = False
+        self._set_looking(False)
+
+        self._open_saves(folder, sandbox)
+
+        self.vessel_design = load_design("pathfinder", self.parts)
+        self._flying_before_edit = None
+        self._design_before_edit = None
+
+        # (A new start: nothing of the last game's vessels
+        # carried over.)
+        self._fleet_restored = False
+
+        self._fleet_saved = self._autosaved = time.monotonic()
+
+        self.travel_to(self._start_body())
+
+        if slot is not None:
+            Logger.info("[Application] Playing '%s'%s.", slot.name, f" ({kind})" if kind else "")
+
+    def quicksave(self) -> bool:
+
+        if self.saves is None:
+
+            self.hud.notify("Nothing is kept of this game: start or load one from the title screen")
+
+            return False
+
+        if self.part_editor.open:
+            return False
+
+        try:
+            self.save_game()
+            games.keep(self.saves, games.QUICKSAVE)
+        except OSError as error:
+
+            Logger.error("[Application] Quicksave failed: %s", error)
+
+            self.hud.notify("Could not quicksave")
+
+            return False
+
+        self.hud.notify("Quicksaved (F9 to go back to it)")
+
+        return True
+
+    def quickload(self) -> bool:
+
+        if self.saves is None or games.kept(self.saves, games.QUICKSAVE) is None:
+
+            self.hud.notify("No quicksave yet (F5)")
+
+            return False
+
+        self.open_game(self.slot, games.QUICKSAVE, self.saves)
+
+        self.hud.notify("Quickloaded")
+
+        return True
+
+    def _autosave(self):
+        """Every AUTOSAVE_EVERY s of play: a copy kept."""
+
+        now = time.monotonic()
+
+        if self.saves is None or now - self._autosaved < self.AUTOSAVE_EVERY:
+            return
+
+        self._autosaved = now
+
+        try:
+            self.save_game()
+            games.keep(self.saves, games.AUTOSAVE)
+        except OSError as error:
+            Logger.error("[Application] Autosave failed: %s", error)
+
+    def show_title(self):
+        """Back to the title screen (the game saved, behind it)."""
+
+        self.save_game()
+
+        self.pause_menu.close()
+        self._set_looking(False)
+
+        self.title.show()
+
+    def _title_actions(self) -> TitleActions:
+
+        def play(slot, kind):
+            self.title.close()
+            self.open_game(slot, kind)
+
+        def new(name, sandbox):
+
+            slot = games.create(name, sandbox, self.title.directory)
+
+            self.title.close()
+
+            self.open_game(slot)
+
+            self.hud.notify(f"A new {'sandbox' if sandbox else 'career'}: {name}")
+
+        return TitleActions(
+            resume=self.title.close,
+            play=play,
+            new=new,
+            quit=self.request_quit
         )
 
     # =====================================================
@@ -1296,7 +1542,7 @@ class Application(
 
         building = self.part_editor.open
 
-        paused = self.pause_menu.open or building
+        paused = self.pause_menu.open or building or self.title.open
 
         self._update_maneuver()
 
@@ -1424,7 +1670,10 @@ class Application(
 
                 self._fleet_saved = now
 
-                self.save_fleet()
+                self.save_game()
+
+            if not paused:
+                self._autosave()
 
             for news in self.programme_system.news:
                 self.hud.notify(news)
@@ -1645,6 +1894,14 @@ class Application(
 
         menu = self.pause_menu
 
+        # The title screen: Esc back a page; no game keys.
+        if self.title.open:
+
+            if Input.is_key_pressed(Key.ESCAPE):
+                self.title.back()
+
+            return
+
         if self.part_editor.open:
 
             # Esc leaves the editor as Cancel does.
@@ -1673,7 +1930,7 @@ class Application(
         if Input.is_key_pressed(Key.F3):
             self.dev_tools = not self.dev_tools
 
-        if self.dev_tools and Input.is_key_pressed(Key.F5):
+        if self.dev_tools and Input.is_key_pressed(Key.F6):
 
             self.resources.reload_changed_shaders(
                 force=True
@@ -1681,6 +1938,12 @@ class Application(
 
         if menu.open:
             return
+
+        if Input.is_key_pressed(Key.F5):
+            self.quicksave()
+
+        if Input.is_key_pressed(Key.F9):
+            self.quickload()
 
         if Input.is_key_pressed(Key.PERIOD):
             self.time_warp.faster()
@@ -1812,7 +2075,8 @@ class Application(
                 lambda: frame_body(context, self.planet_system.extent(context.body) or context.planet.radius)
             ),
             set_quality=lambda name: apply_quality(self.render_system.settings, name),
-            quit=self.request_quit
+            quit=self.request_quit,
+            title=self.show_title
         )
 
     def request_quit(self):
@@ -1878,6 +2142,14 @@ class Application(
                 self.imgui_layer.end_frame()
 
     def _draw_ui(self):
+
+        # The title screen over the game behind it, and
+        # nothing else.
+        if self.title.open:
+
+            self.title.draw(self._title_actions(), self.slot)
+
+            return
 
         # What is not researched yet, and the flight data, for
         # the editor.
@@ -1972,7 +2244,7 @@ class Application(
 
                 imgui.separator()
 
-                if imgui.menu_item("Reload shaders", "F5", False)[0]:
+                if imgui.menu_item("Reload shaders", "F6", False)[0]:
                     self.resources.reload_changed_shaders(force=True)
 
                 if imgui.menu_item("Hide developer tools", "F3", False)[0]:
@@ -2194,6 +2466,7 @@ class Application(
             event.button == MouseButton.RIGHT
             and not self.imgui_layer.wants_mouse
             and not self.pause_menu.open
+            and not self.title.open
         ):
 
             self._set_looking(
@@ -2255,18 +2528,12 @@ class Application(
         if sound is not None:
             sound.close()
 
-        science = getattr(self, "science_system", None)
+        if getattr(self, "programme_system", None) is not None and self.scene is not None:
 
-        if science is not None:
-            science.save()
-
-        programme = getattr(self, "programme_system", None)
-
-        if programme is not None:
-            programme.save()
-
-        if getattr(self, "_fleet_restored", False) and self.scene is not None:
-            self.save_fleet()
+            try:
+                self.save_game()
+            except Exception:
+                Logger.exception("[Application] Could not save the game.")
 
         # =================================================
         # UI
