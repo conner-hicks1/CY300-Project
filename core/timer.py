@@ -123,6 +123,17 @@ class Timer:
     # Timing Properties
     # =====================================================
 
+    def set_fixed_step(
+        self,
+        seconds: float
+    ):
+        """The next frames this long (a fixed-step timer only: tests playing uneven frames)."""
+
+        if self._fixed_step is None or seconds <= 0.0:
+            raise ValueError("Only a fixed-step timer takes a step, and a positive one.")
+
+        self._fixed_step = seconds
+
     @property
     def delta_time(self):
         """

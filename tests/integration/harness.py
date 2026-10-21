@@ -1,4 +1,5 @@
 import math
+import random
 
 from pathlib import Path
 
@@ -35,6 +36,8 @@ from vessel.physics import land
 # One at a time (a GL context each); close() when done (the
 # fixture does).
 
+TEST_LOG = "logs/tests.log"
+
 class Game:
 
     def __init__(
@@ -44,17 +47,24 @@ class Game:
         sandbox: bool = False,
         design: str | None = None,
         researched: bool = True,
-        failures: bool = False
+        failures: bool = False,
+        terrain: bool = False,
+        frame_times: tuple[float, float] | None = None
     ):
         """
         researched: every tech node known (else only the free
         ones: a new career's). failures: parts may fail
         (vessel/reliability.py; off: runs replay the same).
+        terrain: the real terrain streamed in and every frame
+        drawn, as playing (slow: ~20 frames a second).
+        frame_times: each frame between these (s, seeded),
+        as an uneven real frame rate; else 1/60 s.
         """
 
         from application import Application
 
-        Logger.initialize()
+        # (Its own log: never the game's logs/engine.log.)
+        Logger.initialize(log_file=TEST_LOG)
 
         self.app = Application()
 
@@ -68,6 +78,17 @@ class Game:
         programme.failures.enabled = failures and not sandbox
 
         self.frame = 0
+
+        # Played as for real: terrain coming in, frames of
+        # uneven length (the game's bugs that only show then).
+        self._render = terrain
+
+        if terrain:
+            self.app.planet_system.stream = True
+
+        self._frame_times = frame_times
+
+        self._random = random.Random(1)
 
         self._held: set[Key] = set()
 
@@ -88,7 +109,10 @@ class Game:
             for key in self._held:
                 Input.simulate_hold(key)
 
-            self.app.step()
+            if self._frame_times is not None:
+                self.app.timer.set_fixed_step(self._random.uniform(*self._frame_times))
+
+            self.app.step(render=self._render)
 
             self.frame += 1
 
@@ -111,6 +135,17 @@ class Game:
             self.step()
 
         raise AssertionError(f"not done in {max_frames} frames")
+
+    def uneven(
+        self,
+        frame_times: tuple[float, float],
+        seed: int = 1
+    ):
+        """From now, each frame between these (s, seeded): an uneven real frame rate."""
+
+        self._frame_times = frame_times
+
+        self._random = random.Random(seed)
 
     @property
     def clock(self) -> float:
