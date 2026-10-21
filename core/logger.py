@@ -1,7 +1,41 @@
 import logging
 import sys
 
+from datetime import datetime
 from pathlib import Path
+
+
+# The logs of earlier runs kept beside the newest (engine.1.log
+# the one before, ...): a run never wipes the last one out.
+KEEP = 3
+
+
+def _keep_earlier(
+    path: Path
+):
+    """engine.log -> engine.1.log -> engine.2.log ... (the oldest dropped)."""
+
+    def numbered(index):
+        return path.with_name(f"{path.stem}.{index}{path.suffix}")
+
+    if not path.exists() or path.stat().st_size == 0:
+        return
+
+    try:
+
+        numbered(KEEP).unlink(missing_ok=True)
+
+        for index in range(KEEP - 1, 0, -1):
+
+            if numbered(index).exists():
+                numbered(index).replace(numbered(index + 1))
+
+        path.replace(numbered(1))
+
+    except OSError:
+
+        # (Open in another program: written over instead.)
+        pass
 
 
 class Logger:
@@ -88,6 +122,8 @@ class Logger:
                 exist_ok=True
             )
 
+            _keep_earlier(path)
+
             file_handler = logging.FileHandler(
                 path,
                 mode="w",
@@ -110,7 +146,8 @@ class Logger:
         cls._initialized = True
 
         cls.info(
-            "[Core] Logger initialized."
+            "[Core] Logger initialized (%s).",
+            datetime.now().strftime("%Y-%m-%d %H:%M")
         )
 
     # =====================================================
