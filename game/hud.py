@@ -112,6 +112,10 @@ class FlightHud:
         # Told of each notice (the sound of it), or None.
         self.on_notice = None
 
+        # (What, key) of the actions the player moved to other
+        # keys (game/bindings.py): the F1 list says so.
+        self.rebound: list[tuple[str, str]] = []
+
         # px the notices go down, under what is drawn at the
         # top (flight school, a hint: game/guide.py).
         self.notices_below = 0.0
@@ -415,6 +419,14 @@ class FlightHud:
                         imgui.text_colored(style.tone("muted"), f"{what}      ")
 
                 imgui.end_table()
+
+            if self.rebound:
+
+                imgui.separator()
+
+                style.heading("Your keys (Settings > Controls)", "warn")
+
+                style.say(",  ".join(f"{what}: {key}" for what, key in self.rebound))
 
     # -----------------------------------------------------
     # Vessel

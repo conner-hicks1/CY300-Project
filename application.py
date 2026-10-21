@@ -69,6 +69,9 @@ from game.part_editor import EditorActions, PartEditor
 from game.pause_menu import Destination, MenuActions, PauseMenu
 from game.title_screen import TitleActions, TitleScreen
 from game.guide import HINTS_PATH, FlightSchool, Hints
+from game.bindings import CONTROLS_PATH, ControlSettings
+from game.encyclopaedia import Encyclopaedia, entries
+from game.settings_menu import SettingsContext, SettingsMenu
 from game.quality import DEFAULT_QUALITY, apply_quality, current_quality
 from game.time_warp import TimeWarp
 
@@ -106,6 +109,7 @@ from controllers.maneuvers import ManeuverController
 from controllers.landing import LandingController
 from controllers.sound import SoundController
 from controllers.guide import GuideController
+from controllers.lessons import LessonsController
 from controllers.navigation import NavigationController
 from controllers.power import PowerController
 from controllers.programme import ProgrammeController
@@ -145,6 +149,7 @@ from ui.panels import PanelRegistry
 
 
 class Application(
+    LessonsController,
     GuideController,
     SoundController,
     LandingController,
@@ -571,6 +576,11 @@ class Application(
 
         self._autosaved = time.monotonic()
 
+        # The last risky moment's copy (s, monotonic); the
+        # flight as last looked at for them.
+        self._risk_saved = 0.0
+        self._risk = None
+
         # The vessel flown before the part editor opened (to
         # go back to on Cancel).
         self._flying_before_edit = None
@@ -606,6 +616,23 @@ class Application(
         self.hints = Hints(None if headless else HINTS_PATH)
         self._guided = 0.0
 
+        # Docked since a lesson began; the docking lesson's
+        # station (controllers/lessons.py).
+        self._docked = False
+        self._lesson_station = None
+
+        # The player's keys, mouse and interface size
+        # (game/bindings.py; defaults headless), the settings
+        # (game/settings_menu.py), the encyclopaedia (J).
+        self.controls = ControlSettings.load(None if headless else CONTROLS_PATH)
+        self.controls.apply()
+        self._apply_ui_scale()
+        self.hud.rebound = self.controls.changed()
+
+        self.settings_menu = SettingsMenu()
+
+        self.encyclopaedia = Encyclopaedia(lambda: entries(self.parts, self.body_presets, self.programme_system.tree))
+
         # Headless, nothing is drawn: no terrain meshes, no
         # rocks or trees to build.
         if headless:
@@ -638,8 +665,16 @@ class Application(
     # =====================================================
 
     # Every so often (s, real, playing) a copy of the game is
-    # kept in its autosave/ (programme/saves.py).
+    # kept in its autosave/ (programme/saves.py); and before
+    # a risky moment (a launch, a new sphere of influence,
+    # coming down to land), no more often than RISK_EVERY.
     AUTOSAVE_EVERY = 300.0
+    RISK_EVERY = 60.0
+
+    # Coming down to land: below this (m) over the ground,
+    # falling faster than LANDING_SPEED (m/s).
+    LANDING_HEIGHT = 5_000.0
+    LANDING_SPEED = 5.0
 
     def _open_saves(
         self,
@@ -763,6 +798,7 @@ class Application(
         self._fleet_restored = False
 
         self._fleet_saved = self._autosaved = time.monotonic()
+        self._risk = None
 
         self.travel_to(self._start_body())
 
@@ -809,30 +845,131 @@ class Application(
 
         return True
 
-    def _autosave(self):
-        """Every AUTOSAVE_EVERY s of play: a copy kept."""
+    def _autosave(
+        self,
+        why: str | None = None
+    ) -> bool:
+        """Every AUTOSAVE_EVERY s of play, or now for a risky moment (why): a copy kept."""
 
         now = time.monotonic()
 
-        if self.saves is None or now - self._autosaved < self.AUTOSAVE_EVERY:
-            return
+        if self.saves is None:
+            return False
+
+        if why is None and now - self._autosaved < self.AUTOSAVE_EVERY:
+            return False
+
+        if why is not None and now - self._risk_saved < self.RISK_EVERY:
+            return False
 
         self._autosaved = now
+
+        if why is not None:
+            self._risk_saved = now
 
         try:
             self.save_game()
             games.keep(self.saves, games.AUTOSAVE)
         except OSError as error:
+
             Logger.error("[Application] Autosave failed: %s", error)
 
-    def start_flight_school(self):
-        """The first flight to orbit, step by step: a sandbox nothing is kept of."""
+            return False
 
-        self.title.close()
+        if why is not None:
 
-        self.open_game(None, folder=None, sandbox=True)
+            Logger.info("[Application] Autosaved: %s.", why)
 
-        self.school.start()
+            self.hud.notify(f"Autosaved: {why}")
+
+        return True
+
+    def _autosave_at_risk(self):
+        """A copy kept as something risky begins: a launch, a new sphere of influence, coming down to land."""
+
+        found = self.vessel_system.find(self.scene)
+
+        if found is None or self.saves is None:
+
+            self._risk = None
+
+            return
+
+        entity, component = found
+
+        state = component.state
+
+        staged = component.vessel.next_stage > 0
+
+        landing = (
+            not state.landed
+            and self.vessel_system.height < self.LANDING_HEIGHT
+            and float(state.velocity @ state.position) / max(float(np.linalg.norm(state.position)), 1.0) < -self.LANDING_SPEED
+        )
+
+        now = (entity, staged, component.body, landing)
+
+        before, self._risk = self._risk, now
+
+        # (Another vessel, or the first look: nothing begun.)
+        if before is None or before[0] != entity or state.destroyed:
+            return
+
+        if staged and not before[1]:
+            self._autosave("the launch")
+        elif component.body != before[2]:
+            self._autosave(f"into {self.vessel_system.body_name(self.scene, component.body)}'s sphere of influence")
+        elif landing and not before[3]:
+            self._autosave("coming down to land")
+
+    # =====================================================
+    # Settings
+    # =====================================================
+
+    def _apply_ui_scale(self):
+        """The interface's size (the style's from game/style.py, scaled)."""
+
+        if self.imgui_layer is None:
+            return
+
+        style.apply()
+
+        scale = self.controls.ui_scale
+
+        imgui_style = imgui.get_style()
+
+        if abs(scale - 1.0) > 1e-3:
+            imgui_style.scale_all_sizes(scale)
+
+        imgui_style.font_scale_main = scale
+
+    def _controls_changed(self):
+        """Keys, mouse or size changed: into the input and the style, kept."""
+
+        self.controls.apply()
+
+        self.controls.save(None if self.headless else CONTROLS_PATH)
+
+        self._apply_ui_scale()
+
+        self.hud.rebound = self.controls.changed()
+
+    def _settings_context(self) -> SettingsContext:
+
+        return SettingsContext(
+            quality=current_quality(self.render_system.settings),
+            set_quality=lambda name: apply_quality(self.render_system.settings, name),
+            sound=self.sound,
+            hints=self.hints,
+            controls=self.controls,
+            controls_changed=self._controls_changed
+        )
+
+    def _draw_overlays(self):
+
+        self.encyclopaedia.draw()
+
+        self.settings_menu.draw(self._settings_context())
 
     def leave_flight_school(self):
 
@@ -871,7 +1008,9 @@ class Application(
             play=play,
             new=new,
             quit=self.request_quit,
-            school=self.start_flight_school
+            school=self.start_lesson,
+            settings=self.settings_menu.show,
+            encyclopaedia=self.encyclopaedia.show
         )
 
     # =====================================================
@@ -1702,7 +1841,10 @@ class Application(
                 self.save_game()
 
             if not paused:
+
                 self._autosave()
+
+                self._autosave_at_risk()
 
             for news in self.programme_system.news:
                 self.hud.notify(news)
@@ -1925,6 +2067,22 @@ class Application(
 
         menu = self.pause_menu
 
+        # The settings: Esc closes them (or stops choosing a
+        # key); no game keys meanwhile.
+        if self.settings_menu.open:
+
+            if Input.is_key_pressed(Key.ESCAPE):
+                self.settings_menu.back()
+
+            return
+
+        # The encyclopaedia: Esc (or J) closes it.
+        if self.encyclopaedia.open and (Input.is_key_pressed(Key.ESCAPE) or Input.is_key_pressed(Key.J)):
+
+            self.encyclopaedia.open = False
+
+            return
+
         # The title screen: Esc back a page; no game keys.
         if self.title.open:
 
@@ -1989,6 +2147,9 @@ class Application(
 
         if Input.is_key_pressed(Key.V) and self.vessel_system.find(self.scene) is not None:
             self.free_camera = not self.free_camera
+
+        if Input.is_key_pressed(Key.J):
+            self.encyclopaedia.toggle()
 
         if Input.is_key_pressed(Key.M) and self.vessel_system.find(self.scene) is not None:
             self.map_view.toggle()
@@ -2105,9 +2266,10 @@ class Application(
             whole_body=camera_move(
                 lambda: frame_body(context, self.planet_system.extent(context.body) or context.planet.radius)
             ),
-            set_quality=lambda name: apply_quality(self.render_system.settings, name),
             quit=self.request_quit,
-            title=self.show_title
+            title=self.show_title,
+            settings=self.settings_menu.show,
+            encyclopaedia=self.encyclopaedia.show
         )
 
     def request_quit(self):
@@ -2167,6 +2329,10 @@ class Application(
                 self.imgui_layer.begin_frame()
 
                 self._draw_ui()
+
+                # Over everything (the title screen too): the
+                # settings, the encyclopaedia.
+                self._draw_overlays()
 
                 # The interface's click: a button, a box, a tab.
                 if imgui.is_mouse_clicked(imgui.MouseButton_.left) and imgui.is_any_item_hovered():
@@ -2259,9 +2425,9 @@ class Application(
 
         self._draw_vessels()
 
-        self.school.draw(self.leave_flight_school)
+        self.school.draw(self.leave_flight_school, self.lesson_again)
 
-        if not self.pause_menu.open:
+        if not self.pause_menu.open and not self.school.active:
             self.hints.draw()
         else:
             self.hints.height = 0.0
@@ -2274,12 +2440,9 @@ class Application(
         self.pause_menu.draw(
             self._menu_actions(context),
             context.name() if context.body is not None else "",
-            current_quality(self.render_system.settings),
             free_camera=self.free_camera,
             vessel=found is not None,
-            travel=self.sandbox,
-            sound=self.sound,
-            hints=self.hints
+            travel=self.sandbox
         )
 
         if not self.dev_tools:

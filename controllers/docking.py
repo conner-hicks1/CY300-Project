@@ -138,6 +138,9 @@ class DockingController:
 
             self.hud.notify(f"Docked with {name}")
 
+            # (For flight school's docking lesson.)
+            self._docked = True
+
             self.sound.play("dock", 1.0)
 
             return

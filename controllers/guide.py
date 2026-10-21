@@ -3,6 +3,8 @@ import time
 
 import numpy as np
 
+from ecs.components import VesselComponent
+
 from game.guide import Moment
 
 
@@ -47,6 +49,20 @@ class GuideController:
 
         hot = readout.heat
 
+        target = self.map_view.target
+
+        target_state = None
+
+        if target is not None and target[0] == "vessel":
+
+            other = self.scene.try_get_component(target[1], VesselComponent)
+
+            target_state = other.state if other is not None else None
+
+        status = component.power
+
+        link = self.link
+
         return Moment(
             situation=readout.situation,
             body=readout.body,
@@ -71,7 +87,18 @@ class GuideController:
             warp=self.time_warp.rate,
             node=component.node is not None,
             node_in=planned[1] if planned is not None else None,
-            career=not self.sandbox
+            node_dv=planned[0] if planned is not None else None,
+            career=not self.sandbox,
+            target=target_state is not None,
+            target_distance=float(np.linalg.norm(target_state.position - state.position)) if target_state is not None else None,
+            translating=bool(component.controls.translating),
+            docked=getattr(self, "_docked", False),
+            charge=status.share if status is not None else 1.0,
+            panels=status.panels if status is not None else "",
+            delay=0.0 if link.crewed else link.delay,
+            uplink=bool(component.uplink),
+            program=component.computer is not None,
+            computer_open=self.computer_panel.open
         )
 
     def _update_guide(

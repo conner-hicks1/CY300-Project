@@ -427,22 +427,35 @@ class Window:
         )
 
         try:
-            engine_key = Key(key)
+            physical = Key(key)
 
         except ValueError:
             return
 
+        # (The game's own key for it: rebound keys, Input.
+        # None: a key whose action moved off it.)
+        engine_key = Input.logical(physical)
+
         if action == glfw.PRESS:
 
             Input._press_key(
-                engine_key
+                physical
             )
+
+            if engine_key is None:
+                return
 
             self._emit(
                 KeyPressedEvent(
                     engine_key,
                     repeat=False
                 )
+            )
+
+        elif engine_key is None:
+
+            Input._release_key(
+                physical
             )
 
         elif action == glfw.REPEAT:
@@ -463,7 +476,7 @@ class Window:
         elif action == glfw.RELEASE:
 
             Input._release_key(
-                engine_key
+                physical
             )
 
             self._emit(

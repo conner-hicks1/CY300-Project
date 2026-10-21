@@ -10,6 +10,8 @@ from game.style import tone
 
 from planet.orbits import date_of
 
+from game.lessons import LESSONS
+
 from programme import saves
 from programme.saves import Slot
 
@@ -23,8 +25,9 @@ from programme.saves import Slot
 # to title). Pages:
 #
 #   main   Continue (the game behind), New game, Flight
-#          school (a first flight to orbit, step by step:
-#          game/guide.py), Load game, Quit
+#          school, Load game, Settings, Encyclopaedia, Quit
+#   school flight school's lessons (game/lessons.py), each
+#          a short flight step by step
 #   new    a name, career or sandbox
 #   load   the saved games, the last played first: load one
 #          (or its quicksave / autosave), delete one
@@ -39,7 +42,9 @@ class TitleActions:
     play: Callable[[Slot, str | None], None]        # a game (as saved, or its quicksave / autosave)
     new: Callable[[str, bool], None]                # name, sandbox
     quit: Callable[[], None]
-    school: Callable[[], None] = lambda: None       # flight school
+    school: Callable[[str], None] = lambda lesson: None     # flight school: a lesson
+    settings: Callable[[], None] = lambda: None
+    encyclopaedia: Callable[[], None] = lambda: None
 
 
 def ago(
@@ -103,6 +108,7 @@ class TitleScreen:
     MAIN = "main"
     NEW = "new"
     LOAD = "load"
+    SCHOOL = "school"
 
     def __init__(
         self,
@@ -205,6 +211,8 @@ class TitleScreen:
 
         if self.page == self.NEW:
             self._draw_new(actions)
+        elif self.page == self.SCHOOL:
+            self._draw_school(actions)
         elif self.page == self.LOAD:
             self._draw_load(actions, current)
         else:
@@ -252,9 +260,9 @@ class TitleScreen:
             self._start_new()
 
         if self._button("Flight school"):
-            actions.school()
+            self.page = self.SCHOOL
 
-        imgui.set_item_tooltip("A first flight to orbit, step by step (a sandbox: nothing is saved).")
+        imgui.set_item_tooltip("Short lessons, step by step: a first orbit, maneuver nodes, docking, landing, power, light delay (nothing is saved).")
 
         if self._button(f"Load game ({len(self.slots)})", bool(self.slots)):
 
@@ -263,6 +271,18 @@ class TitleScreen:
             self._confirm_delete = False
 
         imgui.dummy((0.0, 6.0))
+
+        half = WIDTH * 0.5 - 4.0
+
+        with style.font("bold"):
+
+            if imgui.button("Settings", (half, 38.0)):
+                actions.settings()
+
+            imgui.same_line()
+
+            if imgui.button("Encyclopaedia", (half, 38.0)):
+                actions.encyclopaedia()
 
         if self._button("Quit"):
             actions.quit()
@@ -308,6 +328,46 @@ class TitleScreen:
 
         if self._button("Start", bool(name) and not taken):
             actions.new(name, self._sandbox)
+
+        if self._button("Back"):
+            self.back()
+
+    def _draw_school(
+        self,
+        actions: TitleActions
+    ):
+
+        style.heading("Flight school")
+
+        imgui.push_text_wrap_pos(imgui.get_cursor_pos_x() + WIDTH)
+
+        style.say("Each a short flight, set up where it starts, done step by step. A sandbox: nothing is saved.", "muted")
+
+        imgui.pop_text_wrap_pos()
+
+        imgui.dummy((0.0, 4.0))
+
+        # (As many as fit, the rest scrolled to: the Back
+        # button and the footer below.)
+        room = max(imgui.get_main_viewport().work_size.y - imgui.get_cursor_pos_y() - 100.0, 120.0)
+
+        if imgui.begin_child("lessons", (WIDTH + 16.0, room)):
+
+            for item in LESSONS:
+
+                with style.font("bold"):
+                    clicked = imgui.button(f"{item.title}##lesson {item.id}", (WIDTH, 32.0))
+
+                if clicked:
+                    actions.school(item.id)
+
+                imgui.push_text_wrap_pos(imgui.get_cursor_pos_x() + WIDTH)
+                style.say(item.about, "muted")
+                imgui.pop_text_wrap_pos()
+
+                imgui.dummy((0.0, 2.0))
+
+        imgui.end_child()
 
         if self._button("Back"):
             self.back()

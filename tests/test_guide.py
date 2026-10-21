@@ -1,13 +1,14 @@
 from dataclasses import replace
 
 from game.guide import FIRST_ORBIT, HINT_SECONDS, FlightSchool, Hints, Moment
+from game.lessons import LESSONS, lesson
 
 
 def test_flight_school_goes_step_by_step_to_orbit():
 
     school = FlightSchool()
 
-    school.start()
+    school.start(lesson("first_orbit"))
 
     moment = Moment()
 
@@ -55,7 +56,7 @@ def test_a_lost_rocket_starts_the_lesson_over():
 
     school = FlightSchool()
 
-    school.start()
+    school.start(lesson("first_orbit"))
 
     moment = Moment(throttle=1.0, staged=True, thrust=1e6, sas=True, situation="Flying", height=2_000.0)
 
@@ -156,3 +157,45 @@ def test_hints_for_the_flight():
     assert first(staged=True, situation="Flying", legs="up", height=1_000.0, vertical_speed=-10.0) == "legs"
     assert first(staged=True, situation="Destroyed") == "lost"
     assert first(staged=True, situation="Flying", heat=0.8) == "heat"
+    assert first(staged=True, situation="Flyby", panels="folded", charge=0.2) == "wings"
+    assert first(staged=True, situation="Flyby", panels="out", charge=0.0) == "power out"
+    assert first(staged=True, situation="Flyby", panels="", charge=0.2) is None
+
+
+def test_a_step_to_read_waits_for_next():
+
+    school = FlightSchool()
+
+    school.start(lesson("power"))
+
+    school.update(Moment(situation="Orbiting", staged=True, charge=0.1, panels="folded"))
+
+    # Read, then Next.
+    assert school.step.title == "Power"
+
+    school.skip()
+
+    school.update(Moment(situation="Orbiting", staged=True, charge=0.1, panels="unfolding"))
+
+    assert school.step.title == "Charging"
+
+    school.update(Moment(situation="Orbiting", staged=True, charge=0.6, panels="out"))
+
+    assert school.step.title == "Night"
+
+    # Lost away from the pad: on the pad again does not
+    # reset it (it starts over from its own setup).
+    school.update(Moment(situation="Destroyed"))
+
+    assert school.lost
+
+
+def test_every_lesson_has_steps_it_can_finish():
+
+    assert [item.id for item in LESSONS][:1] == ["first_orbit"]
+
+    for item in LESSONS:
+
+        assert item.steps and item.done and item.setup
+
+        assert all(step.title and step.text for step in item.steps)

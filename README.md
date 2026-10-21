@@ -973,33 +973,56 @@ build your own rocket in the part editor, on the pad.
 - Time warp in steps from real time to 10,000,000x (**,** and **.**; **/**
   back to real time)
 - Title screen: Continue (the last game played, paused behind the menu),
-  New game (a name; career or sandbox), Flight school, Load game (each with its date,
+  New game (a name; career or sandbox), Flight school, Load game, Settings,
+  Encyclopaedia (Load game: each game with its date,
   funds, vessels in flight, science and when it was last played; its
   quicksave or autosave; delete). Each game is a folder in `data/saves/`
   (`slot.json`, `career.json`, `science.json`, `fleet.json`); the game
   saves itself as you play (every 30 s and on quitting), keeps a copy in
-  `autosave/` every 5 minutes of play, and **F5** / **F9** quicksave and go
-  back to the quicksave. Saves from before slots (`data/programme/`,
-  `data/science/`) become the games Career and Sandbox the first time
-  (copied)
-- Flight school (title screen): a first flight to orbit in 13 steps, each
-  saying what to do and done when the flight shows it: full throttle, the
-  engines lit, stability assist, climbing to 1 km, the gravity turn, prograde,
-  the apoapsis above 80 km, coasting, the map, the circularizing burn planned,
-  pointed at, waited for and flown. Steps can be skipped; a lost rocket and a
-  revert start it over. A sandbox nothing is kept of
+  `autosave/` every 5 minutes of play and as something risky begins (a
+  launch, a new sphere of influence, coming down to land; a notice says so),
+  and **F5** / **F9** quicksave and go back to the quicksave. Saves from
+  before slots (`data/programme/`, `data/science/`) become the games Career
+  and Sandbox the first time (copied). Every saved file says its format; an
+  older one is brought up to date as it is read (`programme/upgrades.py`: a
+  career from before the tech tree gets every node, as it had every part)
+- Flight school (title screen): short lessons, each set up where it starts
+  and done step by step, every step saying what to do and done when the
+  flight shows it: First orbit (from the pad: throttle, staging, the gravity
+  turn, the map, the circularizing burn), Maneuver nodes (an upper stage in
+  low orbit: plan a burn, shape it, point at it, fly it), Docking (a ferry
+  120 m off a station: target, thrusters, dock), Landing on the Moon (a lander
+  10 km up, sunlit, in touch with home: retrograde, legs, the landing burn,
+  touchdown), Power (a probe's battery low: the wings out, charging) and Far
+  from home (a probe at Mars: light delay, the flight computer). Steps can be
+  skipped (Next for those to read); a lost vessel starts the lesson over. A
+  sandbox nothing is kept of
 - Hints: a word the first time something comes up (on the pad, climbing
   straight up too long, a stage run dry, the apoapsis out of the air, in
   orbit, the map, time warp, a planned burn, reentry heat, a parachute not
-  armed coming down, legs up landing, a vessel lost), each once; off or all
-  shown again in the pause menu (Controls); kept in
-  `data/settings/hints.json`
+  armed coming down, legs up landing, power low with the wings folded, out of
+  power, a vessel lost), each once; off or all shown again in Settings
+  (Controls); kept in `data/settings/hints.json`
+- Encyclopaedia (**J**, the pause menu, the title screen), searchable: How it
+  works (articles on flying, the air and landing, space, the surface, the
+  programme, saving), every part (from its data: mass, cost, size, thrust and
+  efficiency, what it burns or holds, power, crew, limits, the research it
+  needs) and every body (radius, gravity, escape speed, day, orbit, air,
+  temperature)
+- Settings (the pause menu, the title screen): Graphics (the quality preset),
+  Sound (master, effects, alerts and music volumes, mute, engines through the
+  hull in vacuum), Controls (every key, each moved to another by clicking it
+  and pressing the new one: a key taken swaps with the action that had it;
+  Esc stays the menus'; mouse sensitivity, up / down swapped; hints) and
+  Interface (its size, 0.75x to 1.75x). Keys, mouse and size kept in
+  `data/settings/controls.json`; **F1** lists the keys moved
 - Pause menu (**Esc**, stops the clock): Revert to launch, Build vessel, Travel to any (in a sandbox)
   body, Camera (follow the vessel or fly free; surface, low orbit, the whole
-  body in view), Graphics quality (Low / Medium / High, Medium by default:
-  the scene's resolution, 70% / 85% / 100% scaled up at the end, since the
-  scene's cost is nearly all per pixel; atmosphere samples; rocks, trees and
-  grass; shadow reach and mountain shadows; bloom), Sound, Controls, Save and quit to title, Quit to desktop
+  body in view), Settings (graphics quality - Low / Medium / High, Medium by
+  default: the scene's resolution, 70% / 85% / 100% scaled up at the end,
+  since the scene's cost is nearly all per pixel; atmosphere samples; rocks,
+  trees and grass; shadow reach and mountain shadows; bloom - sound,
+  controls, interface), Encyclopaedia, Save and quit to title, Quit to desktop
 - Sound, made as the game starts (no sound files, nothing to install: Windows'
   own waveOut): engines roar in air, louder with the thrust and deeper for
   the big ones, and fade with distance and thin air; silent in vacuum (or, a
@@ -1099,9 +1122,10 @@ the first few seconds.
 | **V** | Free camera: hold right mouse, **W A S D** move, **Space** up, **Shift** down (along the ground, around the planet from orbit; speed grows with altitude) |
 | **.** / **,** | Time warp faster / slower |
 | **/** | Back to real time |
-| **Esc** | Pause menu (travel, camera, graphics, sound, controls, title, quit) |
+| **Esc** | Pause menu (travel, camera, settings, encyclopaedia, title, quit) |
 | **F5** / **F9** | Quicksave / go back to the quicksave |
-| **F1** | List every key on screen |
+| **J** | Encyclopaedia |
+| **F1** | List every key on screen (and those you moved) |
 | **F2** | Show / hide the HUD |
 | **F3** | Developer tools |
 | **F6** | Reload all shaders (with the developer tools open) |
@@ -1111,17 +1135,17 @@ the first few seconds.
 | Path | Contents |
 | --- | --- |
 | `main.py`, `application.py` | Entry point, main loop, building a body's scene, keys, the HUD and menus |
-| `controllers/` | The application's parts, apart for size: the map and navigation, maneuver nodes, piloting through the link and the flight computer, science, the programme's panel, the fleet, docking, power, sound, flight school and hints, the part editor |
+| `controllers/` | The application's parts, apart for size: the map and navigation, maneuver nodes, piloting through the link and the flight computer, science, the programme's panel, the fleet, docking, power, sound, flight school and its lessons, hints, the part editor |
 | `audio/` | Sound: the output (Windows waveOut through ctypes), sounds and music made from shaped noise and tones, the mixer, what a moment of flight sounds like |
 | `core/` | Window, input, events, timer, logging, profiler, job system, disk cache |
 | `ecs/` | Entity registry and components |
-| `vessel/` | Parts and vessel designs (and drafts being edited, saved designs), staging, propellant and parachutes, flight physics, heating, Kepler orbits, patched conics, transfers, maneuver nodes, flight computer sequences, vessels in flight as JSON, docking, power |
+| `vessel/` | Parts and vessel designs (and drafts being edited, saved designs), staging, propellant and parachutes, flight physics, heating, Kepler orbits, patched conics, transfers, maneuver nodes, flight computer sequences, vessels in flight as JSON, docking, power, placing vessels (lessons, tests) |
 | `systems/` | Transform, camera controller, orbits and clock, vessels, power, science, communications, the space programme, planet streaming and render systems |
 | `science/` | Science sites, regions from the real maps, the orbital survey (mapping masks), the science record |
-| `programme/` | Saved games (slots, quicksave, autosave), the career (funds, budget, missions on the calendar), the tech tree and research, resources for making propellant, the fleet of vessels in flight |
+| `programme/` | Saved games (slots, quicksave, autosave, old formats brought up to date), the career (funds, budget, missions on the calendar), the tech tree and research, resources for making propellant, the fleet of vessels in flight |
 | `planet/` | Body profiles, phases of volatiles, noise, cube-sphere mapping, impact craters, dunes, surface climate, terrain, chunk building, level of detail, body shapes, orbits and spin, solar time, real maps |
 | `graphics/` | Renderer, shaders, textures, meshes, shadows, IBL, atmosphere, clouds, rings, eclipses, bloom |
-| `game/` | The interface's look (`style.py`), flight HUD and readout, attitude ball, map view, maneuver, science, programme and research panels, part editor, piloting keys, chase camera, pause menu, title screen, flight school and hints, time warp, graphics quality presets |
+| `game/` | The interface's look (`style.py`), flight HUD and readout, attitude ball, map view, maneuver, science, programme and research panels, part editor, piloting keys, chase camera, pause menu, title screen, settings and key bindings, flight school's lessons and hints, the encyclopaedia, time warp, graphics quality presets |
 | `scene/` | Scene container and (de)serialization (for save games) |
 | `resources/` | Handle-based resource managers |
 | `math3d/` | Transforms, camera, matrix helpers |

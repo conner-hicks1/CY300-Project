@@ -16,12 +16,12 @@ from game.style import tone
 # Flight School and Hints
 # =========================================================
 #
-# Flight school (the title screen starts it): a first flight
-# to orbit, step by step. Each step says what to do (the
-# keys) and is done when the flight shows it (full throttle,
-# the engines lit, climbing, tipped east, apoapsis out of
-# the air, the circularizing burn planned...). Lost the
-# rocket: revert and the lesson starts over.
+# Flight school (the title screen starts it): lessons
+# (game/lessons.py), step by step. Each step says what to do
+# (the keys) and is done when the flight shows it (full
+# throttle, the engines lit, climbing, tipped east, apoapsis
+# out of the air, the circularizing burn planned...). Lost
+# the vessel: the lesson starts over.
 #
 # Hints: a word, once, the first time something comes up
 # (on the pad, a stage run dry, the apoapsis out of the air,
@@ -66,7 +66,27 @@ class Moment:
     warp: float = 1.0
     node: bool = False              # a maneuver node planned
     node_in: float | None = None    # s until its burn starts
+    node_dv: float | None = None    # m/s it asks (left, as flown)
     career: bool = False
+
+    # The target (a vessel), and m to it; translating on the
+    # thrusters; docked since the lesson began.
+    target: bool = False
+    target_distance: float | None = None
+    translating: bool = False
+    docked: bool = False
+
+    # Power: the battery's share full (no battery: 1); the
+    # wings ("", "folded", "unfolding", "out", "folding").
+    charge: float = 1.0
+    panels: str = ""
+
+    # The link: s of light delay one way; commands on their
+    # way; a flight computer program aboard; its panel open.
+    delay: float = 0.0
+    uplink: bool = False
+    program: bool = False
+    computer_open: bool = False
 
     @property
     def destroyed(self) -> bool:
@@ -88,7 +108,7 @@ class Step:
 
     title: str
     text: str
-    done: Callable[[Moment], bool]
+    done: Callable[[Moment], bool] | None     # None: read, then Next
 
 
 # The height Earth's air ends at for the lesson (m); the
@@ -163,22 +183,12 @@ FIRST_ORBIT: tuple[Step, ...] = (
     ),
 )
 
-DONE_TEXT = (
-    "You are in orbit. From here: P shows the programme's missions, K the science up here (R runs experiments), "
-    "and the map's Navigation panel finds transfers to the Moon and the planets. "
-    "A career pays for every launch: start one from the title screen."
-)
-
-
 class FlightSchool:
-    """One lesson's steps, done as the flight shows them."""
+    """A lesson's steps (game/lessons.py), done as the flight shows them."""
 
-    def __init__(
-        self,
-        steps: tuple[Step, ...] = FIRST_ORBIT
-    ):
+    def __init__(self):
 
-        self.steps = steps
+        self.lesson = None
 
         self.active = False
 
@@ -189,7 +199,18 @@ class FlightSchool:
         # px tall as last drawn (0: not drawn).
         self.height = 0.0
 
-    def start(self):
+    @property
+    def steps(self) -> tuple[Step, ...]:
+
+        return self.lesson.steps if self.lesson is not None else ()
+
+    def start(
+        self,
+        lesson
+    ):
+        """lesson: game/lessons.py Lesson (its steps, its title, where it starts, what is said at the end)."""
+
+        self.lesson = lesson
 
         self.active = True
         self.index = 0
@@ -213,7 +234,7 @@ class FlightSchool:
         self,
         moment: Moment
     ):
-        """Steps done as the flight shows them (several at once, if done already)."""
+        """Steps done as the flight shows them (several at once, if done already); a step to read waits for Next."""
 
         if not self.active:
             return
@@ -224,15 +245,13 @@ class FlightSchool:
 
             return
 
-        # Reverted: from the start.
-        if moment.on_pad and (self.lost or self.index > 1):
-
+        # From the pad, reverted: from the start.
+        if self.lesson.setup == "pad" and moment.on_pad and (self.lost or self.index > 1):
             self.index = 0
-            self.lost = False
 
         self.lost = False
 
-        while not self.finished and self.steps[self.index].done(moment):
+        while not self.finished and self.step.done is not None and self.step.done(moment):
             self.index += 1
 
     def skip(self):
@@ -242,8 +261,10 @@ class FlightSchool:
 
     def draw(
         self,
-        leave: Callable[[], None]
+        leave: Callable[[], None],
+        again: Callable[[], None] = lambda: None
     ):
+        """leave: out of flight school; again: the lesson from its start (set up afresh)."""
 
         self.height = 0.0
 
@@ -252,28 +273,33 @@ class FlightSchool:
 
         viewport = imgui.get_main_viewport()
 
+        lesson = self.lesson
+
         with style.panel("Flight school", (viewport.work_pos.x + viewport.work_size.x * 0.5, viewport.work_pos.y + 54.0), (0.5, 0.0), style.HUD_FLAGS & ~imgui.WindowFlags_.no_inputs.value, alpha=0.94):
 
             imgui.push_text_wrap_pos(imgui.get_cursor_pos_x() + 430.0)
 
             if self.finished:
 
-                style.heading("Flight school: done", "good")
+                style.heading(f"Flight school: {lesson.title}, done", "good")
 
                 with style.font("bold", 20.0):
-                    style.say("In orbit!", "good")
+                    style.say("Well flown!", "good")
 
-                style.say(DONE_TEXT)
+                style.say(lesson.done)
 
             elif self.lost:
 
-                style.heading("Flight school", "bad")
+                style.heading(f"Flight school: {lesson.title}", "bad")
 
-                style.say("The rocket was lost. Esc, then Revert to launch, and try again (the lesson starts over).")
+                if lesson.setup == "pad":
+                    style.say("The vessel was lost. Esc, then Revert to launch, and try again (the lesson starts over).")
+                else:
+                    style.say("The vessel was lost. Try again: the lesson starts over where it began.")
 
             else:
 
-                style.heading(f"Flight school  {self.index + 1} / {len(self.steps)}", "accent")
+                style.heading(f"Flight school: {lesson.title}  {self.index + 1} / {len(self.steps)}", "accent")
 
                 with style.font("bold", 20.0):
                     style.say(self.step.title)
@@ -286,8 +312,20 @@ class FlightSchool:
 
             if not self.finished and not self.lost:
 
-                if imgui.small_button("Skip this step"):
+                if self.step.done is None:
+
+                    if imgui.small_button("Next"):
+                        self.skip()
+
+                elif imgui.small_button("Skip this step"):
                     self.skip()
+
+                imgui.same_line()
+
+            if lesson.setup != "pad" and (self.lost or not self.finished):
+
+                if imgui.small_button("Start over"):
+                    again()
 
                 imgui.same_line()
 
@@ -349,6 +387,16 @@ HINTS: tuple[Hint, ...] = (
         "node",
         "A burn planned: F until MANEUVER points the rocket along it; the HUD counts down to its start (warp there and it slows as it nears).",
         lambda m: m.node
+    ),
+    Hint(
+        "wings",
+        "Power is running low and the solar wings are folded: U unfolds them (fold them again before a burn through the air).",
+        lambda m: m.panels == "folded" and m.charge < 0.3 and not m.on_pad
+    ),
+    Hint(
+        "power out",
+        "Out of power: no reaction wheels, no link, no computer. Sunlight on unfolded wings (U) charges the battery again.",
+        lambda m: m.charge <= 0.001 and m.panels != "" and not m.on_pad
     ),
     Hint(
         "heat",

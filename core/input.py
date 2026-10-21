@@ -25,6 +25,21 @@ class Input:
 
     _focused = True
 
+    # Rebound keys: the key pressed -> the game's key it
+    # stands for (a key not in it stands for itself; None:
+    # for nothing, its action moved off it). The game reads
+    # its own keys (Key.Z: full throttle); the player may
+    # have put them on others.
+    _logical: dict[Key, Key | None] = {}
+
+    # Keys as pressed this frame (before rebinding): for
+    # choosing a key to bind.
+    _physical_pressed: list[Key] = []
+
+    # The mouse's turning: a factor; up and down swapped.
+    mouse_sensitivity = 1.0
+    invert_y = False
+
     # =====================================================
     # Frame Lifecycle
     # =====================================================
@@ -32,6 +47,7 @@ class Input:
     @classmethod
     def begin_frame(cls):
 
+        cls._physical_pressed.clear()
         cls._keys_pressed.clear()
         cls._keys_released.clear()
 
@@ -132,6 +148,43 @@ class Input:
 
         cls._keys_down.discard(key)
 
+    # =====================================================
+    # Rebinding
+    # =====================================================
+
+    @classmethod
+    def set_bindings(
+        cls,
+        bindings: dict[Key, Key]
+    ):
+        """The game's keys as the player has them: game key -> the key pressed for it (one each)."""
+
+        moved = {logical: physical for logical, physical in bindings.items() if physical != logical}
+
+        # A game key whose action moved, no other put on it:
+        # does nothing now.
+        cls._logical = {logical: None for logical in moved if logical not in moved.values()}
+
+        cls._logical.update({physical: logical for logical, physical in moved.items()})
+
+        # (A key held as it changes would stick.)
+        cls._keys_down.clear()
+
+    @classmethod
+    def logical(
+        cls,
+        key: Key
+    ) -> Key | None:
+        """The game's key a pressed key stands for (None: nothing)."""
+
+        return cls._logical.get(key, key)
+
+    @classmethod
+    def physical_pressed(cls) -> list[Key]:
+        """Keys pressed this frame, as on the keyboard (not rebound)."""
+
+        return list(cls._physical_pressed)
+
     @classmethod
     def _press_key(
         cls,
@@ -139,6 +192,13 @@ class Input:
     ):
 
         if not cls._focused:
+            return
+
+        cls._physical_pressed.append(key)
+
+        key = cls.logical(key)
+
+        if key is None:
             return
 
         cls._keys_down.add(
@@ -154,6 +214,11 @@ class Input:
         cls,
         key: Key
     ):
+
+        key = cls.logical(key)
+
+        if key is None:
+            return
 
         cls._keys_down.discard(
             key
@@ -312,9 +377,10 @@ class Input:
         cls
     ) -> tuple[float, float]:
 
+        # (As the player likes it turning.)
         return (
-            cls._mouse_delta_x,
-            cls._mouse_delta_y
+            cls._mouse_delta_x * cls.mouse_sensitivity,
+            cls._mouse_delta_y * cls.mouse_sensitivity * (-1.0 if cls.invert_y else 1.0)
         )
 
     @classmethod

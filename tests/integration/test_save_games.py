@@ -124,3 +124,41 @@ def test_the_title_screen_starts_and_loads_games(play, tmp_path):
     game.step(5)
 
     assert not app.sandbox and any(component.paid for _, component in game.vessels())
+
+
+def test_risky_moments_are_autosaved(play):
+
+    game: Game = play()
+
+    app = game.app
+
+    game.step(3)
+
+    assert saves.kept(app.saves, saves.AUTOSAVE) is None
+
+    # The launch.
+    game.stage()
+
+    game.step(3)
+
+    assert saves.kept(app.saves, saves.AUTOSAVE) is not None
+    assert any(notice == "Autosaved: the launch" for notice in game.notices())
+
+    # Coming down to land (a minute on: they are not made
+    # more often).
+    app._risk_saved -= app.RISK_EVERY
+
+    game.vessel.vessel.throttle = 0.0
+
+    state = game.vessel.state
+
+    up = state.position / np.linalg.norm(state.position)
+
+    # 3 km up, falling.
+    state.landed = False
+    state.position = state.position + up * 3_000.0
+    state.velocity = state.velocity - up * 60.0
+
+    game.step(5)
+
+    assert any(notice == "Autosaved: coming down to land" for notice in game.notices())
