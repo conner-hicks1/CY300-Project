@@ -22,12 +22,15 @@ from audio.output import RATE
 #   one-shots  played once over the loops (play), each with its
 #              level and pan; at most SHOTS at a time
 #
-# Master, effects and alert levels from the player's
-# settings (SoundSettings); a soft limiter at the end (tanh)
-# keeps it from clipping.
+# Master, effects, alert and music levels from the player's
+# settings (SoundSettings: the music loop by the music
+# level, the others by the effects); a soft limiter at the
+# end (tanh) keeps it from clipping.
 
 EASE = 0.12                         # s, a loop's time constant toward a new level
 SHOTS = 16
+
+MUSIC = "music"                     # the loop the music level sets
 
 
 @dataclass(slots=True)
@@ -36,16 +39,22 @@ class SoundSettings:
     master: float = 0.8
     effects: float = 1.0
     alerts: float = 0.8
+    music: float = 0.5
     muted: bool = False
+
+    # In vacuum, the engines heard through the structure (a
+    # muffled rumble, on board); off: silent, as it is.
+    structure: bool = False
 
 
 class _Loop:
 
-    __slots__ = ("samples", "position", "level", "target", "pitch", "target_pitch", "pan")
+    __slots__ = ("samples", "position", "level", "target", "pitch", "target_pitch", "pan", "music")
 
-    def __init__(self, samples):
+    def __init__(self, samples, music=False):
 
         self.samples = samples
+        self.music = music
         self.position = 0.0
         self.level = 0.0
         self.target = 0.0
@@ -65,7 +74,7 @@ class Mixer:
 
         self.settings = settings or SoundSettings()
 
-        self._loops = {name: _Loop(samples) for name, samples in loops.items()}
+        self._loops = {name: _Loop(samples, name == MUSIC) for name, samples in loops.items()}
         self._shots = shots
 
         # (samples, position, level, pan, alert) playing.
@@ -97,6 +106,16 @@ class Mixer:
         loop.target = min(max(float(level), 0.0), 1.5)
         loop.target_pitch = min(max(float(pitch), 0.25), 4.0)
         loop.pan = min(max(float(pan), -1.0), 1.0)
+
+    def add_loop(
+        self,
+        name: str,
+        samples: np.ndarray
+    ):
+        """A loop made later (the music: it takes a while)."""
+
+        with self._lock:
+            self._loops = {**self._loops, name: _Loop(samples, name == MUSIC)}
 
     def silence(self):
         """Every loop down (paused, a menu)."""
@@ -179,7 +198,7 @@ class Mixer:
 
             loop.position = float((loop.position + frames * loop.pitch) % length)
 
-            signal = signal * (start_level + (end_level - start_level) * ramp) * settings.effects
+            signal = signal * (start_level + (end_level - start_level) * ramp) * (settings.music if loop.music else settings.effects)
 
             left, right = _pan(loop.pan)
 

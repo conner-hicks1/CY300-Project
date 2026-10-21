@@ -13,11 +13,15 @@ from audio.output import RATE
 #   loops      seamless (noise shaped in the frequency domain
 #              is periodic): an engine's roar in air and its
 #              muffled rumble through the structure, the wind,
-#              the plasma of coming in, a rotor's buzz, gravel
-#              under wheels, the RCS thrusters' hiss
+#              the hull creaking under the air's load, the
+#              plasma of coming in, a rotor's buzz, a wheel
+#              motor's whine and the ground under the wheels
+#              (gravel; crunching ice), the RCS thrusters'
+#              hiss; and the music (make_music)
 #   one-shots  staging, a separator's clank, a parachute
 #              opening, touching down, breaking up, docking,
 #              and the interface's click, chimes and alarms
+#              (the landing burn's, a debris pass's)
 #
 # All mono, -1..1 (the mixer pans and mixes them).
 
@@ -129,6 +133,47 @@ def _loop_crackle(
     return _normal(filtered)
 
 
+def _creak(
+    seconds: float,
+    seed: int
+) -> np.ndarray:
+    """Metal groaning under load: slow gliding tones, a few a second, looped."""
+
+    count = int(seconds * RATE)
+
+    rng = _rng(seed)
+
+    out = np.zeros(count, dtype=np.float32)
+
+    for _ in range(int(seconds * 1.6)):
+
+        length = rng.uniform(0.15, 0.6)
+
+        size = int(length * RATE)
+
+        start = int(rng.integers(0, count))
+
+        base = rng.uniform(70.0, 220.0)
+
+        glide = np.linspace(base, base * rng.uniform(0.8, 1.25), size)
+
+        # A rough groan: a saw, its harmonics wobbling.
+        groan = _tone(length, glide, "saw") * 0.5 + _tone(length, glide * 2.01) * 0.3
+
+        envelope = np.sin(np.linspace(0.0, np.pi, size)) ** 2
+
+        piece = (groan * envelope * rng.uniform(0.4, 1.0)).astype(np.float32)
+
+        # (Round the end into the start: a seamless loop.)
+        index = (start + np.arange(size)) % count
+
+        np.add.at(out, index, piece)
+
+    strain = shaped_noise(seconds, seed + 1, 40.0, 700.0, slope=1.5)
+
+    return _normal(out + 0.12 * strain)
+
+
 def make_loops() -> dict[str, np.ndarray]:
 
     loops = {}
@@ -157,8 +202,17 @@ def make_loops() -> dict[str, np.ndarray]:
     chop = 0.8 + 0.2 * np.sin(2.0 * np.pi * 40.0 * np.arange(len(buzz)) / RATE)
     loops["rotor"] = _normal(buzz * chop + 0.3 * shaped_noise(2.0, 7, 300.0, 4_000.0, slope=0.8))
 
-    # Wheels on gravel, a motor's whine.
-    loops["wheels"] = _normal(_loop_crackle(2.0, 8, 900.0) * 0.8 + 0.15 * _tone(2.0, 310.0) + 0.2 * shaped_noise(2.0, 9, 80.0, 600.0))
+    # A wheel motor's whine (and its gears).
+    loops["wheels"] = _normal(0.6 * _tone(2.0, 310.0) + 0.25 * _tone(2.0, 620.0, "saw") + 0.3 * shaped_noise(2.0, 9, 80.0, 600.0))
+
+    # The ground under the wheels: gravel, stones popping
+    # and grinding; ice, a sharp brittle crunch.
+    loops["gravel"] = _normal(_loop_crackle(2.0, 8, 900.0) * 0.8 + 0.35 * shaped_noise(2.0, 11, 60.0, 900.0, slope=1.2))
+    loops["ice"] = _normal(_loop_crackle(2.0, 12, 1_600.0) * 0.6 + 0.4 * shaped_noise(2.0, 13, 1_800.0, 9_000.0, slope=0.4))
+
+    # The hull creaking under the load: groans gliding low,
+    # now and then, over a faint strain.
+    loops["creak"] = _creak(6.0, 14)
 
     # RCS thrusters: a sharp hiss.
     loops["rcs"] = shaped_noise(1.5, 10, 2_500.0, 11_000.0, slope=0.2)
@@ -231,8 +285,102 @@ def make_shots() -> dict[str, np.ndarray]:
     beeps = _tone(seconds, 880.0, "square") * ((np.arange(int(seconds * RATE)) / RATE % 0.3) < 0.15)
     shots["alarm"] = _normal(beeps, 0.45)
 
+    # The landing burn: start it now (two quick high beeps).
+    seconds = 0.5
+    t = np.arange(int(seconds * RATE)) / RATE
+    shots["brake"] = _normal(_tone(seconds, 1_320.0, "square") * (((t % 0.18) < 0.09) & (t < 0.36)), 0.45)
+
+    # Debris passing close: a sonar's ping.
+    seconds = 1.4
+    shots["proximity"] = _normal(
+        (_tone(seconds, 1_480.0) + 0.3 * _tone(seconds, 2_960.0)) * _decay(seconds, 0.32, 0.002),
+        0.5
+    )
+
     # Power gone: a falling tone.
     seconds = 0.8
     shots["power down"] = _normal(_tone(seconds, np.linspace(620.0, 140.0, int(seconds * RATE))) * _decay(seconds, 0.35), 0.5)
 
     return shots
+
+
+# ---------------------------------------------------------
+# Music
+# ---------------------------------------------------------
+
+# A minor-ish drift, two chords a phrase (Hz of each chord's
+# notes).
+CHORDS = (
+    (110.00, 164.81, 220.00, 261.63, 329.63),     # A minor
+    (87.31, 130.81, 174.61, 220.00, 261.63),      # F major
+    (130.81, 196.00, 261.63, 329.63, 392.00),     # C major
+    (98.00, 146.83, 196.00, 246.94, 293.66),      # G major
+    (110.00, 164.81, 220.00, 261.63, 392.00),     # A minor (add 7)
+    (73.42, 110.00, 146.83, 174.61, 220.00),      # D minor
+    (87.31, 130.81, 174.61, 220.00, 329.63),      # F major (add 7)
+    (82.41, 123.47, 164.81, 207.65, 246.94),      # E major
+)
+
+CHORD_SECONDS = 8.0
+
+
+def make_music() -> np.ndarray:
+    """A slow ambient loop (64 s): soft pads changing chord every 8 s, a shimmer over them; seamless."""
+
+    seconds = CHORD_SECONDS * len(CHORDS)
+
+    # The pads made at a quarter of the rate (their notes
+    # and overtones are all low), then read up to it.
+    slow = RATE // 4
+
+    count = int(seconds * slow)
+
+    t = np.arange(count) / slow
+
+    pad = np.zeros(count, dtype=np.float64)
+
+    for index, chord in enumerate(CHORDS):
+
+        # Each chord swells in and out over two of its slots
+        # (overlapping the next), wrapping round at the end.
+        centre = (index + 0.5) * CHORD_SECONDS
+
+        offset = (t - centre + 0.5 * seconds) % seconds - 0.5 * seconds
+
+        live = np.abs(offset) < CHORD_SECONDS
+
+        envelope = np.cos(np.pi * offset[live] / (2.0 * CHORD_SECONDS)) ** 2
+
+        when = t[live]
+
+        def whole(frequency):
+            # (Whole cycles in the loop: it goes round with no
+            # seam; a few hundredths of a hertz, unheard.)
+            return round(frequency * seconds) / seconds
+
+        for number, note in enumerate(chord):
+
+            # Two detuned voices a note (slowly beating), a
+            # soft octave over them.
+            voice = sum(np.sin(2.0 * np.pi * whole(note + detune) * when) for detune in (-0.12, 0.12)) + 0.2 * np.sin(2.0 * np.pi * whole(2.0 * note) * when)
+
+            pad[live] += voice * envelope * (0.9 if number == 0 else 0.55)
+
+    full = int(seconds * RATE)
+
+    # (Wrapping round: the end of the loop runs into its start.)
+    where = np.arange(full) * (count / full)
+
+    whole = where.astype(np.int64)
+    part = where - whole
+
+    out = (pad[whole] * (1.0 - part) + pad[(whole + 1) % count] * part).astype(np.float32)
+
+    # A shimmer: high, airy noise breathing slowly.
+    shimmer = shaped_noise(seconds, 40, 2_000.0, 7_000.0, slope=1.0)
+
+    breath = (0.5 + 0.5 * np.sin(2.0 * np.pi * np.arange(full) / RATE / 16.0)).astype(np.float32)
+
+    out += 0.05 * shimmer[:full] * breath * float(np.max(np.abs(out))) / 0.9
+
+    return _normal(out, 0.6)

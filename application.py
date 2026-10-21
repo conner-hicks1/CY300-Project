@@ -2168,6 +2168,10 @@ class Application(
 
                 self._draw_ui()
 
+                # The interface's click: a button, a box, a tab.
+                if imgui.is_mouse_clicked(imgui.MouseButton_.left) and imgui.is_any_item_hovered():
+                    self.sound.play("click", 0.7, alert=True)
+
             with profiler.scope("Draw", gpu=True):
 
                 self.imgui_layer.end_frame()

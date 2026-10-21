@@ -366,7 +366,8 @@ class PauseMenu:
         for label, name, about in (
             ("Master", "master", "Everything."),
             ("Effects", "effects", "Engines, wind, staging, landings."),
-            ("Alerts", "alerts", "Notices' chimes and alarms."),
+            ("Alerts", "alerts", "Notices' chimes and alarms, the interface's clicks."),
+            ("Music", "music", "On the title screen and out in space."),
         ):
 
             imgui.set_next_item_width(BUTTON_WIDTH - 70.0)
@@ -379,6 +380,11 @@ class PauseMenu:
             imgui.set_item_tooltip(about)
 
             changed |= imgui.is_item_deactivated_after_edit()
+
+        moved, settings.structure = imgui.checkbox("Engines through the hull in vacuum", settings.structure)
+        changed |= moved
+
+        imgui.set_item_tooltip("Space carries no sound: off, engines are silent out of the air. On: a muffled rumble through the structure, with the camera on the vessel.")
 
         if changed:
             sound.save()

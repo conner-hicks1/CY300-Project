@@ -17,8 +17,8 @@ def test_every_sound_is_made_in_range(sounds):
 
     loops, shots = sounds
 
-    assert {"engine", "rumble", "wind", "plasma", "rotor", "wheels", "rcs"} <= set(loops)
-    assert {"stage", "clank", "chute", "thud", "crash", "dock", "bump", "chime", "warn", "alarm"} <= set(shots)
+    assert {"engine", "rumble", "wind", "plasma", "rotor", "wheels", "gravel", "ice", "creak", "rcs"} <= set(loops)
+    assert {"stage", "clank", "chute", "thud", "crash", "dock", "bump", "click", "chime", "warn", "alarm", "brake", "proximity"} <= set(shots)
 
     for name, samples in {**loops, **shots}.items():
 
@@ -30,7 +30,7 @@ def test_noise_loops_go_round_without_a_click(sounds):
 
     loops, _ = sounds
 
-    for name in ("engine", "rumble", "wind", "plasma", "rcs"):
+    for name in ("engine", "rumble", "wind", "plasma", "gravel", "ice", "creak", "rcs"):
 
         samples = loops[name]
 
@@ -113,14 +113,16 @@ def test_engines_roar_in_air_and_rumble_in_vacuum():
 
     air = levels(_scene())
     vacuum = levels(_scene(density=0.0))
-    far = levels(_scene(density=0.0, distance=500.0))
+    structure = levels(_scene(density=0.0, structure=True))
+    far = levels(_scene(density=0.0, distance=500.0, structure=True))
     distant_air = levels(_scene(distance=2_000.0))
 
     assert air["engine"][0] > 0.4 and vacuum["engine"][0] == 0.0
 
-    # In vacuum: only the rumble through the structure, and
-    # only close.
-    assert vacuum["rumble"][0] > 0.3 and far["rumble"][0] < 0.05
+    # In vacuum: silent; or (a setting) only the rumble
+    # through the structure, and only close.
+    assert vacuum["rumble"][0] == 0.0
+    assert structure["rumble"][0] > 0.3 and far["rumble"][0] < 0.05
 
     # Far off through air: fainter.
     assert distant_air["engine"][0] < 0.25 * air["engine"][0]
@@ -134,9 +136,43 @@ def test_engines_roar_in_air_and_rumble_in_vacuum():
     assert levels(_scene(dynamic_pressure=25_000.0))["wind"][0] > 0.5
     assert levels(_scene(heat_flux=2e6))["plasma"][0] > 0.4
 
-    # Paused or in fast warp: quiet.
+    # The hull creaks under the load.
+    assert levels(_scene(dynamic_pressure=30_000.0))["creak"][0] > 0.2 and air["creak"][0] == 0.0
+
+    # Wheels: gravel, or ice on an icy world.
+    rolling = levels(_scene(wheels=0.8, thrust=0.0))
+    icy = levels(_scene(wheels=0.8, thrust=0.0, surface="ice"))
+
+    assert rolling["gravel"][0] > 0.2 and rolling["ice"][0] == 0.0
+    assert icy["ice"][0] > 0.2 and icy["gravel"][0] == 0.0
+
+    # Paused or in fast warp: quiet, but for the music.
     assert all(level == 0.0 for level, _ in levels(_scene(paused=True)).values())
-    assert all(level == 0.0 for level, _ in levels(_scene(warping=True)).values())
+    assert all(level == 0.0 for name, (level, _) in levels(_scene(warping=True, music=0.6)).items() if name != "music")
+    assert levels(_scene(warping=True, music=0.6))["music"][0] == 0.6
+
+
+def test_the_music_goes_round_by_its_own_level():
+
+    music = synth.make_music()
+
+    assert len(music) == 64 * RATE and abs(float(music[0] - music[-1])) <= float(np.abs(np.diff(music)).max())
+
+    mixer = Mixer({}, {}, SoundSettings(master=1.0, music=1.0, effects=0.0))
+
+    mixer.add_loop("music", music)
+
+    mixer.set_loop("music", 1.0)
+
+    for _ in range(int(5 * EASE * RATE / 1024)):
+        out = mixer.render(1024)
+
+    # (Effects off: the music plays on.)
+    assert float(np.abs(out).max()) > 0.1
+
+    mixer.settings.music = 0.0
+
+    assert float(np.abs(mixer.render(1024)).max()) == 0.0
 
 
 def test_without_sound_nothing_is_made(tmp_path):

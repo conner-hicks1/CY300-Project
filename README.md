@@ -1002,13 +1002,17 @@ build your own rocket in the part editor, on the pad.
   grass; shadow reach and mountain shadows; bloom), Sound, Controls, Save and quit to title, Quit to desktop
 - Sound, made as the game starts (no sound files, nothing to install: Windows'
   own waveOut): engines roar in air, louder with the thrust and deeper for
-  the big ones, and fade with distance and thin air; in vacuum only a muffled
-  rumble through the structure, heard on board; wind with the dynamic
-  pressure, the plasma crackle of coming in, rotors, wheels and RCS; one-shots
-  for staging, separators, parachutes, touchdowns, crashes, docking and bumps;
-  notices chime, warn or sound the alarm; quiet while paused or in fast warp.
-  Master, effects and alerts volumes and mute in the pause menu (Sound), kept
-  in `data/settings/sound.json`
+  the big ones, and fade with distance and thin air; silent in vacuum (or, a
+  setting, a muffled rumble through the structure, heard on board); wind and
+  the hull creaking with the dynamic pressure, the plasma crackle of coming
+  in, rotors, the wheel motor and the ground under it (gravel; crunching ice
+  on the icy worlds), RCS; one-shots for staging, separators, parachutes,
+  touchdowns, crashes, docking, bumps and power loss; the interface's clicks;
+  notices chime, warn or sound the alarm; beeps for BRAKE NOW and for debris
+  passing close. Music: slow ambient pads on the title screen and out in
+  space, coasting. Quiet while paused or in fast warp (the music plays on).
+  Master, effects, alerts and music volumes, mute and the structure rumble
+  in the pause menu (Sound), kept in `data/settings/sound.json`
 - Developer tools (**F3**, or `--dev`): stats, every render setting, a frame
   profiler (CPU + GPU timings) and cProfile capture, shader hot reload
 
@@ -1108,7 +1112,7 @@ the first few seconds.
 | --- | --- |
 | `main.py`, `application.py` | Entry point, main loop, building a body's scene, keys, the HUD and menus |
 | `controllers/` | The application's parts, apart for size: the map and navigation, maneuver nodes, piloting through the link and the flight computer, science, the programme's panel, the fleet, docking, power, sound, flight school and hints, the part editor |
-| `audio/` | Sound: the output (Windows waveOut through ctypes), sounds made from shaped noise and tones, the mixer, what a moment of flight sounds like |
+| `audio/` | Sound: the output (Windows waveOut through ctypes), sounds and music made from shaped noise and tones, the mixer, what a moment of flight sounds like |
 | `core/` | Window, input, events, timer, logging, profiler, job system, disk cache |
 | `ecs/` | Entity registry and components |
 | `vessel/` | Parts and vessel designs (and drafts being edited, saved designs), staging, propellant and parachutes, flight physics, heating, Kepler orbits, patched conics, transfers, maneuver nodes, flight computer sequences, vessels in flight as JSON, docking, power |
