@@ -8,6 +8,8 @@ from pathlib import Path
 
 from core.logger import Logger
 
+from programme import upgrades
+
 
 # =========================================================
 # Saved Games
@@ -65,7 +67,7 @@ class Slot:
     def to_json(self) -> dict:
 
         return {
-            "format": 1,
+            "format": upgrades.FORMATS["slot"],
             "name": self.name,
             "sandbox": self.sandbox,
             "created": self.created,
@@ -110,7 +112,7 @@ def slots(
             continue
 
         if isinstance(data, dict):
-            found.append(Slot.from_json(folder, data))
+            found.append(Slot.from_json(folder, upgrades.upgrade("slot", data)))
 
     found.sort(key=lambda slot: slot.played, reverse=True)
 

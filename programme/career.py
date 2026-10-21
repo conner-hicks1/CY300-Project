@@ -1,10 +1,12 @@
 import json
 
+
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
 
 from programme.crew import Corps
+from programme import upgrades
 from vessel.reliability import Record
 
 
@@ -466,7 +468,7 @@ class Career:
     def to_json(self) -> dict:
 
         return {
-            "format": 1,
+            "format": upgrades.FORMATS["career"],
             "funds": self.funds,
             "reputation": self.reputation,
             "outcomes": self.outcomes,
@@ -524,7 +526,7 @@ class Career:
         """The saved career, or a new one with the campaign's starting funds."""
 
         try:
-            return cls.from_json(json.loads(Path(path).read_text(encoding="utf-8")))
+            return cls.from_json(upgrades.upgrade("career", json.loads(Path(path).read_text(encoding="utf-8"))))
         except (OSError, ValueError, KeyError, TypeError):
             return cls(funds=campaign.start_funds)
 

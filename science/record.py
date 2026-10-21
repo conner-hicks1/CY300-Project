@@ -1,10 +1,12 @@
 import json
 import math
 
+
 from dataclasses import dataclass, field
 from pathlib import Path
 
 from science.survey import SurveyMask
+from programme import upgrades
 
 
 # =========================================================
@@ -181,7 +183,7 @@ class ScienceRecord:
     ) -> dict:
 
         return {
-            "format": 1,
+            "format": upgrades.FORMATS["science"],
             "points": self.points,
             "subjects": self.subjects,
             "mapped": self.mapped,
@@ -225,6 +227,6 @@ class ScienceRecord:
         """The saved record, or a new one (none saved, or unreadable)."""
 
         try:
-            return cls.from_json(json.loads(Path(path).read_text(encoding="utf-8")))
+            return cls.from_json(upgrades.upgrade("science", json.loads(Path(path).read_text(encoding="utf-8"))))
         except (OSError, ValueError, KeyError, TypeError):
             return cls()

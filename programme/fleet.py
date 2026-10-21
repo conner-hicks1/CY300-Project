@@ -4,6 +4,8 @@ from pathlib import Path
 
 from core.logger import Logger
 
+from programme import upgrades
+
 from ecs.components import BodyComponent, VesselComponent
 
 from science.record import ScienceResult
@@ -206,7 +208,7 @@ def save(
 
     temporary = path.with_suffix(".tmp")
 
-    temporary.write_text(json.dumps({"format": 1, "vessels": records}), encoding="utf-8")
+    temporary.write_text(json.dumps({"format": upgrades.FORMATS["fleet"], "vessels": records}), encoding="utf-8")
 
     temporary.replace(path)
 
@@ -216,6 +218,6 @@ def load(
 ) -> list[dict]:
 
     try:
-        return list(json.loads(Path(path).read_text(encoding="utf-8")).get("vessels", []))
+        return list(upgrades.upgrade("fleet", json.loads(Path(path).read_text(encoding="utf-8"))).get("vessels", []))
     except (OSError, ValueError, AttributeError):
         return []
