@@ -51,9 +51,16 @@ class FlightContext:
     def find(
         cls,
         scene,
-        focus=None
+        focus=None,
+        orbiting=None
     ) -> "FlightContext":
-        """focus: where the player is (world m; the vessel), else the camera."""
+        """
+        focus: where the player is (world m; the vessel), else
+        the camera. orbiting: the body the flown vessel orbits
+        (its sphere of influence's): that body, not the
+        nearest surface (a moon passing closer than its
+        planet's ground); None, or the Sun: the nearest.
+        """
 
         registry = scene.registry
 
@@ -64,9 +71,9 @@ class FlightContext:
 
         sun = next((entity for entity, _ in registry.view_with(DirectionalLightComponent)), None)
 
-        body = None
+        body = orbiting if orbiting is not None and registry.has(orbiting, PlanetComponent) else None
 
-        if focus is not None or camera is not None:
+        if body is None and (focus is not None or camera is not None):
 
             position = (
                 np.asarray(focus, dtype=np.float64)

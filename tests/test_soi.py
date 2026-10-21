@@ -181,3 +181,16 @@ def test_time_to_radius(speed):
     there, _ = kepler.propagate(position, velocity, EARTH_MU, t)
 
     assert np.linalg.norm(there) == pytest.approx(target, rel=1e-6)
+
+
+def test_a_small_moon_has_room_to_be_landed_on():
+
+    # Phobos: Laplace's sphere (7 km) is within it (11 km).
+    laplace = soi.soi_radius(9_376_000.0, 1.0659e16, 6.4171e23)
+
+    assert laplace < 11_100.0
+
+    assert soi.sphere(9_376_000.0, 1.0659e16, 6.4171e23, 11_100.0) == soi.MIN_SOI_RADII * 11_100.0
+
+    # The Moon's own is far bigger than that: kept.
+    assert soi.sphere(MOON_DISTANCE, 7.342e22, 5.972e24, 1_737_400.0) == soi.soi_radius(MOON_DISTANCE, 7.342e22, 5.972e24)

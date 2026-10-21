@@ -181,6 +181,13 @@ class Environment:
     # turning with the body; planet/weather.py); None: still.
     wind: Callable[[np.ndarray], np.ndarray] | None = None
 
+    # Up at a position (m, inertial; a unit vector): near a
+    # small, lumpy body, square to its figure rather than out
+    # from its center (planet/shape.py vertical); gravity
+    # pulls down it, and slopes are measured from it. None:
+    # straight out from the center (a round body).
+    level: Callable[[np.ndarray], np.ndarray] | None = None
+
 
 # =========================================================
 # Stepping
@@ -216,7 +223,22 @@ def gravity(
 
     r = float(np.linalg.norm(position))
 
+    if environment.level is not None:
+        return -environment.mu / (r * r) * environment.level(position)
+
     return -environment.mu * position / r ** 3
+
+
+def up_at(
+    environment: Environment,
+    position: np.ndarray
+) -> np.ndarray:
+    """Up here: the body's level (a lumpy one's), else straight out from its center."""
+
+    if environment.level is not None:
+        return environment.level(position)
+
+    return position / float(np.linalg.norm(position))
 
 
 def can_coast(
@@ -595,11 +617,13 @@ def _drive(
 
     normal = environment.normal(direction)
 
-    slope = landing.slope_of(normal, direction)
+    vertical = up_at(environment, state.position)
+
+    slope = landing.slope_of(normal, vertical)
 
     if slope > landing.standing_angle(vessel):
 
-        lying = landing.fallen_axis(normal, direction, state.up, state.velocity - surface_velocity(environment, state.position))
+        lying = landing.fallen_axis(normal, vertical, state.up, state.velocity - surface_velocity(environment, state.position))
 
         state.orientation = quaternion.look_rotation(-normal, lying)
         state.toppled = True
@@ -649,13 +673,17 @@ def _touch_ground(
     if float(relative @ direction) > 0.0:
         return
 
-    normal = environment.normal(direction) if environment.normal is not None else direction
+    # Up here: a lumpy body's level, not its center's
+    # direction (the slope, standing, falling over: from it).
+    vertical = up_at(environment, state.position)
+
+    normal = environment.normal(direction) if environment.normal is not None else vertical
 
     weight = environment.mu / (ground * ground)
 
     axis = state.up
 
-    result = landing.touch_down(vessel, axis, normal, direction, relative, weight)
+    result = landing.touch_down(vessel, axis, normal, vertical, relative, weight)
 
     state.velocity = surface_velocity(environment, state.position)
     state.angular_velocity = np.zeros(3)
@@ -680,7 +708,7 @@ def _touch_ground(
             return
 
         # On its side, along the ground.
-        lying = landing.fallen_axis(normal, direction, axis, relative)
+        lying = landing.fallen_axis(normal, vertical, axis, relative)
 
         state.orientation = quaternion.look_rotation(-normal, lying)
         state.toppled = True

@@ -99,6 +99,219 @@ def _first_guess(
     return sqrt_mu * dt / r0
 
 
+# ---------------------------------------------------------
+# Kepler's equation in the universal anomaly
+# ---------------------------------------------------------
+#
+# sqrt(mu) t(x) = r0 vr0 / sqrt(mu) x^2 C(z) + (1 - alpha r0)
+# x^3 S(z) + r0 x, z = alpha x^2; its slope is the radius
+# then (> 0): t rises steadily with x, on every conic. So x is
+# found between two values that bracket it - on an ellipse
+# (dt within a period) 0 and one revolution's 2 pi /
+# sqrt(alpha), on a hyperbola as far out as it takes -
+# Newton's steps kept inside the bracket, halving it when a
+# step would leave it. Plain Newton from a rough start goes
+# wrong on a very eccentric ellipse (a transfer to the Moon:
+# e ~ 0.97): it overshoots past a revolution, where C and S
+# wrap round, and wanders or blows up.
+
+SOLVE_STEPS = 200
+
+# s: the time the anomaly found may be off by.
+TIME_TOLERANCE = 1e-6
+
+
+def _kepler(
+    x,
+    r0: float,
+    vr0: float,
+    alpha: float,
+    sqrt_mu: float,
+    dt,
+    stumpff
+):
+    """(sqrt(mu) (t(x) - dt), its slope dt/dx * sqrt(mu) = r)."""
+
+    z = alpha * x * x
+
+    c, s = stumpff(z)
+
+    f = r0 * vr0 / sqrt_mu * x * x * c + (1.0 - alpha * r0) * x ** 3 * s + r0 * x - sqrt_mu * dt
+
+    df = r0 * vr0 / sqrt_mu * x * (1.0 - alpha * x * x * s) + (1.0 - alpha * r0) * x * x * c + r0
+
+    return f, df
+
+
+def _scalar_stumpff(
+    z: float
+) -> tuple[float, float]:
+
+    return _stumpff_c(z), _stumpff_s(z)
+
+
+def _solve(
+    r0: float,
+    vr0: float,
+    alpha: float,
+    sqrt_mu: float,
+    dt: float,
+    guess: float
+) -> float:
+    """The universal anomaly at dt (bracketed Newton: converges on every conic)."""
+
+    if dt == 0.0:
+        return 0.0
+
+    a = r0 * vr0 / sqrt_mu
+    b = 1.0 - alpha * r0
+    target = sqrt_mu * dt
+
+    # Close enough: a microsecond.
+    tolerance = sqrt_mu * TIME_TOLERANCE
+
+    forward = dt > 0.0
+
+    def residual(x):
+
+        z = alpha * x * x
+
+        c = _stumpff_c(z)
+        s = _stumpff_s(z)
+
+        return a * x * x * c + b * x ** 3 * s + r0 * x - target, a * x * (1.0 - z * s) + b * x * x * c + r0
+
+    if alpha > 1e-12:
+
+        # Within a revolution (dt is within a period).
+        reach = 2.0 * math.pi / math.sqrt(alpha)
+
+        lo, hi = (0.0, reach) if forward else (-reach, 0.0)
+
+    else:
+
+        # Out as far as it takes (doubling).
+        lo, hi = 0.0, max(abs(guess), 1.0) * (1.0 if forward else -1.0)
+
+        for _ in range(400):
+
+            try:
+                f, _ = residual(hi)
+            except OverflowError:
+                break
+
+            if (f > 0.0) == forward:
+                break
+
+            lo, hi = hi, hi * 2.0
+
+        if lo > hi:
+            lo, hi = hi, lo
+
+    x = guess if lo < guess < hi else 0.5 * (lo + hi)
+
+    for _ in range(SOLVE_STEPS):
+
+        try:
+            f, df = residual(x)
+        except OverflowError:
+            f, df = math.inf, math.inf
+
+        if abs(f) <= tolerance:
+            return x
+
+        if f > 0.0:
+            hi = x
+        else:
+            lo = x
+
+        new = x - f / df if math.isfinite(f) else math.nan
+
+        if not lo < new < hi:
+            new = 0.5 * (lo + hi)
+
+        if hi - lo <= 1e-13 * max(1.0, abs(x)):
+            return new
+
+        x = new
+
+    return x
+
+
+def _solve_many(
+    r0: float,
+    vr0: float,
+    alpha: float,
+    sqrt_mu: float,
+    dt: np.ndarray,
+    guess: np.ndarray
+) -> np.ndarray:
+    """_solve at many times at once."""
+
+    def kepler(x):
+        return _kepler(x, r0, vr0, alpha, sqrt_mu, dt, _stumpff_arrays)
+
+    sign = np.where(dt >= 0.0, 1.0, -1.0)
+
+    if alpha > 1e-12:
+
+        reach = 2.0 * math.pi / math.sqrt(alpha)
+
+        lo = np.where(sign > 0.0, 0.0, -reach)
+        hi = np.where(sign > 0.0, reach, 0.0)
+
+    else:
+
+        lo = np.zeros_like(dt)
+        hi = sign * np.maximum(np.abs(guess), r0 * 1e-9 + 1.0)
+
+        for _ in range(400):
+
+            f, _ = kepler(hi)
+
+            short = np.isfinite(f) & ((f > 0.0) != (sign > 0.0))
+
+            if not short.any():
+                break
+
+            lo = np.where(short, hi, lo)
+            hi = np.where(short, hi * 2.0, hi)
+
+        lo, hi = np.minimum(lo, hi), np.maximum(lo, hi)
+
+    x = np.clip(guess, lo, hi)
+
+    x = np.where((lo < x) & (x < hi), x, 0.5 * (lo + hi))
+
+    for _ in range(SOLVE_STEPS):
+
+        f, df = kepler(x)
+
+        above = ~np.isfinite(f) | (f > 0.0)
+
+        hi = np.where(above, x, hi)
+        lo = np.where(above, lo, x)
+
+        close = np.abs(f) <= sqrt_mu * TIME_TOLERANCE
+
+        new = x - f / df
+
+        new = np.where(np.isfinite(new) & (lo < new) & (new < hi), new, 0.5 * (lo + hi))
+
+        # (Close enough already: kept.)
+        new = np.where(close, x, new)
+
+        done = close | (hi - lo <= 1e-13 * np.maximum(1.0, np.abs(x)))
+
+        x = new
+
+        if done.all():
+            break
+
+    # (No time at all: no anomaly.)
+    return np.where(dt == 0.0, 0.0, x)
+
+
 def propagate(
     position,
     velocity,
@@ -129,34 +342,7 @@ def propagate(
 
     sqrt_mu = math.sqrt(mu)
 
-    x = _first_guess(r0_vec, v0_vec, r0, alpha, mu, dt)
-
-    for _ in range(60):
-
-        z = alpha * x * x
-
-        c = _stumpff_c(z)
-        s = _stumpff_s(z)
-
-        f = (
-            r0 * vr0 / sqrt_mu * x * x * c
-            + (1.0 - alpha * r0) * x ** 3 * s
-            + r0 * x
-            - sqrt_mu * dt
-        )
-
-        df = (
-            r0 * vr0 / sqrt_mu * x * (1.0 - alpha * x * x * s)
-            + (1.0 - alpha * r0) * x * x * c
-            + r0
-        )
-
-        step = f / df
-
-        x -= step
-
-        if abs(step) < 1e-10 * max(1.0, abs(x)):
-            break
+    x = _solve(r0, vr0, alpha, sqrt_mu, dt, _first_guess(r0_vec, v0_vec, r0, alpha, mu, dt))
 
     z = alpha * x * x
 
@@ -260,33 +446,7 @@ def _propagate_many(
 
     sqrt_mu = math.sqrt(mu)
 
-    x = _first_guess(r0_vec, v0_vec, r0, alpha, mu, dt)
-
-    for _ in range(60):
-
-        z = alpha * x * x
-
-        c, s = _stumpff_arrays(z)
-
-        f = (
-            r0 * vr0 / sqrt_mu * x * x * c
-            + (1.0 - alpha * r0) * x ** 3 * s
-            + r0 * x
-            - sqrt_mu * dt
-        )
-
-        df = (
-            r0 * vr0 / sqrt_mu * x * (1.0 - alpha * x * x * s)
-            + (1.0 - alpha * r0) * x * x * c
-            + r0
-        )
-
-        step = f / df
-
-        x = x - step
-
-        if np.all(~np.isfinite(step) | (np.abs(step) < 1e-10 * np.maximum(1.0, np.abs(x)))):
-            break
+    x = _solve_many(r0, vr0, alpha, sqrt_mu, dt, np.asarray(_first_guess(r0_vec, v0_vec, r0, alpha, mu, dt), dtype=np.float64))
 
     z = alpha * x * x
 

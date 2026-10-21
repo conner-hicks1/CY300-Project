@@ -59,9 +59,13 @@ from vessel.physics import (
     land,
     rcs_push,
     steer,
-    step
+    step,
+    up_at
 )
 from vessel.vessel import Vessel
+
+from planet.terrain import body_shape
+from systems.planet_system import terrain_settings_for
 
 
 # Gravitational constant (m^3 / kg s^2).
@@ -152,7 +156,7 @@ class VesselReadout:
     surface_speed: float            # m/s through the air / over the ground
     orbital_speed: float            # m/s in the body's non-rotating frame
     vertical_speed: float           # m/s, up positive
-    apoapsis: float | None          # m above sea level; None escaping (or landed)
+    apoapsis: float | None          # m above the mean radius; None escaping (or landed)
     periapsis: float | None         # None landed
     destroyed: bool
     impact_speed: float
@@ -266,6 +270,9 @@ class VesselSystem:
         # Ground under the vessel (shape height, surface
         # above it), refreshed once a frame.
         self._ground: tuple[float, float] | None = None
+
+        # Bodies' figures (planet/shape.py), by profile.
+        self._figures: dict = {}
 
         # Before the body's terrain is built: the launch
         # site's ground radius.
@@ -783,6 +790,14 @@ class VesselSystem:
         return self._launch[0] if self._launch is not None else None
 
     @property
+    def height(
+        self
+    ) -> float:
+        """m above the ground under the flown vessel (as last looked up)."""
+
+        return self._height
+
+    @property
     def ground_accuracy(
         self
     ) -> float:
@@ -939,15 +954,31 @@ class VesselSystem:
         self.active = entity
 
         # Another vessel: its own ground, predictions.
+        self.placed(target.state)
+
+        return ""
+
+    def placed(
+        self,
+        state,
+        height: float | None = None
+    ):
+        """
+        The flown vessel (its state) put somewhere new (another
+        vessel, a lesson's start): its ground and predictions
+        found afresh. height: m over the ground, if known (0:
+        on it: the ground looked up exactly).
+        """
+
         self._ground = None
         self._fallback_ground = None
-        self._height = float(np.linalg.norm(target.state.position))
+
+        # (Unknown: far from the ground, until it is looked up.)
+        self._height = float(np.linalg.norm(state.position)) if height is None else height
         self._prediction = None
         self._planned = None
         self._braking = None
         self._burn_time = None
-
-        return ""
 
     @staticmethod
     def _mu(
@@ -1080,6 +1111,17 @@ class VesselSystem:
             # near it, coarse (and cheap) high above.
             ground = planet_system.ground(body, frame.T @ direction, self.ground_accuracy)
 
+            # No terrain built yet (the body too far from the
+            # camera to show): a lumpy body's figure at least,
+            # not a ball of its mean radius (a comet's lobes
+            # reach 60% past it).
+            if ground is None:
+
+                figure = self.figure(scene, body)
+
+                if figure is not None and not figure.spheroid:
+                    ground = (float(figure.height((frame.T @ direction)[None, :])[0]), 0.0)
+
             if ground is not None:
                 self._ground = ground
 
@@ -1104,8 +1146,14 @@ class VesselSystem:
 
         # The ground's slope (vessel/landing.py), from the
         # heights round a point (as fine as the vessel's height
-        # needs).
+        # needs); a lumpy body's level.
         normal = None
+        level = None
+
+        if physics.solid and body in orbit_system.states:
+
+            # (A lumpy body's level, with or without its terrain.)
+            level = self._level(self.figure(scene, body), orbit_system.states[body][1])
 
         if physics.solid and planet_system is not None and body in orbit_system.states:
 
@@ -1179,8 +1227,70 @@ class VesselSystem:
             air_top=air_top,
             temperature=temperature,
             normal=normal,
-            wind=wind
+            wind=wind,
+            level=level
         )
+
+    # Up near a lumpy body: square to its figure at its
+    # surface, out from its center beyond LEVEL_REACH times
+    # its extent (between, a blend).
+    LEVEL_REACH = 2.0
+
+    def figure(
+        self,
+        scene: Scene,
+        body: Hashable
+    ):
+        """A body's shape (planet/shape.py BodyShape; None: a plain sphere), from its profile (kept)."""
+
+        component = scene.try_get_component(body, PlanetComponent)
+
+        if component is None:
+            return None
+
+        # (By its profile: a new scene reuses entities.)
+        found = scene.try_get_component(body, BodyComponent)
+
+        key = found.profile if found is not None and found.profile else self.body_name(scene, body)
+
+        if key not in self._figures:
+            self._figures[key] = body_shape(terrain_settings_for(component))
+
+        return self._figures[key]
+
+    @classmethod
+    def _level(
+        cls,
+        figure,
+        body_frame: np.ndarray
+    ):
+        """physics.Environment's level for a body whose figure is not round (None: it is)."""
+
+        if figure is None or figure.spheroid:
+            return None
+
+        extent = figure.extent
+
+        reach = cls.LEVEL_REACH * extent
+
+        def level(position):
+
+            r = float(np.linalg.norm(position))
+
+            out = position / r
+
+            weight = min(max((reach - r) / (reach - extent), 0.0), 1.0)
+
+            if weight <= 0.0:
+                return out
+
+            square = body_frame @ figure.vertical(body_frame.T @ position)[0]
+
+            up = out * (1.0 - weight) + square * weight
+
+            return up / float(np.linalg.norm(up))
+
+        return level
 
     def _extent(
         self,
@@ -1239,7 +1349,7 @@ class VesselSystem:
             parent_mass = masses.get(parent, 0.0) if parent is not SUN else sun_mass
 
             radius = (
-                soi.soi_radius(orbit.semi_major_axis, mass, parent_mass)
+                soi.sphere(orbit.semi_major_axis, mass, parent_mass, planet.radius)
                 if mass > 0.0 and parent_mass > 0.0
                 else math.inf
             )
@@ -1646,7 +1756,10 @@ class VesselSystem:
 
             return kepler.propagate(state.position, state.velocity, mu, seconds)
 
-        sea = physics.radius + (self._ground[0] if self._ground is not None and physics.solid else 0.0)
+        # (Heights of an orbit from the body's mean radius: one
+        # reference all round it, not the sea level under the
+        # vessel now.)
+        sea = physics.radius
 
         if closed:
 
@@ -2118,7 +2231,9 @@ class VesselSystem:
 
                     up = state.position / float(np.linalg.norm(state.position))
 
-                    self._slope = landing.slope_of(environment.normal(up), up)
+                    # (From the level: a lumpy body's, square to
+                    # its figure.)
+                    self._slope = landing.slope_of(environment.normal(up), up_at(environment, state.position))
                     self._slope_at = (component.body, local)
 
             else:
@@ -4079,14 +4194,18 @@ class VesselSystem:
             thrust=vessel.thrust(pressure)[0],
             twr=(vessel.max_thrust(pressure) + rover.rotor_lift(vessel, density)) / weight if weight > 0.0 else 0.0,
             driving=state.drive if state.landed and not state.toppled and rover.wheels(vessel) else None,
-            height=0.0 if state.landed else max(self._height, 0.0),
+            height=0.0 if state.landed else max(self.height, 0.0),
             air_top=max(environment.air_top - sea_radius, 0.0) if environment.air_top > 0.0 else 0.0,
             delta_v=vessel.delta_v(),
             surface_speed=float(np.linalg.norm(relative)),
             orbital_speed=float(np.linalg.norm(state.velocity)),
             vertical_speed=float(np.dot(state.velocity, up)),
-            apoapsis=shape.apoapsis - sea_radius if orbit_known and not escaping else None,
-            periapsis=shape.periapsis - sea_radius if orbit_known else None,
+            # (From the mean radius: the same all round the orbit;
+            # the sea level under a vessel changes as it goes, by
+            # 21 km on the Earth, by kilometres over a lumpy
+            # moon.)
+            apoapsis=shape.apoapsis - physics.radius if orbit_known and not escaping else None,
+            periapsis=shape.periapsis - physics.radius if orbit_known else None,
             destroyed=state.destroyed,
             impact_speed=state.impact_speed,
             parachute=parachute,

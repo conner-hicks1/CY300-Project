@@ -303,6 +303,50 @@ class BodyShape:
         return np.minimum(a, b) - h * h * _LOBE_BLEND * 0.25
 
     # -----------------------------------------------------
+    # Level
+    # -----------------------------------------------------
+
+    def vertical(
+        self,
+        points: np.ndarray
+    ) -> np.ndarray:
+        """
+        Up at points near the body (m, its frame): square to
+        its smooth figure - the ellipsoid, or the two lobes'
+        union - without the lumps, basins and relief. On a
+        small body this, not the way to its center, is roughly
+        where its gravity pulls from (real gravity runs square
+        to the figure it pulled the body into).
+        """
+
+        points = np.atleast_2d(np.asarray(points, dtype=np.float64)) / self.radius
+
+        if not self.settings.has_lobe:
+
+            gradient = (points - self._center) / (self._axes * self._axes)
+
+        else:
+
+            # The smooth union's slope, by differences.
+            step = 1e-4
+
+            gradient = np.empty_like(points)
+
+            for axis in range(3):
+
+                offset = np.zeros(3)
+                offset[axis] = step
+
+                gradient[:, axis] = (self._field(points + offset) - self._field(points - offset)) / (2.0 * step)
+
+        length = np.linalg.norm(gradient, axis=1, keepdims=True)
+
+        # (At the very center: straight out along the point.)
+        radial = points / np.maximum(np.linalg.norm(points, axis=1, keepdims=True), 1e-12)
+
+        return np.where(length > 1e-12, gradient / np.maximum(length, 1e-12), radial)
+
+    # -----------------------------------------------------
     # Bounds
     # -----------------------------------------------------
 

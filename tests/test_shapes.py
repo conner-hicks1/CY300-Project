@@ -236,3 +236,32 @@ def test_shapes_reach_terrain_settings(presets):
 
     # Rheasilvia digs ~19 km into the south.
     assert low < -19_000.0 and high > 20_000.0
+
+
+def test_up_on_a_lumpy_body_is_square_to_its_figure():
+
+    # A potato 1.3 x 1 x 0.8: at the end of its long axis
+    # and on its flank, up is square to the ellipsoid, not out
+    # from the center.
+    shape = BodyShape(ShapeSettings(axes=(1.3, 1.0, 0.8)), 10_000.0)
+
+    end = shape.vertical(np.array([13_000.0, 0.0, 0.0]))[0]
+
+    np.testing.assert_allclose(end, [1.0, 0.0, 0.0], atol=1e-9)
+
+    # Halfway between the long and the short axes: tipped
+    # toward the short one (the surface faces that way).
+    flank = np.array([1.3, 0.0, 0.8]) / np.sqrt(2.0) * 10_000.0
+
+    up = shape.vertical(flank)[0]
+
+    out = flank / np.linalg.norm(flank)
+
+    assert abs(float(np.linalg.norm(up)) - 1.0) < 1e-9
+    assert up[2] > out[2] and math.degrees(math.acos(float(up @ out))) > 10.0
+
+    # Two lobes: up from each.
+    comet = BodyShape(ShapeSettings(axes=(1.0, 0.8, 0.8), main_center=(0.0, 0.0, -0.4), lobe_center=(0.0, 0.0, 1.0), lobe_axes=(0.6, 0.5, 0.5)), 1_000.0)
+
+    np.testing.assert_allclose(comet.vertical(np.array([0.0, 0.0, 1_600.0]))[0], [0.0, 0.0, 1.0], atol=1e-3)
+    np.testing.assert_allclose(comet.vertical(np.array([0.0, 0.0, -1_400.0]))[0], [0.0, 0.0, -1.0], atol=1e-3)

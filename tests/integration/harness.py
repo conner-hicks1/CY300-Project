@@ -273,6 +273,10 @@ class Game:
 
         component.body = body
 
+        # (Its ground found afresh, exactly: not the last
+        # body's.)
+        vessels.placed(component.state, height=0.0)
+
         environment = vessels.environment(self.app.scene, body, self.app.orbit_system, self.app.planet_system, up)
 
         component.state.position = up * environment.ground(up)

@@ -2218,7 +2218,8 @@ class Application(
             else None
         )
 
-        context = FlightContext.find(self.scene, focus)
+        # (The body it orbits, not just the nearest ground.)
+        context = FlightContext.find(self.scene, focus, found[1].body if found is not None else None)
 
         planets = self.planet_system.stats
 

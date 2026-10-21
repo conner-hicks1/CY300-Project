@@ -37,6 +37,26 @@ def soi_radius(
     return semi_major_axis * (mass / parent_mass) ** 0.4
 
 
+# A sphere at least this many of the body's radii: Laplace's
+# makes a small moon's smaller than the moon itself (Phobos's
+# 7 km, its radius 11 km; Deimos's, Enceladus's barely out of
+# them), so that close to it - landed on it - a vessel would
+# still feel only the planet. Within a few radii a small
+# body's own pull is what matters.
+MIN_SOI_RADII = 4.0
+
+
+def sphere(
+    semi_major_axis: float,
+    mass: float,
+    parent_mass: float,
+    radius: float
+) -> float:
+    """A body's sphere of influence for the game: Laplace's, but never within a few of its radii."""
+
+    return max(soi_radius(semi_major_axis, mass, parent_mass), MIN_SOI_RADII * radius)
+
+
 @dataclass(frozen=True, slots=True)
 class Body:
     """A body for patched conics. key: anything identifying it (an entity; None = the Sun)."""
