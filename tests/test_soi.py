@@ -194,3 +194,43 @@ def test_a_small_moon_has_room_to_be_landed_on():
 
     # The Moon's own is far bigger than that: kept.
     assert soi.sphere(MOON_DISTANCE, 7.342e22, 5.972e24, 1_737_400.0) == soi.soi_radius(MOON_DISTANCE, 7.342e22, 5.972e24)
+
+
+def test_a_flyby_is_followed_in_and_out_again():
+
+    earth_mu = 3.986004418e14
+    moon_mu = 4.9048695e12
+
+    earth = soi.Body("earth", "Earth", earth_mu, 6.371e6, 9.25e8, None)
+    moon = soi.Body("moon", "Moon", moon_mu, 1.7374e6, soi.soi_radius(MOON_DISTANCE, 7.342e22, 5.972e24), "earth")
+
+    bodies = {"earth": earth, "moon": moon}
+
+    moon_speed = math.sqrt(earth_mu / MOON_DISTANCE)
+
+    moon_position = np.array([MOON_DISTANCE, 0.0, 0.0])
+    moon_velocity = np.array([0.0, moon_speed, 0.0])
+
+    # 150,000 km short of the Moon, passing it 20,000 km to
+    # one side at 1 km/s relative: in through its sphere and
+    # out again.
+    position = moon_position + np.array([-150_000_000.0, 20_000_000.0, 0.0])
+    velocity = moon_velocity + np.array([1_000.0, 0.0, 0.0])
+
+    prediction = soi.predict(position, velocity, earth, bodies, {"moon": (moon_position, moon_velocity)}, horizon=20.0 * 86_400.0)
+
+    assert [patch.body for patch in prediction.patches][:3] == ["earth", "moon", "earth"]
+
+    into, round_moon, out = prediction.patches[:3]
+
+    assert into.end == "encounter" and round_moon.end == "escape" and round_moon.next_body == "earth"
+
+    # Out again where it left the Moon's sphere, then on round
+    # the Earth (not caught by the Moon again at once).
+    moon_then, _ = kepler.propagate(moon_position, moon_velocity, earth_mu, float(out.times[0]))
+
+    np.testing.assert_allclose(out.points[0], round_moon.points[-1] + moon_then, atol=5_000.0)
+
+    assert float(np.linalg.norm(out.points[0] - moon_then)) > 0.95 * moon.soi
+
+    assert out.times[0] == pytest.approx(round_moon.times[-1], rel=1e-6)

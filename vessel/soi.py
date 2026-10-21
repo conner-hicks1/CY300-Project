@@ -153,6 +153,11 @@ class Prediction:
         return self.patches[1] if len(self.patches) > 1 and self.patches[0].end == "encounter" else None
 
 
+# Patches followed at most (now; into a moon's sphere; out
+# of it again round the planet; into another).
+MAX_PATCHES = 4
+
+
 def predict(
     position,
     velocity,
@@ -165,10 +170,13 @@ def predict(
     """
     The vessel's path from now: its conic about `reference`
     (one revolution, or until it leaves the sphere, hits the
-    body, or enters a child's sphere), then the next patch
-    (one level). child_states: children's (position,
-    velocity) relative to `reference` now; they move on
-    their own conics meanwhile.
+    body, or enters a child's sphere); into a child's sphere,
+    its path there, and out of it again round `reference`,
+    and on (a free return round the Moon, one moon then
+    another), up to MAX_PATCHES patches. child_states:
+    children's (position, velocity) relative to `reference`
+    now; they move on their own conics meanwhile. Leaving
+    `reference`'s own sphere ends it (the next body named).
     """
 
     prediction = Prediction()
@@ -176,33 +184,73 @@ def predict(
     position = np.asarray(position, dtype=np.float64)
     velocity = np.asarray(velocity, dtype=np.float64)
 
-    patch, state, child, at = _follow(position, velocity, reference, bodies, child_states, samples, horizon)
+    def children_at(t):
+        return {key: kepler.propagate(*state, reference.mu, t) for key, state in child_states.items()}
+
+    patch, state, child, taken = _follow(position, velocity, reference, bodies, child_states, samples, horizon)
 
     prediction.patches.append(patch)
 
-    if patch.end == "encounter" and child is not None:
+    now = taken
 
-        # The child's state then, to re-express the vessel.
-        child_position, child_velocity = kepler.propagate(*child_states[child], reference.mu, at)
+    while len(prediction.patches) < MAX_PATCHES:
 
-        inner_position, inner_velocity = state[0] - child_position, state[1] - child_velocity
+        if patch.end == "escape" and patch.body == reference.key:
 
-        inner, _, _, _ = _follow(
-            inner_position,
-            inner_velocity,
+            if reference.parent in bodies:
+                patch.next_body = reference.parent
+
+            break
+
+        if patch.end != "encounter" or child is None or now >= horizon:
+            break
+
+        # Into the child's sphere: the vessel re-expressed
+        # round it (where it is then).
+        child_position, child_velocity = kepler.propagate(*child_states[child], reference.mu, now)
+
+        inner, inner_state, _, inside = _follow(
+            state[0] - child_position,
+            state[1] - child_velocity,
             bodies[child],
             bodies,
             {},
             samples,
-            horizon,
-            start=at
+            horizon - now,
+            start=now
         )
 
         prediction.patches.append(inner)
 
-    elif patch.end == "escape" and reference.parent in bodies:
+        if inner.end != "escape" or len(prediction.patches) >= MAX_PATCHES:
+            break
 
-        patch.next_body = reference.parent
+        # Out again: round `reference`, from the edge of the
+        # child's sphere on (the child not met again on the
+        # way out of it).
+        now += inside
+
+        child_position, child_velocity = kepler.propagate(*child_states[child], reference.mu, now)
+
+        inner.next_body = reference.key
+
+        patch, state, left, taken = _follow(
+            inner_state[0] + child_position,
+            inner_state[1] + child_velocity,
+            reference,
+            bodies,
+            children_at(now),
+            samples,
+            horizon - now,
+            start=now,
+            leaving=child
+        )
+
+        prediction.patches.append(patch)
+
+        child = left
+
+        now += taken
 
     return prediction
 
@@ -215,9 +263,10 @@ def _follow(
     child_states: dict,
     samples: int,
     horizon: float,
-    start: float = 0.0
+    start: float = 0.0,
+    leaving: Hashable = None
 ):
-    """One conic, sampled, until something ends it."""
+    """One conic, sampled, until something ends it. leaving: a child whose sphere it is on its way out of (met only once out)."""
 
     mu = reference.mu
 
@@ -271,7 +320,16 @@ def _follow(
 
         where, _ = kepler.propagate_many(child_position, child_velocity, mu, times)
 
-        inside = np.nonzero(np.linalg.norm(rs[1:] - where[1:], axis=1) < bodies[key].soi)[0]
+        within = np.linalg.norm(rs[1:] - where[1:], axis=1) < bodies[key].soi
+
+        # (Still on the way out of it: only once out.)
+        if key == leaving:
+
+            out = np.nonzero(~within)[0]
+
+            within[: out[0] if len(out) else len(within)] = False
+
+        inside = np.nonzero(within)[0]
 
         if len(inside):
             hits[key] = int(inside[0]) + 1
