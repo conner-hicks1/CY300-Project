@@ -3,6 +3,7 @@ import math
 from imgui_bundle import imgui
 
 from game import format, style
+from game import bindings
 
 from planet import weather
 from game.flight import FlightReadout
@@ -44,25 +45,29 @@ NOTICE_TONES = (
     (("mission done", "recovered", "docked", "landed", "science", "transmitted", "budget", "mapped", "done", "power again"), "good"),
 )
 
+# (Keys as game/bindings.py keys() names them: where the
+# player has put them.)
 CONTROLS = (
-    ("Z / X", "throttle full / cut"),
-    ("Shift / Ctrl", "throttle up / down"),
-    ("Space", "next stage"),
-    ("W A S D Q E", "steer"),
-    ("T / F", "SAS on / its mode"),
-    ("arrows, H / N", "translate (RCS)"),
-    ("M", "map"),
-    ("R / K", "experiments / science"),
-    ("C", "flight computer"),
-    ("P", "programme"),
-    ("L, [ ]", "vessels"),
-    ("B", "auto-dock"),
-    ("U", "solar wings"),
-    ("G", "landing legs"),
-    (", . /", "time warp"),
-    ("V", "free camera"),
+    ("{Z} / {X}", "throttle full / cut"),
+    ("{LEFT_SHIFT} / {LEFT_CONTROL}", "throttle up / down"),
+    ("{SPACE}", "next stage"),
+    ("{W} {A} {S} {D} {Q} {E}", "steer"),
+    ("{T} / {F}", "SAS on / its mode"),
+    ("arrows, {H} / {N}", "translate (RCS)"),
+    ("{M}", "map"),
+    ("{R} / {K}", "experiments / science"),
+    ("{C}", "flight computer"),
+    ("{P}", "programme"),
+    ("{L}, {LEFT_BRACKET} {RIGHT_BRACKET}", "vessels"),
+    ("{B}", "auto-dock"),
+    ("{U}", "solar wings"),
+    ("{G}", "landing legs"),
+    ("{COMMA} {PERIOD} {SLASH}", "time warp"),
+    ("{V}", "free camera"),
+    ("{J}", "encyclopaedia"),
+    ("{F5} / {F9}", "quicksave / quickload"),
     ("Esc", "menu"),
-    ("F1 / F2", "these keys / the HUD"),
+    ("{F1} / {F2}", "these keys / the HUD"),
 )
 
 
@@ -111,6 +116,12 @@ class FlightHud:
 
         # Told of each notice (the sound of it), or None.
         self.on_notice = None
+
+        # The vessel panel's box and the location panel's
+        # width as last drawn (to keep them apart).
+        self._vessel_box: tuple[float, float, float, float] | None = None
+        self._flight_width = 0.0
+        self._panels_top = 0.0
 
         # (What, key) of the actions the player moved to other
         # keys (game/bindings.py): the F1 list says so.
@@ -180,14 +191,29 @@ class FlightHud:
 
         self._draw_notices((x + width * 0.5, y + margin + 44.0 + self.notices_below))
 
-        self._draw_flight(readout, speed, loading, fps, (x + margin, y + height - margin))
+        # The location panel bottom left; up over the vessel
+        # panel's top when they would overlap (a big interface
+        # size, a narrow window).
+        flight_at = (x + margin, y + height - margin)
+
+        box = self._vessel_box
+
+        if box is not None and self._flight_width > 0.0 and x + margin + self._flight_width + style.GAP > box[0]:
+            flight_at = (x + margin, box[1] - style.GAP)
+
+        self._flight_width, flight_height = self._draw_flight(readout, speed, loading, fps, flight_at)
+
+        # Over the bottom panels (the F1 list ends there).
+        self._panels_top = min(flight_at[1] - flight_height, box[1] if box is not None else math.inf)
+
+        self._vessel_box = None
 
         try:
             self._draw_ship(vessel, navball, maneuver, braking, link, docking, power, life, x, y, width, height)
         finally:
-            # The left side, between the navigation and the
-            # location panels: clear of the rest.
-            self._draw_hints((x + width - margin, y + margin), (x + margin, y + height * 0.45))
+            # The left, just over the panels at the bottom:
+            # clear of them, the clock and the lesson.
+            self._draw_hints((x + width - margin, y + margin), (x + margin, self._panels_top - style.GAP))
 
     def _draw_ship(
         self,
@@ -210,16 +236,24 @@ class FlightHud:
         if vessel is None:
             return
 
-        right, bottom = self._draw_vessel(vessel, (x + width * 0.5, y + height - margin), maneuver, braking, link, docking, power, life)
+        self._vessel_box = self._draw_vessel(vessel, (x + width * 0.5, y + height - margin), maneuver, braking, link, docking, power, life)
+
+        left, top, right, bottom = self._vessel_box
 
         if navball is not None and not vessel.destroyed:
 
             from game.navball import attitude, draw_navball
 
-            radius = 64.0
+            # (As big as the interface is.)
+            radius = 64.0 * imgui.get_style().font_scale_main
 
-            # Beside the vessel panel, its readout under it.
+            # Beside the vessel panel, its readout under it; no
+            # room there (a big interface size): over the
+            # panel's right end.
             center = (right + style.GAP + 14.0 + radius, bottom - 26.0 - radius)
+
+            if center[0] + radius + 14.0 > x + width - margin:
+                center = (x + width - margin - 14.0 - radius, top - style.GAP - 26.0 - radius)
 
             draw_navball(center, radius, navball)
 
@@ -322,9 +356,13 @@ class FlightHud:
         loading: bool,
         fps: float | None,
         position
-    ):
+    ) -> tuple[float, float]:
+        """Returns its size (px) as last laid out."""
 
         with style.panel("##hud flight", position, (0.0, 1.0)):
+
+            # (Its size as last laid out: the HUD keeps clear.)
+            measured = imgui.get_window_size()
 
             if readout is None:
 
@@ -377,6 +415,8 @@ class FlightHud:
             if fps is not None:
                 style.row("Frame", f"{fps:5.1f} FPS  {1000.0 / fps if fps > 0 else 0.0:.1f} ms", "faint")
 
+        return measured.x, measured.y
+
     # -----------------------------------------------------
     # Keys
     # -----------------------------------------------------
@@ -390,14 +430,14 @@ class FlightHud:
         if not self.show_controls:
 
             with style.panel("##hud hints", corner, (1.0, 0.0), alpha=0.6):
-                imgui.text_colored(style.tone("faint"), "F1  controls")
+                imgui.text_colored(style.tone("faint"), bindings.keys("{F1}  controls"))
 
             return
 
         # Every key, two columns (F1 again to close).
-        with style.panel("##hud hints", middle, (0.0, 0.5), alpha=0.97):
+        with style.panel("##hud hints", middle, (0.0, 1.0), alpha=0.97):
 
-            style.heading("Controls  (F1 to close)")
+            style.heading(bindings.keys("Controls  ({F1} to close)"))
 
             half = (len(CONTROLS) + 1) // 2
 
@@ -412,7 +452,7 @@ class FlightHud:
                         imgui.table_next_column()
 
                         with style.font("mono"):
-                            imgui.text_colored(style.tone("accent"), keys)
+                            imgui.text_colored(style.tone("accent"), bindings.keys(keys))
 
                         imgui.table_next_column()
 
@@ -448,7 +488,7 @@ class FlightHud:
         starts, burn s); braking: vessel/maneuver.py Braking;
         link, docking: (text, "good" / "warn" / "bad");
         power: vessel/power.py PowerStatus.
-        Returns the panel's right edge and bottom (px).
+        Returns the panel's box (left, top, right, bottom px).
         """
 
         with style.panel("##hud vessel", position, (0.5, 1.0)):
@@ -473,9 +513,9 @@ class FlightHud:
 
             if imgui.begin_table("vessel", 3, flags):
 
-                imgui.table_setup_column("propulsion", imgui.TableColumnFlags_.width_fixed.value, 214.0)
-                imgui.table_setup_column("motion", imgui.TableColumnFlags_.width_fixed.value, 164.0)
-                imgui.table_setup_column("orbit", imgui.TableColumnFlags_.width_fixed.value, 164.0)
+                imgui.table_setup_column("propulsion", imgui.TableColumnFlags_.width_fixed.value, style.px(214.0))
+                imgui.table_setup_column("motion", imgui.TableColumnFlags_.width_fixed.value, style.px(164.0))
+                imgui.table_setup_column("orbit", imgui.TableColumnFlags_.width_fixed.value, style.px(164.0))
 
                 imgui.table_next_row()
 
@@ -691,7 +731,7 @@ class FlightHud:
 
                 style.say(text, tone)
 
-        return where.x + size.x, where.y + size.y
+        return where.x, where.y, where.x + size.x, where.y + size.y
 
     @staticmethod
     def _draw_power(

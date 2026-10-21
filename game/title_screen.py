@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from imgui_bundle import imgui
 
 from game import style
+from game.bindings import keys
 from game.style import tone
 
 from planet.orbits import date_of
@@ -222,7 +223,7 @@ class TitleScreen:
 
         imgui.set_cursor_pos((margin, height - 34.0))
 
-        style.say("F5 quicksave  ·  F9 quickload  ·  the game saves itself as you play", "faint")
+        style.say(keys("{F5} quicksave  ·  {F9} quickload  ·  the game saves itself as you play"), "faint")
 
         imgui.end()
 

@@ -16,7 +16,7 @@ from vessel import landing, life, power, propellants, reliability
 from vessel.parts import PartDefinition, PartError
 from vessel.vessel import Vessel
 
-from game import format
+from game import format, style
 
 
 # =========================================================
@@ -491,7 +491,7 @@ class PartEditor:
                     self.changed = True
 
                 if stage:
-                    imgui.same_line(330.0)
+                    imgui.same_line(style.px(330.0))
                     imgui.text_disabled(stage)
 
             if not draft.entries:

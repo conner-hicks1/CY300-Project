@@ -196,6 +196,14 @@ def panel(
         imgui.pop_style_color()
 
 
+def px(
+    value: float
+) -> float:
+    """A size laid out in px at 1x, at the interface's size now (Settings > Interface)."""
+
+    return value * imgui.get_style().font_scale_main
+
+
 def heading(
     text: str,
     tone_name: str = "muted"
@@ -227,7 +235,7 @@ def row(
 
     imgui.text_colored(tone("muted"), label)
 
-    imgui.same_line(label_width)
+    imgui.same_line(px(label_width))
 
     with font("mono"):
         say(value, tone_name)
@@ -245,7 +253,7 @@ def meter(
 
     imgui.text_colored(tone("muted"), label)
 
-    imgui.same_line(label_width)
+    imgui.same_line(px(label_width))
 
     # The fill a little dim: the text over it reads.
     color = tone(tone_name)
@@ -253,7 +261,7 @@ def meter(
     imgui.push_style_color(imgui.Col_.plot_histogram, (color[0], color[1], color[2], 0.6))
     imgui.push_style_color(imgui.Col_.frame_bg, FRAME)
 
-    imgui.progress_bar(min(max(fraction, 0.0), 1.0), (width, 0.0), text)
+    imgui.progress_bar(min(max(fraction, 0.0), 1.0), (px(width), 0.0), text)
 
     imgui.pop_style_color(2)
 

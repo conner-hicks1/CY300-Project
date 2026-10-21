@@ -3,6 +3,8 @@ from dataclasses import dataclass
 
 from imgui_bundle import imgui
 
+from game.bindings import keys
+
 
 # =========================================================
 # Pause Menu
@@ -205,14 +207,14 @@ class PauseMenu:
         if imgui.button("Encyclopaedia", (BUTTON_WIDTH, 0)):
             actions.encyclopaedia()
 
-        imgui.set_item_tooltip("How it works, every part, every body (J).")
+        imgui.set_item_tooltip(keys("How it works, every part, every body ({J})."))
 
         imgui.separator()
 
         if imgui.button("Save and quit to title", (BUTTON_WIDTH, 0)):
             actions.title()
 
-        imgui.set_item_tooltip("The title screen: another game, or a new one. (F5 quicksaves, F9 goes back to it.)")
+        imgui.set_item_tooltip(keys("The title screen: another game, or a new one. ({F5} quicksaves, {F9} goes back to it.)"))
 
         if imgui.button("Quit to desktop", (BUTTON_WIDTH, 0)):
             actions.quit()
@@ -261,7 +263,7 @@ class PauseMenu:
             if imgui.button("Follow the vessel" if free_camera else "Free camera", (BUTTON_WIDTH, 0)):
                 actions.toggle_camera()
 
-            imgui.set_item_tooltip("V switches too.")
+            imgui.set_item_tooltip(keys("{V} switches too."))
 
             imgui.separator_text("Free camera to")
 

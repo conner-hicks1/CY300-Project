@@ -1,4 +1,5 @@
 import json
+import re
 
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -119,6 +120,35 @@ def key_name(
     return name.replace("_", " ").title()
 
 
+# The settings the game plays with (ControlSettings.apply):
+# what keys() names.
+_playing: "ControlSettings | None" = None
+
+_PLACEHOLDER = re.compile(r"\{([A-Z][A-Z0-9_]*)\}")
+
+
+def keys(
+    text: str
+) -> str:
+    """
+    Text naming keys as the player has them: {Z}, {SPACE},
+    {LEFT_SHIFT}... (the game's own keys, core/key_codes.py)
+    become the keys they are on now ("Z", or the one it was
+    moved to). Anything else in braces stays.
+    """
+
+    def name(match):
+
+        try:
+            key = Key[match.group(1)]
+        except KeyError:
+            return match.group(0)
+
+        return key_name(_playing.key_for(key) if _playing is not None else key)
+
+    return _PLACEHOLDER.sub(name, text)
+
+
 def what_does(
     key: Key
 ) -> str:
@@ -182,7 +212,11 @@ class ControlSettings:
         return [(what_does(game), key_name(pressed)) for game, pressed in self.bindings.items()]
 
     def apply(self):
-        """Into the input: the keys, the mouse."""
+        """Into the input: the keys, the mouse; the keys the game's text names."""
+
+        global _playing
+
+        _playing = self
 
         Input.set_bindings(self.bindings)
 

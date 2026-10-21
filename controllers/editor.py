@@ -1,6 +1,7 @@
 from ecs.components import BodyComponent
 
 from game.part_editor import LaunchBody
+from game.bindings import keys
 
 from vessel.design import DesignDraft
 
@@ -88,7 +89,7 @@ class EditorController:
 
         self.vessel_system.rebuild(self.scene, design, self.orbit_system)
 
-        self.hud.notify(f"{design.name} on the pad: Z for full throttle, Space to launch")
+        self.hud.notify(keys(f"{design.name} on the pad: {{Z}} for full throttle, {{SPACE}} to launch"))
 
     def _cancel_editing(self):
 

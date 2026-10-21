@@ -192,7 +192,7 @@ class ManeuverPanel:
 
             imgui.text_colored(color, f"{label:<9}")
 
-            imgui.same_line(80.0)
+            imgui.same_line(style.px(80.0))
 
             imgui.set_next_item_width(110.0)
 

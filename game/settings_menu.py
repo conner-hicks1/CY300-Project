@@ -37,6 +37,7 @@ class SettingsContext:
     hints: object                       # game/guide.py Hints (or None)
     controls: ControlSettings
     controls_changed: Callable[[], None]
+    ui_fits: float = 1.75               # the biggest size the window holds
 
 
 WIDTH = 640.0
@@ -307,7 +308,7 @@ class SettingsMenu:
                 if imgui.begin_table(f"keys {group}", 2, imgui.TableFlags_.row_bg.value):
 
                     imgui.table_setup_column("what", imgui.TableColumnFlags_.width_stretch.value)
-                    imgui.table_setup_column("key", imgui.TableColumnFlags_.width_fixed.value, 150.0)
+                    imgui.table_setup_column("key", imgui.TableColumnFlags_.width_fixed.value, style.px(150.0))
 
                     for action, what in actions:
 
@@ -322,7 +323,7 @@ class SettingsMenu:
 
                         label = "..." if self.capturing == action else key_name(controls.key_for(action))
 
-                        if imgui.button(f"{label}##{action.name}", (140.0, 0.0)):
+                        if imgui.button(f"{label}##{action.name}", (style.px(140.0), 0.0)):
 
                             self.capturing = action
                             self._said = ""
@@ -356,6 +357,9 @@ class SettingsMenu:
             context.controls_changed()
 
         imgui.set_item_tooltip("The HUD's, panels' and menus' size (text, buttons, spacing).")
+
+        if controls.ui_scale > context.ui_fits + 1e-3:
+            style.say(f"This window holds up to {context.ui_fits:.2f}x: shown at that (a bigger window, or full screen, for more).", "warn")
 
         if imgui.button("Back to 1x", (160.0, 0.0)):
 

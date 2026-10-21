@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from ecs.components import ClockComponent
 from programme import saves
 
 from tests.integration.harness import Game
@@ -162,3 +163,59 @@ def test_risky_moments_are_autosaved(play):
     game.step(5)
 
     assert any(notice == "Autosaved: coming down to land" for notice in game.notices())
+
+
+def _skip(game: Game, seconds: float):
+    """The calendar on (as warp would take it), a few frames to follow."""
+
+    clock = next(component for _, component in game.app.scene.registry.view_with(ClockComponent))
+
+    clock.time += seconds
+
+    game.step(3)
+
+
+def test_a_sandbox_goes_on_from_where_it_was_saved(play, tmp_path):
+
+    game: Game = play()
+
+    app = game.app
+
+    app.title.directory = tmp_path / "slots"
+
+    actions = app._title_actions()
+
+    actions.new("Moon base", True)
+
+    game.step(5)
+
+    start = game.clock
+
+    # A month on, quicksaved; on again.
+    _skip(game, 30 * 86_400.0)
+
+    assert game.clock > start + 29 * 86_400.0
+
+    assert app.quicksave()
+
+    kept = game.clock
+
+    _skip(game, 10 * 86_400.0)
+
+    # Quickloaded: back to that moment, not to the start.
+    assert app.quickload()
+
+    game.step(2)
+
+    assert game.clock == pytest.approx(kept, abs=60.0)
+
+    # Saved and loaded again: where it was.
+    app.save_game()
+
+    left = game.clock
+
+    actions.play(saves.find("Moon base", app.title.directory), None)
+
+    game.step(2)
+
+    assert game.clock == pytest.approx(left, abs=60.0) and app.sandbox

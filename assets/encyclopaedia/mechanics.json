@@ -6,25 +6,25 @@
       "id": "orbit",
       "title": "Getting to orbit",
       "group": "Flying",
-      "text": "An orbit is falling round a body fast enough sideways to keep missing it. Low Earth orbit needs about 7.8 km/s sideways; a rocket climbs out of the thick air first, then turns over and builds that speed.\n\nThe gravity turn: a little after lift-off tip the nose about 10 degrees east (W) and switch stability assist to prograde (F). Gravity bends the climb over by itself. East, because the Earth's turning gives you some 400 m/s for free at the equator.\n\nBurn until the apoapsis (the highest point of the path) is above the air, cut the engines and coast up to it; there, burn prograde until the periapsis is up too. The map's Maneuver panel plans that burn: Circularize."
+      "text": "An orbit is falling round a body fast enough sideways to keep missing it. Low Earth orbit needs about 7.8 km/s sideways; a rocket climbs out of the thick air first, then turns over and builds that speed.\n\nThe gravity turn: a little after lift-off tip the nose about 10 degrees east ({W}) and switch stability assist to prograde ({F}). Gravity bends the climb over by itself. East, because the Earth's turning gives you some 400 m/s for free at the equator.\n\nBurn until the apoapsis (the highest point of the path) is above the air, cut the engines and coast up to it; there, burn prograde until the periapsis is up too. The map's Maneuver panel plans that burn: Circularize."
     },
     {
       "id": "staging",
       "title": "Staging",
       "group": "Flying",
-      "text": "A rocket throws away what it no longer needs: empty tanks and their engines are dead weight. Space fires the next stage: the first lights the engines, later ones fire decouplers (dropping a stage) and light the next engines, arm parachutes.\n\nThe HUD shows the stage, how many are left, and the propellant in the stage burning. A stage run dry: Space. Delta-v (the speed change left in the tanks) is in the HUD's propulsion column."
+      "text": "A rocket throws away what it no longer needs: empty tanks and their engines are dead weight. {SPACE} fires the next stage: the first lights the engines, later ones fire decouplers (dropping a stage) and light the next engines, arm parachutes.\n\nThe HUD shows the stage, how many are left, and the propellant in the stage burning. A stage run dry: {SPACE}. Delta-v (the speed change left in the tanks) is in the HUD's propulsion column."
     },
     {
       "id": "sas",
       "title": "Stability assist",
       "group": "Flying",
-      "text": "T turns stability assist on: the reaction wheels and the engines' gimbals hold the vessel steady. F cycles its mode: hold (where it points now), prograde (along its motion), retrograde (against it: for slowing down and landing), maneuver (along a planned burn).\n\nW / S pitch, A / D yaw, Q / E roll by hand. Reaction wheels need power."
+      "text": "{T} turns stability assist on: the reaction wheels and the engines' gimbals hold the vessel steady. {F} cycles its mode: hold (where it points now), prograde (along its motion), retrograde (against it: for slowing down and landing), maneuver (along a planned burn).\n\n{W} / {S} pitch, {A} / {D} yaw, {Q} / {E} roll by hand. Reaction wheels need power."
     },
     {
       "id": "nodes",
       "title": "Maneuver nodes",
       "group": "Flying",
-      "text": "On the map (M) the Maneuver panel plans a burn: a node at the apoapsis, the periapsis or a few minutes on, or a suggested one (circularize, capture at another body, come down). Its handles set how much along prograde, normal (out of the orbit's plane) and radial; the dashed orbit shows what it makes.\n\nThe HUD counts down to the burn's start (half its length before the node) and shows the m/s left as you fly it. Stability assist's maneuver mode points along it. Warp slows on its own as it nears."
+      "text": "On the map ({M}) the Maneuver panel plans a burn: a node at the apoapsis, the periapsis or a few minutes on, or a suggested one (circularize, capture at another body, come down). Its handles set how much along prograde, normal (out of the orbit's plane) and radial; the dashed orbit shows what it makes.\n\nThe HUD counts down to the burn's start (half its length before the node) and shows the m/s left as you fly it. Stability assist's maneuver mode points along it. Warp slows on its own as it nears."
     },
     {
       "id": "transfers",
@@ -36,7 +36,7 @@
       "id": "warp",
       "title": "Time warp",
       "group": "Flying",
-      "text": ". warps faster, , slower, / back to real time, in steps up to 10,000,000x. Under thrust or in the air it holds to 5x (the physics needs small steps). Coasting, vessels move on rails: along their conic, exactly.\n\nWarp stops for a planned burn, a sphere of influence crossing, the flight computer's next command."
+      "text": "{PERIOD} warps faster, {COMMA} slower, {SLASH} back to real time, in steps up to 10,000,000x. Under thrust or in the air it holds to 5x (the physics needs small steps). Coasting, vessels move on rails: along their conic, exactly.\n\nWarp stops for a planned burn, a sphere of influence crossing, the flight computer's next command."
     },
     {
       "id": "air",
@@ -48,7 +48,7 @@
       "id": "landing",
       "title": "Landing",
       "group": "Air and landing",
-      "text": "Without air, only the engine slows you. The HUD counts down to the landing burn (the latest moment a full-thrust burn stops you at the ground: BRAKE NOW); burn retrograde, then ease off to come down slowly.\n\nA vessel stands if it comes down slow enough for its parts (a few m/s), upright, on ground no steeper than its feet hold. Landing legs (G) widen the stance: more slope, harder landings. The HUD shows the slope under you."
+      "text": "Without air, only the engine slows you. The HUD counts down to the landing burn (the latest moment a full-thrust burn stops you at the ground: BRAKE NOW); burn retrograde, then ease off to come down slowly.\n\nA vessel stands if it comes down slow enough for its parts (a few m/s), upright, on ground no steeper than its feet hold. Landing legs ({G}) widen the stance: more slope, harder landings. The HUD shows the slope under you."
     },
     {
       "id": "weather",
@@ -60,19 +60,19 @@
       "id": "docking",
       "title": "Docking and RCS",
       "group": "Space",
-      "text": "Docking ports join two vessels into one. Target the other (Vessels list, L, or the map), close in on the RCS thrusters (arrows, H / N: they move without turning), and press B: the vessel lines its port up with the target's and comes in. Ports at the ends of stacks and side ports on radial groups.\n\nDocked, propellant moves between tanks; the Vessels list undocks. Within 200 m and 2 m/s, propellant can move between vessels too (a depot)."
+      "text": "Docking ports join two vessels into one. Target the other (Vessels list, {L}, or the map), close in on the RCS thrusters (arrows, {H} / {N}: they move without turning), and press {B}: the vessel lines its port up with the target's and comes in. Ports at the ends of stacks and side ports on radial groups.\n\nDocked, propellant moves between tanks; the Vessels list undocks. Within 200 m and 2 m/s, propellant can move between vessels too (a depot)."
     },
     {
       "id": "power",
       "title": "Power",
       "group": "Space",
-      "text": "Everything aboard draws power: avionics, life support, cameras, transmitters, reaction wheels turning hard. Batteries store it; solar wings (U unfolds them) make it in sunlight, less far from the Sun and none in shadow; RTGs and reactors make it anywhere.\n\nOut of power, a vessel has no reaction wheels, no link, no flight computer and no science. The HUD's POWER shows the charge and the net; the part editor shows a design's budget."
+      "text": "Everything aboard draws power: avionics, life support, cameras, transmitters, reaction wheels turning hard. Batteries store it; solar wings ({U} unfolds them) make it in sunlight, less far from the Sun and none in shadow; RTGs and reactors make it anywhere.\n\nOut of power, a vessel has no reaction wheels, no link, no flight computer and no science. The HUD's POWER shows the charge and the net; the part editor shows a design's budget."
     },
     {
       "id": "comms",
       "title": "The link and light delay",
       "group": "Space",
-      "text": "Ground stations round the Earth (the Deep Space Network's) keep a probe in touch, if its antenna reaches and nothing is in the way. Commands go at the speed of light: seconds to the Moon, minutes to Mars, hours to the outer planets. A crewed vessel flies at once; a probe without a link cannot be flown at all.\n\nThe flight computer (C) runs a sequence of commands on its own (wait for an altitude, burn, stage, point retrograde...): written, checked and sent like any command."
+      "text": "Ground stations round the Earth (the Deep Space Network's) keep a probe in touch, if its antenna reaches and nothing is in the way. Commands go at the speed of light: seconds to the Moon, minutes to Mars, hours to the outer planets. A crewed vessel flies at once; a probe without a link cannot be flown at all.\n\nThe flight computer ({C}) runs a sequence of commands on its own (wait for an altitude, burn, stage, point retrograde...): written, checked and sent like any command."
     },
     {
       "id": "propellants",
@@ -90,13 +90,13 @@
       "id": "rovers",
       "title": "Rovers and rotorcraft",
       "group": "Surface",
-      "text": "On wheels, W / S drive and A / D steer, on power; steep or fast ground rolls a rover over. A rover carried on a lander is separated beside it, on the ground.\n\nA rotorcraft lifts on its rotors in air (thin air, a big rotor and little mass: Mars's helicopter): the throttle sets the lift."
+      "text": "On wheels, {W} / {S} drive and {A} / {D} steer, on power; steep or fast ground rolls a rover over. A rover carried on a lander is separated beside it, on the ground.\n\nA rotorcraft lifts on its rotors in air (thin air, a big rotor and little mass: Mars's helicopter): the throttle sets the lift."
     },
     {
       "id": "science",
       "title": "Science",
       "group": "Programme",
-      "text": "Instruments aboard (R runs them) learn something new in each situation: on the ground or flying low or high over each region of each body, in space near it. Results are worth points recovered home, less transmitted. The science panel (K) shows what is left here; a survey camera maps a body, and the map shows its real detail where mapped."
+      "text": "Instruments aboard ({R} runs them) learn something new in each situation: on the ground or flying low or high over each region of each body, in space near it. Results are worth points recovered home, less transmitted. The science panel ({K}) shows what is left here; a survey camera maps a body, and the map shows its real detail where mapped."
     },
     {
       "id": "career",
@@ -114,7 +114,7 @@
       "id": "saving",
       "title": "Saving",
       "group": "The game",
-      "text": "Each game is saved as you play (every 30 s and on quitting), with a copy kept every 5 minutes and as something risky begins (a launch, a new sphere of influence, coming down to land): the title screen loads it. F5 quicksaves, F9 goes back to the quicksave. The pause menu's Revert goes back to the launch."
+      "text": "Each game is saved as you play (every 30 s and on quitting), with a copy kept every 5 minutes and as something risky begins (a launch, a new sphere of influence, coming down to land): the title screen loads it. {F5} quicksaves, {F9} goes back to the quicksave. The pause menu's Revert goes back to the launch."
     }
   ]
 }

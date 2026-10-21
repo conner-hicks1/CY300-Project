@@ -6,6 +6,7 @@ from pathlib import Path
 from imgui_bundle import imgui
 
 from game import style
+from game.bindings import keys
 
 from vessel import propellants
 
@@ -396,7 +397,7 @@ class Encyclopaedia:
 
             if paragraph.strip():
 
-                imgui.text_wrapped(paragraph.strip())
+                imgui.text_wrapped(keys(paragraph.strip()))
 
                 imgui.dummy((0.0, 4.0))
 
@@ -404,7 +405,7 @@ class Encyclopaedia:
 
         if entry.facts and imgui.begin_table("facts", 2, imgui.TableFlags_.row_bg.value):
 
-            imgui.table_setup_column("label", imgui.TableColumnFlags_.width_fixed.value, 120.0)
+            imgui.table_setup_column("label", imgui.TableColumnFlags_.width_fixed.value, style.px(120.0))
             imgui.table_setup_column("value", imgui.TableColumnFlags_.width_stretch.value)
 
             for label, value in entry.facts:

@@ -571,8 +571,10 @@ build your own rocket in the part editor, on the pad.
 - Map view (**M**): the camera pulls back round the body; the vessel's path
   ahead is drawn over the view, patch by patch (its orbit, or its arc to the
   ground, or out of the sphere; an encounter's flyby round the moon it
-  reaches, with its closest approach), Ap / Pe with heights, the moons'
-  orbits; a maneuver node and the path after it; lines dim where the body
+  reaches, with its closest approach, and on out of it again round the
+  planet - a free return, one moon then another - up to four patches),
+  Ap / Pe with heights (from the body's mean radius: steady round an orbit),
+  the moons' orbits; a maneuver node and the path after it; lines dim where the body
   hides them
 - Attitude ball (navball) beside the vessel panel: sky and ground about the
   local horizon, the compass points, heading and pitch, and markers for
@@ -1014,8 +1016,11 @@ build your own rocket in the part editor, on the pad.
   hull in vacuum), Controls (every key, each moved to another by clicking it
   and pressing the new one: a key taken swaps with the action that had it;
   Esc stays the menus'; mouse sensitivity, up / down swapped; hints) and
-  Interface (its size, 0.75x to 1.75x). Keys, mouse and size kept in
-  `data/settings/controls.json`; **F1** lists the keys moved
+  Interface (its size, 0.75x to 1.75x, as far as the window holds: the HUD's
+  panels keep clear of each other at any size). Keys, mouse and size kept in
+  `data/settings/controls.json`. Every text naming a key (the lessons, the
+  hints, the encyclopaedia, **F1**'s list, notices) names it where the player
+  has put it
 - Pause menu (**Esc**, stops the clock): Revert to launch, Build vessel, Travel to any (in a sandbox)
   body, Camera (follow the vessel or fly free; surface, low orbit, the whole
   body in view), Settings (graphics quality - Low / Medium / High, Medium by
@@ -1049,7 +1054,7 @@ build your own rocket in the part editor, on the pad.
 - A disk cache (`data/cache/`) of terrain chunks, keyed by their inputs and
   the generators' source code: chunks stream in ~70% faster on a second
   visit; oldest entries pruned past 2 GB
-- 701 unit tests, and 10 that play the game through headless (`pytest -m integration`)
+- About 950 unit tests, and some 45 that play the game through headless (`pytest -m integration`)
 
 ## Getting Started
 
@@ -1085,7 +1090,7 @@ the first few seconds.
 
 | Option | Meaning |
 | --- | --- |
-| `--sandbox` | Play the game called Sandbox (made if there is none), skipping the title: launches free, no budget or missions, travel to any body from the pause menu (a career always starts at home, and its calendar never jumps) |
+| `--sandbox` | Play the game called Sandbox (made if there is none), skipping the title: launches free, no budget or missions, travel to any body from the pause menu (arriving mid-morning; a career always starts at home); a game's calendar goes on from where it was saved, a sandbox's too |
 | `--slot NAME` | Play the saved game of this name, skipping the title (a new career if there is none; a sandbox with `--sandbox`) |
 | `--body ID` | In a sandbox, start at another body (`moon`, `mars`, `titan`... any file in `assets/bodies/`) |
 | `--dev` | Start with the developer tools open (**F3** toggles) |
@@ -1166,7 +1171,8 @@ python -m pytest
 Play the game through in tests (`tests/integration/`: the real application
 headless, a hidden window that never takes the keyboard, a fixed 1/60 s
 frame, nothing drawn and no terrain meshes built, the saves in each test's
-own folder): a launch paid for
+own folder; some with the real terrain streaming in and frames of uneven
+length, as a laptop plays, for what only shows then): a launch paid for
 and orbit's mission, a revert that keeps the calendar, coming home from orbit
 on a planned burn and the heat shield, the Mariner landing itself on the
 Moon's far side by program, a Ferry docking to the Station Core end-on and at
@@ -1179,8 +1185,12 @@ python -m pytest -m integration
 ```
 
 `tests/integration/harness.py`'s `Game` drives them: `step(frames)`,
-`press(key)`, `run_until(condition, frames)`, and setting vessels where a test
-needs them (`put_in_orbit`, `land_at`).
+`press(key)`, `run_until(condition, frames)`, setting vessels where a test
+needs them (`put_in_orbit`, `land_at`), `Game(terrain=True)` for the real
+terrain and `uneven(frame_times, seed)` for an uneven frame rate.
+
+The game logs to `logs/engine.log`, the last three runs' kept beside it
+(`engine.1.log` the one before); the tests to `logs/tests.log`.
 
 Regenerate the procedural textures in `assets/` and the test models:
 

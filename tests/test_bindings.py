@@ -99,3 +99,46 @@ def test_the_mouse_turns_as_set():
         Input.mouse_sensitivity = 1.0
         Input.invert_y = False
         Input.clear()
+
+
+def test_text_names_the_keys_as_they_are():
+
+    import re
+    import json
+    from pathlib import Path
+
+    from game import bindings
+    from game.guide import HINTS
+    from game.hud import CONTROLS
+    from game.lessons import LESSONS
+
+    settings = ControlSettings()
+
+    try:
+
+        settings.apply()
+
+        assert bindings.keys("Press {Z}, then {SPACE}; {nothing} stays") == "Press Z, then Space; {nothing} stays"
+
+        settings.bind(Key.Z, Key.K)
+        settings.apply()
+
+        assert bindings.keys("Press {Z} for full throttle; {K} the science") == "Press K for full throttle; Z the science"
+
+    finally:
+
+        ControlSettings().apply()
+        Input.clear()
+
+    # Every key the game's words name is one of its keys.
+    texts = [step.text for lesson in LESSONS for step in lesson.steps] + [lesson.done for lesson in LESSONS]
+    texts += [hint.text for hint in HINTS] + [keys for keys, _ in CONTROLS]
+    texts += [article["text"] for article in json.loads(Path("assets/encyclopaedia/mechanics.json").read_text(encoding="utf-8"))["articles"]]
+
+    named = {name for text in texts for name in re.findall(r"\{([A-Z][A-Z0-9_]*)\}", text)}
+
+    assert named and all(name in Key.__members__ for name in named), sorted(name for name in named if name not in Key.__members__)
+
+    # And none is left written out as it was (a lesson saying
+    # "Press Z" to a player who moved it).
+    assert not [text for text in texts if re.search(r"\bPress [A-Z]\b", text)]

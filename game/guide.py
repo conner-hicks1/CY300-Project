@@ -9,6 +9,7 @@ from imgui_bundle import imgui
 from core.logger import Logger
 
 from game import style
+from game.bindings import keys
 from game.style import tone
 
 
@@ -118,17 +119,17 @@ ORBIT_APOAPSIS = 80_000.0
 FIRST_ORBIT: tuple[Step, ...] = (
     Step(
         "Full throttle",
-        "Your rocket stands on the pad. Press Z for full throttle (Shift and Ctrl move it up and down).",
+        "Your rocket stands on the pad. Press {Z} for full throttle ({LEFT_SHIFT} and {LEFT_CONTROL} move it up and down).",
         lambda m: m.throttle >= 0.95
     ),
     Step(
         "Light the engines",
-        "Press Space: the first stage's engines light and the rocket lifts off.",
+        "Press {SPACE}: the first stage's engines light and the rocket lifts off.",
         lambda m: m.staged and m.thrust > 0.0
     ),
     Step(
         "Hold it steady",
-        "Press T for stability assist: it holds the rocket where it points.",
+        "Press {T} for stability assist: it holds the rocket where it points.",
         lambda m: m.sas
     ),
     Step(
@@ -143,22 +144,22 @@ FIRST_ORBIT: tuple[Step, ...] = (
     ),
     Step(
         "Follow prograde",
-        "Press F until stability assist says PROGRADE: the rocket follows its motion, and gravity bends the climb over.",
+        "Press {F} until stability assist says PROGRADE: the rocket follows its motion, and gravity bends the climb over.",
         lambda m: m.sas and m.sas_mode == "prograde"
     ),
     Step(
         "Raise the apoapsis",
-        "Keep burning until the apoapsis (the top of the arc, bottom of the screen) is above 80 km. When a stage runs dry, Space drops it and lights the next.",
+        "Keep burning until the apoapsis (the top of the arc, bottom of the screen) is above 80 km. When a stage runs dry, {SPACE} drops it and lights the next.",
         lambda m: m.apoapsis is not None and m.apoapsis >= ORBIT_APOAPSIS
     ),
     Step(
         "Coast",
-        "Press X to cut the engines. You will coast up to the apoapsis.",
+        "Press {X} to cut the engines. You will coast up to the apoapsis.",
         lambda m: m.throttle <= 0.01 and m.apoapsis is not None and m.apoapsis >= ORBIT_APOAPSIS * 0.9
     ),
     Step(
         "The map",
-        "Press M for the map: your path round the Earth. It falls back in: at the top it needs more speed sideways.",
+        "Press {M} for the map: your path round the Earth. It falls back in: at the top it needs more speed sideways.",
         lambda m: m.map_open
     ),
     Step(
@@ -168,17 +169,17 @@ FIRST_ORBIT: tuple[Step, ...] = (
     ),
     Step(
         "Point at the burn",
-        "Press F until stability assist says MANEUVER: the rocket turns to the burn's direction.",
+        "Press {F} until stability assist says MANEUVER: the rocket turns to the burn's direction.",
         lambda m: m.sas and m.sas_mode == "maneuver"
     ),
     Step(
         "Wait for it",
-        "Time warp (.) towards the node; it slows on its own as the burn nears. Back to real time with /.",
+        "Time warp ({PERIOD}) towards the node; it slows on its own as the burn nears. Back to real time with {SLASH}.",
         lambda m: m.node_in is not None and m.node_in <= 15.0
     ),
     Step(
         "Circularize",
-        "When the HUD's countdown reaches zero, Z for full throttle; X when the burn is done (the HUD's m/s left near 0).",
+        "When the HUD's countdown reaches zero, {Z} for full throttle; {X} when the burn is done (the HUD's m/s left near 0).",
         lambda m: m.situation == "Orbiting"
     ),
 )
@@ -286,7 +287,7 @@ class FlightSchool:
                 with style.font("bold", 20.0):
                     style.say("Well flown!", "good")
 
-                style.say(lesson.done)
+                style.say(keys(lesson.done))
 
             elif self.lost:
 
@@ -304,7 +305,7 @@ class FlightSchool:
                 with style.font("bold", 20.0):
                     style.say(self.step.title)
 
-                style.say(self.step.text)
+                style.say(keys(self.step.text))
 
             imgui.pop_text_wrap_pos()
 
@@ -350,27 +351,27 @@ class Hint:
 HINTS: tuple[Hint, ...] = (
     Hint(
         "pad",
-        "On the pad: Z for full throttle, Space to light the engines, T to hold steady. F1 lists every key; Esc pauses.",
+        "On the pad: {Z} for full throttle, {SPACE} to light the engines, {T} to hold steady. {F1} lists every key; Esc pauses.",
         lambda m: m.on_pad
     ),
     Hint(
         "gravity turn",
-        "Climbing straight up wastes fuel: tip the nose a little east (W) early on, then let F (prograde) follow the arc over.",
+        "Climbing straight up wastes fuel: tip the nose a little east ({W}) early on, then let {F} (prograde) follow the arc over.",
         lambda m: m.staged and m.air and m.height > 4_000.0 and m.tilt < 3.0 and m.thrust > 0.0
     ),
     Hint(
         "stage dry",
-        "This stage is out of propellant: Space drops it and lights the next.",
+        "This stage is out of propellant: {SPACE} drops it and lights the next.",
         lambda m: m.stage_dry and not m.on_pad
     ),
     Hint(
         "apoapsis out of the air",
-        "The apoapsis is out of the air: X cuts the engines; coast up and burn sideways at the top to make the orbit round (the map, M, plans it: Circularize).",
+        "The apoapsis is out of the air: {X} cuts the engines; coast up and burn sideways at the top to make the orbit round (the map, {M}, plans it: Circularize).",
         lambda m: m.situation == "Sub-orbital" and m.air_top > 0.0 and m.apoapsis is not None and m.apoapsis > m.air_top + 5_000.0 and m.thrust > 0.0
     ),
     Hint(
         "orbit",
-        "In orbit. P: the programme's missions; K: the science you can do here (R runs the experiments); the map's Navigation panel finds the way to the Moon and planets.",
+        "In orbit. {P}: the programme's missions; {K}: the science you can do here ({R} runs the experiments); the map's Navigation panel finds the way to the Moon and planets.",
         lambda m: m.situation == "Orbiting"
     ),
     Hint(
@@ -385,17 +386,17 @@ HINTS: tuple[Hint, ...] = (
     ),
     Hint(
         "node",
-        "A burn planned: F until MANEUVER points the rocket along it; the HUD counts down to its start (warp there and it slows as it nears).",
+        "A burn planned: {F} until MANEUVER points the rocket along it; the HUD counts down to its start (warp there and it slows as it nears).",
         lambda m: m.node
     ),
     Hint(
         "wings",
-        "Power is running low and the solar wings are folded: U unfolds them (fold them again before a burn through the air).",
+        "Power is running low and the solar wings are folded: {U} unfolds them (fold them again before a burn through the air).",
         lambda m: m.panels == "folded" and m.charge < 0.3 and not m.on_pad
     ),
     Hint(
         "power out",
-        "Out of power: no reaction wheels, no link, no computer. Sunlight on unfolded wings (U) charges the battery again.",
+        "Out of power: no reaction wheels, no link, no computer. Sunlight on unfolded wings ({U}) charges the battery again.",
         lambda m: m.charge <= 0.001 and m.panels != "" and not m.on_pad
     ),
     Hint(
@@ -405,17 +406,17 @@ HINTS: tuple[Hint, ...] = (
     ),
     Hint(
         "parachute",
-        "Coming down through the air: Space arms the parachute; it opens when it is low and slow enough.",
+        "Coming down through the air: {SPACE} arms the parachute; it opens when it is low and slow enough.",
         lambda m: m.air and m.staged and m.vertical_speed < -30.0 and m.parachute == "" and m.height < 30_000.0
     ),
     Hint(
         "legs",
-        "Landing: G lowers the legs. Come down slower than a few m/s, upright, on level ground.",
+        "Landing: {G} lowers the legs. Come down slower than a few m/s, upright, on level ground.",
         lambda m: m.legs == "up" and m.height < 3_000.0 and m.vertical_speed < -2.0
     ),
     Hint(
         "lost",
-        "Lost. Esc > Revert to launch tries the flight again; F9 goes back to a quicksave (F5 makes one).",
+        "Lost. Esc > Revert to launch tries the flight again; {F9} goes back to a quicksave ({F5} makes one).",
         lambda m: m.destroyed
     ),
 )
@@ -549,7 +550,7 @@ class Hints:
 
             imgui.same_line()
 
-            style.say(hint.text)
+            style.say(keys(hint.text))
 
             imgui.pop_text_wrap_pos()
 

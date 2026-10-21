@@ -69,7 +69,7 @@ from game.part_editor import EditorActions, PartEditor
 from game.pause_menu import Destination, MenuActions, PauseMenu
 from game.title_screen import TitleActions, TitleScreen
 from game.guide import HINTS_PATH, FlightSchool, Hints
-from game.bindings import CONTROLS_PATH, ControlSettings
+from game.bindings import CONTROLS_PATH, ControlSettings, keys
 from game.encyclopaedia import Encyclopaedia, entries
 from game.settings_menu import SettingsContext, SettingsMenu
 from game.quality import DEFAULT_QUALITY, apply_quality, current_quality
@@ -247,6 +247,10 @@ class Application(
 
         self.hud = FlightHud()
         self.pause_menu: PauseMenu | None = None
+
+        # The player's keys, mouse, interface size
+        # (game/bindings.py).
+        self.controls: ControlSettings | None = None
 
         # Developer tools (F3): stats, render settings,
         # profiler.
@@ -702,7 +706,15 @@ class Application(
         career_path = path("career.json")
 
         if sandbox:
-            self.programme_system = ProgrammeSystem(campaign, Career(funds=0.0), None, sandbox=True)
+
+            # (No funds or missions; its calendar kept all the
+            # same: it goes on from where it was saved.)
+            career = Career.load(campaign, career_path) if career_path is not None else Career(funds=0.0)
+
+            career.funds = 0.0
+
+            self.programme_system = ProgrammeSystem(campaign, career, career_path, sandbox=True)
+
         elif career_path is not None:
             self.programme_system = ProgrammeSystem(campaign, Career.load(campaign, career_path), career_path)
         else:
@@ -827,7 +839,7 @@ class Application(
 
             return False
 
-        self.hud.notify("Quicksaved (F9 to go back to it)")
+        self.hud.notify(keys("Quicksaved ({F9} to go back to it)"))
 
         return True
 
@@ -835,7 +847,7 @@ class Application(
 
         if self.saves is None or games.kept(self.saves, games.QUICKSAVE) is None:
 
-            self.hud.notify("No quicksave yet (F5)")
+            self.hud.notify(keys("No quicksave yet ({F5})"))
 
             return False
 
@@ -934,7 +946,9 @@ class Application(
 
         style.apply()
 
-        scale = self.controls.ui_scale
+        # (No bigger than the window holds: the HUD's panels
+        # side by side, the menus whole.)
+        scale = min(self.controls.ui_scale, self._ui_fits())
 
         imgui_style = imgui.get_style()
 
@@ -942,6 +956,16 @@ class Application(
             imgui_style.scale_all_sizes(scale)
 
         imgui_style.font_scale_main = scale
+
+    # px of window height the interface needs at 1x.
+    UI_HEIGHT = 540.0
+
+    def _ui_fits(self) -> float:
+        """The biggest interface size the window holds."""
+
+        _, height = self.window.framebuffer_size
+
+        return max(1.0, height / self.UI_HEIGHT)
 
     def _controls_changed(self):
         """Keys, mouse or size changed: into the input and the style, kept."""
@@ -962,7 +986,8 @@ class Application(
             sound=self.sound,
             hints=self.hints,
             controls=self.controls,
-            controls_changed=self._controls_changed
+            controls_changed=self._controls_changed,
+            ui_fits=self._ui_fits()
         )
 
     def _draw_overlays(self):
@@ -1020,7 +1045,8 @@ class Application(
     def travel_to(
         self,
         body_id: str,
-        keep_flown: bool = True
+        keep_flown: bool = True,
+        morning: bool = False
     ):
         """
         Start over at a body: a fresh scene with it, its
@@ -1028,8 +1054,11 @@ class Application(
         in space over a giant or a small body). The vessels in
         flight come along (the one flown now too, unless
         keep_flown is False: a revert); a new one stands on
-        the pad.
+        the pad. morning: on to mid-morning where it starts (a
+        sandbox's trip somewhere: arrive in daylight).
         """
+
+        self._morning = morning
 
         body_id = body_id.partition("@")[0]
 
@@ -1483,10 +1512,12 @@ class Application(
         self.science_system.register_bodies(scene, body_id)
 
         # Mid-morning where the camera stands, for a new game
-        # (or a sandbox); a career's calendar goes on as it is
-        # (a revert there must not skip ahead: a solar day on
-        # Venus is 117 Earth days).
-        if self.sandbox or self.programme_system.career.clock <= seconds_since_j2000(self.START_DATE):
+        # (or a sandbox's trip somewhere); otherwise the
+        # calendar goes on as it is: a game loaded (or
+        # quickloaded) at the moment it was saved, a revert not
+        # skipping ahead (a solar day on Venus is 117 Earth
+        # days).
+        if getattr(self, "_morning", False) or self.programme_system.career.clock <= seconds_since_j2000(self.START_DATE):
             clock.time = self._time_of_day(planet_entity, spawn_direction, clock.time, 10.5)
 
         self.orbit_system.anchor_to(scene, planet_entity)
@@ -2216,7 +2247,7 @@ class Application(
 
         def travel(body_id):
             self.pause_menu.close()
-            self.travel_to(body_id)
+            self.travel_to(body_id, morning=True)
 
         def camera_move(move):
 
@@ -2645,7 +2676,11 @@ class Application(
 
         # RenderSystem sets the viewport and resizes its
         # framebuffers every frame from the framebuffer
-        # size, so nothing to do here.
+        # size; the interface's size follows what the window
+        # holds now.
+
+        if self.controls is not None:
+            self._apply_ui_scale()
 
         return False
 
